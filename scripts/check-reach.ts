@@ -15,7 +15,7 @@ import { registerHooks } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DETAIL_DEFAULT, DETAIL_MAX, DETAIL_MIN, autoDetail, beginFrameBuild, clearHazeAt, detail, detailVersion, endFrameBuild, fogFar, horizonAt, mayBuild, sampleFrame, setAutoDetail, setDetail } from '../src/view.ts';
-import { PLANET_RADIUS } from '../src/globe.ts';
+import { HAZE_RADIUS } from '../src/globe.ts';
 import { ROAD_CLASSES, classReaches, reachFor as roadReach } from '../src/roads.ts';
 import { reachFor as landmarkReach } from '../src/placement.ts';
 import { moverReach } from '../src/life.ts';
@@ -72,7 +72,7 @@ function sweep(altitude: number): Series {
   };
   for (const d of steps) {
     setDetail(d);
-    put('haze', fogFar(altitude, PLANET_RADIUS));
+    put('haze', fogFar(altitude, HAZE_RADIUS));
     put('towns', townReach(altitude));
     put('wood', woodReach(altitude));
     put('roads', roadReach(altitude));
@@ -116,8 +116,8 @@ for (const altitude of ALTITUDES) {
     const worst = Math.max(...haze.map((h, k) => Math.abs(h / haze[0]! - steps[k]! / steps[0]!) / (steps[k]! / steps[0]!)));
     check(worst < 1e-6, `the haze at ${altitude} follows the knob in proportion`, `worst ${(worst * 100).toFixed(4)}%`);
     setDetail(DETAIL_DEFAULT);
-    const atDefault = fogFar(altitude, PLANET_RADIUS);
-    const tuned = horizonAt(altitude, PLANET_RADIUS) * (1.35 + (altitude / PLANET_RADIUS) * 6) * Math.sqrt(DETAIL_DEFAULT);
+    const atDefault = fogFar(altitude, HAZE_RADIUS);
+    const tuned = horizonAt(altitude, HAZE_RADIUS) * (1.35 + (altitude / HAZE_RADIUS) * 6) * Math.sqrt(DETAIL_DEFAULT);
     check(Math.abs(atDefault - tuned) < 1e-6 * tuned, `the haze at ${altitude} at the default is the one the world was tuned under`, `${atDefault.toFixed(0)} against ${tuned.toFixed(0)}`);
   }
   if (process.argv.includes('--table')) console.log(`    altitude ${altitude}\n      ${lines.join('\n      ')}`);
@@ -130,8 +130,8 @@ console.log('the top of the knob:');
   setDetail(DETAIL_MAX * 1.2);
   check(detail() === DETAIL_MAX, 'and nothing past the top is taken');
   // The distance the settings card says, on foot in clear air.
-  check(Math.abs(clearHazeAt(DETAIL_DEFAULT, PLANET_RADIUS) - (setDetail(DETAIL_DEFAULT), fogFar(20, PLANET_RADIUS))) < 1e-6, 'the card\'s distance is the haze on foot');
-  console.log(`    on foot: ${steps.map((d) => `${d.toFixed(2)}x ${clearHazeAt(d, PLANET_RADIUS).toFixed(0)}`).join(', ')}`);
+  check(Math.abs(clearHazeAt(DETAIL_DEFAULT, HAZE_RADIUS) - (setDetail(DETAIL_DEFAULT), fogFar(20, HAZE_RADIUS))) < 1e-6, 'the card\'s distance is the haze on foot');
+  console.log(`    on foot: ${steps.map((d) => `${d.toFixed(2)}x ${clearHazeAt(d, HAZE_RADIUS).toFixed(0)}`).join(', ')}`);
 }
 
 console.log('the hand on the knob:');

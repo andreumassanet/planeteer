@@ -31,7 +31,7 @@ export function checkMesh(ctx: WorldContext): LandMesh {
   const { world } = ctx;
   console.log('\nmesh');
   const buildStart = Date.now();
-  const land = buildLand(world);
+  const land = buildLand(world, ctx.tight);
   const buildMs = Date.now() - buildStart;
   const sea = createOcean(world);
 
@@ -215,11 +215,11 @@ function checkLakeTops(ctx: WorldContext, mesh: LandMesh): void {
       }
     }
   }
-  const cut = land.userData['lakes'] as { holes: number; splices: number; unpaired: number; droppedFaces: number };
+  const cut = land.userData['lakes'] as { holes: number; splices: number; unpaired: number; droppedFaces: number; strayFaces: number };
   check(
     overWater <= 400 && deepest <= 30,
     'land drawn over a lake stays within what was measured',
     `${overWater.toLocaleString()} land tops over lake water, deepest ${deepest.toFixed(1)} units in at ${deepestAt}; ` +
-      `${cut.holes} holes, ${cut.splices} splices, ${cut.unpaired} unpaired dropping ${cut.droppedFaces} faces`,
+      `${cut.holes} holes (${cut.strayFaces} stray faces taken out), ${cut.splices} splices, ${cut.unpaired} unpaired dropping ${cut.droppedFaces} faces`,
   );
 }

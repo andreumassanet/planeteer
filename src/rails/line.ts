@@ -1,3 +1,4 @@
+import { WORLD_SCALE } from '../globe/planet.ts';
 import { RIBBON_LIFT } from '../roads/crown.ts';
 import { SCENERY_SCALE } from '../stature.ts';
 import { PLACED_SECTION } from '../traffic/contract.ts';
@@ -27,8 +28,8 @@ export const RAIL_METRE = SCENERY_SCALE * PLACED_SECTION;
 
 /** The cities that have a station: built, and at least this many people. */
 export const RAIL_POP = 150_000;
-/** The longest line the bake lays, in world units. */
-export const RAIL_MAX_LENGTH = 2600;
+/** The longest line the bake lays, in world units: 2,600 nominal units, about 1,000 km. */
+export const RAIL_MAX_LENGTH = 2600 * WORLD_SCALE;
 /** How far past its city's disc a terminus stands at the nearest. */
 export const STATION_OUT = 36;
 /** The straight run out of a terminus, along the platform, before the line may bend. */

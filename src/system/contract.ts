@@ -26,8 +26,8 @@
  *
  * ## The numbers that force it
  *
- * Earth is `PLANET_RADIUS` = 16,000 units against a real 6,371 km, so one world
- * unit is **0.398 km** and the planet is about 1:400. Then:
+ * The nominal Earth is `NOMINAL_RADIUS` = 16,000 units against a real 6,371 km,
+ * so one world unit is **0.398 km** and the planet is about 1:400. Then:
  *
  * ```
  *   1 au                       149,597,871 km    375,690,000 world units
@@ -111,7 +111,7 @@
  * scene, exactly as `map.ts` is.
  */
 
-import { PLANET_RADIUS } from '../globe.ts';
+import { NOMINAL_RADIUS, PLANET_RADIUS } from '../globe.ts';
 import type { OrbitId } from './orbits.ts';
 import { ELEMENTS, heliocentric } from './orbits.ts';
 import type { Rng } from '../scenery/random.ts';
@@ -128,10 +128,11 @@ export const AU_KM = 149597870.7;
 export const EARTH_RADIUS_KM = 6371;
 
 /**
- * Kilometres to a world unit, and it is a **derived** number in the strict
- * sense: nothing chose it, `PLANET_RADIUS` and the real Earth did. 0.39819.
+ * Kilometres to a world unit on the other worlds: the real Earth over
+ * `NOMINAL_RADIUS`, 0.39819. Earth itself is drawn `WORLD_SCALE` times that
+ * size; the other bodies keep the nominal scale.
  */
-export const KM_PER_UNIT = EARTH_RADIUS_KM / PLANET_RADIUS;
+export const KM_PER_UNIT = EARTH_RADIUS_KM / NOMINAL_RADIUS;
 
 /**
  * How big a body is to stand on.
@@ -740,8 +741,8 @@ export type { OrbitId, Rng };
 // ---------------------------------------------------------------------------
 
 /**
- * **The towns of another world are built bigger than Earth's**: Earth's law
- * (`radiusFor` in `places.ts`, `0.465 * pop^0.36`) times `WORLD_TOWN_SCALE`,
+ * **The towns of another world are built bigger than Earth's law on the nominal
+ * planet** (`nominalRadiusFor` in `places.ts`, `0.465 * pop^0.36`) times `WORLD_TOWN_SCALE`,
  * never under `WORLD_TOWN_MIN` and never over `WORLD_TOWN_MAX`. Earth has
  * thousands of towns and a hamlet of one house among them is a hamlet; a
  * world has a few dozen, and a town of one house on it was a model on a

@@ -6,7 +6,7 @@
  * console.
  */
 import { PLANET_RADIUS } from '../globe.ts';
-import { radiusOf } from '../places.ts';
+import { BUILT_CEILING, radiusOf } from '../places.ts';
 import { STRIP_APPROACH, STRIP_LENGTH } from '../craft/airstrip.ts';
 import { CRAFT_KINDS } from '../craft/contract.ts';
 import type { CraftKind } from '../craft/contract.ts';
@@ -131,8 +131,8 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
       return out;
     },
     takenAt(direction, clear) {
-      // A town's disc is at most 150 units round its centre, as in `localise`.
-      for (const q of townsNear(direction, 150 + clear + 1, townList)) {
+      // A town's disc is at most `BUILT_CEILING` round its centre, as in `localise`.
+      for (const q of townsNear(direction, BUILT_CEILING + clear + 1, townList)) {
         if (centres[q]!.angleTo(direction) * PLANET_RADIUS < radiusOf(places[q]!) + clear) return 'town';
       }
       if (nearRoad(direction, clear)) return 'road';

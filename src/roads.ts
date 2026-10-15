@@ -62,6 +62,7 @@ export {
   EDGE_KEEP, carriageEdges, dashGives, edgeGives, edgeLineAcross, markingRuns, pieceAt, visibleRuns,
 } from './roads/markings.ts';
 export { createRoadIndex, roadIndexFor } from './roads/spatial-index.ts';
+export { roadCorridors } from './roads/corridors.ts';
 export type { RoadIndex } from './roads/spatial-index.ts';
 export { classReaches, reachFor } from './roads/lod.ts';
 export { roadsideSite } from './roads/roadside-site.ts';

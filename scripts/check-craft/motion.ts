@@ -177,9 +177,10 @@ console.log('\nthe motion:');
   }
 
   const { buildStrip, buildWindsock, STRIP_LENGTH } = await import('../../src/craft/airstrip.ts');
+  const { PLANET_RADIUS } = await import('../../src/globe.ts');
   const site = { at: new THREE.Vector3(0.3, 0.8, 0.2).normalize(), forward: new THREE.Vector3() };
   site.forward.set(0, 1, 0).projectOnPlane(site.at).normalize();
-  const strip = buildStrip(site, () => 16000, new THREE.Color(0.4, 0.5, 0.3));
+  const strip = buildStrip(site, () => PLANET_RADIUS, new THREE.Color(0.4, 0.5, 0.3));
   const position = strip.geometry.getAttribute('position');
   const normal = strip.geometry.getAttribute('normal');
   let down = 0;

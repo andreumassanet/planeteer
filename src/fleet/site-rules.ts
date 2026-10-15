@@ -4,6 +4,7 @@
  * function of the world alone, so every client, the relay and the checks must
  * read these same values.
  */
+import { BUILT_CEILING } from '../places.ts';
 import { rngFrom } from '../scenery/random.ts';
 import type { CraftKind } from '../craft/contract.ts';
 
@@ -17,7 +18,7 @@ export const CAR_MIN_OUT = 6;
 export const CAR_HALF = 4.5;
 /** Two parked cars nearer than this are one too many: the later is not placed. */
 export const CAR_SPACING = 9;
-/** How many cars a village, a town and a city keep at their gates. */
+/** How many cars a village, a town and a city keep at their gates, by a nominal radius (`nominalRadiusOf`). */
 export const carsFor = (radius: number): number => (radius < 13 ? 1 : radius < 30 ? 2 : 3);
 /** The share of parked cars that are vans. */
 export const VAN_SHARE = 0.25;
@@ -170,7 +171,7 @@ export const SITE_ROOM: Readonly<Record<CraftKind, number>> = {
  * The furthest a car, a launch or a balloon stands from its town's centre: the
  * biggest square, and the widest search past it.
  */
-export const SITE_SPREAD = 150 + Math.max(BOAT_SEARCH, FIELD_CLEAR + FIELD_RINGS * FIELD_STEP + 40);
+export const SITE_SPREAD = BUILT_CEILING + Math.max(BOAT_SEARCH, FIELD_CLEAR + FIELD_RINGS * FIELD_STEP + 40);
 
 /** Degrees in one cell of the town index. */
 export const CELL = 2;

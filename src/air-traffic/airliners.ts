@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLANET_RADIUS } from '../globe.ts';
+import { PLANET_RADIUS, WORLD_SCALE } from '../globe.ts';
 import { radiusOf } from '../places.ts';
 import type { Place } from '../places.ts';
 import { AIRLINER_LIVERIES } from '../craft/airliner.ts';
@@ -23,8 +23,8 @@ export const CRUISE = 1700;
 export const DEPART = 800;
 const CLIMB_RUN = 3000;
 const DESCENT_RUN = 3600;
-export const HOP_MIN = 2000;
-export const HOP_MAX = 9500;
+export const HOP_MIN = 2000 * WORLD_SCALE;
+export const HOP_MAX = 9500 * WORLD_SCALE;
 /** How far outside its city's disc a hub's airport is. */
 export const AIRPORT_OUT = 300;
 /** Seconds to appear over the airport, and to go. */

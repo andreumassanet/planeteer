@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { decodePlaces, encodePlaces, inflate } from '../src/pack.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE } from '../src/globe.ts';
 import {
   BIGGEST_SETTLEMENT,
   PROMINENCE_CAP,
@@ -250,17 +250,18 @@ for (const p of candidates) {
  * the greedy loop. Neither step is taken where the host would hide the place
  * anyway (`hides`); its name becomes an alias instead.
  *
- * The three constants were swept together: 500,000 restores the half-million
- * to million cities without carving towns out of a metro's ring; 24 units is
- * the smallest square `townGrid` cuts three cells a side; two thirds keeps a
- * host bigger than the city fitted beside it.
+ * The three constants were swept together on the nominal planet: 500,000
+ * restores the half-million to million cities without carving towns out of a
+ * metro's ring; 24 nominal units was the smallest square `townGrid` cut three
+ * cells a side; two thirds keeps a host bigger than the city fitted beside it.
+ * The radius is a distance, so it follows `WORLD_SCALE` with the law.
  *
  * The grid is half-degree cells, searched far enough to cover
  * `BIGGEST_SETTLEMENT` twice.
  */
 const FIT_POPULATION = 500_000;
 /** The smallest radius a place is fitted to, in world units; see `FIT_POPULATION`. */
-const FIT_RADIUS = 24;
+const FIT_RADIUS = 24 * WORLD_SCALE;
 /** How much of its own radius a host keeps when it gives a peer or a capital ground; see `FIT_POPULATION`. */
 const HOST_KEEPS = 2 / 3;
 

@@ -21,8 +21,8 @@ interface Strung {
   pieces: number;
 }
 
-/** Service poles along the streets and the wires between them. */
-export function raisePoles(h: Hanger): void {
+/** Service poles along the streets and the wires between them; a step a street. */
+export function* raisePolesSteps(h: Hanger): Generator<void, void, void> {
   const { site, profile, out } = h;
   // The country's timber, weathered darker in a street; concrete a grey, not a white.
   const poleColour = profile.concrete === true ? shadeOf(P.steel, P.bone, 0.3) : POLE_COLOUR.clone().lerp(colourOf(P.ink), 0.3);
@@ -30,6 +30,7 @@ export function raisePoles(h: Hanger): void {
     const rng = rngFrom(site.seed, 'overhead-wires', street.axis, street.index);
     if (!rng.chance(profile.wires * (street.main ? 1 : 0.35) * Math.min(1, h.urban))) continue;
     if (out.triangles > TRIANGLE_CAP) break;
+    yield;
     wireStreet(h, street, rng, poleColour);
   }
 }

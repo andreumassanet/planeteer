@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DATA_URL, decodePlaces, inflate } from './pack.ts';
+import { NOMINAL_RADIUS, WORLD_SCALE } from './globe/planet.ts';
 import { toUnit, unitAt } from './sphere.ts';
 
 /**
@@ -82,41 +83,71 @@ export interface Places {
 
 const EARTH_KM = 6371;
 
-/** The largest a settlement may be drawn, world units; the bake's thinning searches out to this plus its own radius. */
-export const BIGGEST_SETTLEMENT = 150;
-/** The smallest a settlement may be drawn, world units. */
-export const SMALLEST_SETTLEMENT = 12;
+/**
+ * The law's cap, world units (150 nominal); the bake's thinning searches out to
+ * this plus its own radius. The thinning, the fit and the prominence field are
+ * all distances against radii, so with every length of the law at `WORLD_SCALE`
+ * they keep the same towns as on the nominal planet.
+ */
+export const BIGGEST_SETTLEMENT = 150 * WORLD_SCALE;
+/**
+ * The largest a settlement is built, world units: under the law's cap, so a
+ * city is never built past the disc the thinning cleared for it. What a city
+ * costs the streamer goes as the square of its radius, and this holds the
+ * costliest to about twice what it was on the nominal planet while a near town
+ * is still built in one piece.
+ */
+export const BUILT_CEILING = 225;
+/** The smallest a settlement may be drawn, world units: 12 nominal units. */
+export const SMALLEST_SETTLEMENT = 12 * WORLD_SCALE;
 
-/** The law's two constants; `populationFor` runs it backwards. */
-const LAW_SCALE = 0.465;
+/** The law's two constants; `populationFor` runs it backwards. The scale is 0.465 nominal units. */
+const LAW_SCALE = 0.465 * WORLD_SCALE;
 const LAW_EXPONENT = 0.36;
+
+/**
+ * A built radius as it would be on the nominal planet: what a size class
+ * (village, town, city; lane, road, trunk) is read off, so the classes do not
+ * move with `WORLD_SCALE`.
+ */
+export function nominalRadiusOf(place: { pop: number; radius?: number }): number {
+  return radiusOf(place) / WORLD_SCALE;
+}
+
+/** The law as it stands on the nominal planet, 12 to 150 units: the other worlds' towns are sized off it (`worldTownLaw`). */
+export function nominalRadiusFor(pop: number): number {
+  return Math.min(150, Math.max(12, 0.465 * pop ** LAW_EXPONENT));
+}
 
 /**
  * The built radius law: a settlement's radius in world units from its
  * population, `LAW_SCALE * pop ^ LAW_EXPONENT` clamped to the two bounds below.
  *
  * A city cannot be drawn at its own size: a single house is 12 units across, so
- * Tokyo's real 125-unit disc would hold about a hundred buildings. The law keeps
- * the ordering and gives up the ratio. The exponent is the hierarchy: a flat law
+ * Tokyo's real disc would hold a few hundred buildings. The law keeps the
+ * ordering and gives up the ratio. The exponent is the hierarchy: a flat law
  * makes a place of five thousand and a place of half a million the same mark.
+ * Every length in it is a nominal one times `WORLD_SCALE`: towns are as far
+ * apart as the planet makes them, and as big as that leaves room for.
  *
- * - The floor (12) is the smallest thing that reads as a settlement: the plot
- *   lattice's pitch is 11 to 13 units, so 12 units is about three cells.
- * - The cap (150) is what one settlement may cost the streamer: no single town
- *   should take more than a fifth of the triangle budget.
+ * - The floor (24) is three cells of `TOWN_PITCH` a side: a main street with
+ *   lots on both sides of it.
+ * - The cap (300) keeps the hierarchy the thinning was tuned on; what a town
+ *   is built at is capped lower again by `radiusOf` (`BUILT_CEILING`).
  *
  * ```
  *   population      radius
- *        5,000        12.0     the floor of `cities5000`
- *       19,800        16.4     the median place in the file
- *      500,000        52.4
- *    2,000,000        86.3
- *    9,200,000       150.0     where the cap starts
+ *        5,000        24.0     the floor of `cities5000`
+ *       19,800        32.8     the median place in the file
+ *      500,000       104.8
+ *    2,000,000       172.6
+ *    4,200,000       225.0     where `BUILT_CEILING` starts
+ *    9,200,000       300.0     where the cap starts
  * ```
  *
  * The bake's thinning is a function of this law, so widening it silently makes
  * towns interpenetrate (the tightest pair clears by less than a unit). A cap
- * above about 132 puts Tianjin inside Beijing; they stand because the thinning
+ * above about 264 would put Tianjin inside Beijing; they stand because the thinning
  * fits a big city between the neighbours it collides with (`FIT_POPULATION` in
  * `build-places.mjs`). Four other files read it: `build-places.mjs` thins
  * against it, `roads.ts` reads a road's class off it, `terrain.ts` refines the
@@ -133,13 +164,13 @@ export function populationFor(radius: number): number {
 
 /**
  * How big a place is built, and the one answer to it: its stored radius where
- * the bake fitted it smaller (`Place.radius`), the law's answer everywhere else.
- * Every consumer of a place's size asks this and not `radiusFor(place.pop)`,
- * because a fitted Kyoto is 43 units and a disc of the law's 77 would stand in
- * Osaka.
+ * the bake fitted it smaller (`Place.radius`), the law's answer everywhere else,
+ * never past `BUILT_CEILING`. Every consumer of a place's size asks this and not
+ * `radiusFor(place.pop)`, because a fitted Kyoto is 87 units and a disc of the
+ * law's 154 would stand in Osaka.
  */
 export function radiusOf(place: { pop: number; radius?: number }): number {
-  return place.radius ?? radiusFor(place.pop);
+  return Math.min(BUILT_CEILING, place.radius ?? radiusFor(place.pop));
 }
 
 /**
@@ -171,13 +202,19 @@ export function terrainSiteOf(place: Place): { lat: number; lon: number; radius:
  * How far out a place's name still applies beyond its last house. Inside
  * `radiusOf` the chip says *Palma*; in the band outside it says *near Palma*.
  * With the built radius alone the chip would name a place on 1.5% of the land
- * you can stand on; 220 names 40%, a country in the countryside and a city
- * where there is one.
+ * you can stand on; 220 nominal units name 40%, a country in the countryside
+ * and a city where there is one. Held in real kilometres, so another world's
+ * band (on the nominal scale) is what it was.
  */
-const APPROACH = 220;
+const APPROACH_KM = (220 * EARTH_KM) / NOMINAL_RADIUS;
 
-export function labelRadiusOf(place: { pop: number; radius?: number }): number {
-  return radiusOf(place) + APPROACH;
+/** The band past a place's houses, in units on a planet of `radius` units and `radiusKm` real kilometres; Earth's by default. */
+export function labelRadiusOf(
+  place: { pop: number; radius?: number },
+  radius = NOMINAL_RADIUS * WORLD_SCALE,
+  radiusKm = EARTH_KM,
+): number {
+  return radiusOf(place) + (APPROACH_KM * radius) / radiusKm;
 }
 
 // Prominence: which places are built towns.
@@ -213,15 +250,15 @@ export function shadeOf(place: { pop: number; capital?: boolean; radius?: number
  * `PROMINENCE_RADIUS` of it. Baked into the field, so changing it is a re-bake.
  */
 export const PROMINENCE_RATIO = 2;
-/** The field's ceiling, in world units: a place with nothing bigger inside it is stored at the cap. */
-export const PROMINENCE_CAP = 4000;
+/** The field's ceiling, in world units (4,000 nominal): a place with nothing bigger inside it is stored at the cap. */
+export const PROMINENCE_CAP = 4000 * WORLD_SCALE;
 
 /**
  * How near a much bigger place has to be before this one is not built at all,
- * in world units. The footprint thinning stops towns interpenetrating but is not
- * a hierarchy: Mallorca would carry nine towns on an island 235 units across.
+ * in world units (150 nominal). The footprint thinning stops towns interpenetrating but is not
+ * a hierarchy: Mallorca would carry nine towns on an island 235 nominal units across.
  * The rule is relative, hidden iff a place within R has at least k times your
- * rank, so peer cities stand (Amsterdam and Rotterdam are 145 units apart at a
+ * rank, so peer cities stand (Amsterdam and Rotterdam are 145 nominal units apart at a
  * rank ratio of 1.17) while real hierarchy is hidden (Palma-Manacor at 10.3).
  * R=150 with k=2 keeps about a third of the places and most of the built area;
  * a capital is never hidden. The named cost: Tel Aviv hides behind Jerusalem,
@@ -233,7 +270,7 @@ export const PROMINENCE_CAP = 4000;
  * live. It does not scale with `atlas.detail()`: how far the world is built is a
  * budget, and which towns exist is not.
  */
-export const PROMINENCE_RADIUS = 150;
+export const PROMINENCE_RADIUS = 150 * WORLD_SCALE;
 
 let radius = PROMINENCE_RADIUS;
 /** Bumped on every change, so a streamer can notice at the top of `update`; see `detailVersion` in `view.ts`. */
@@ -382,7 +419,7 @@ export function indexPlaces(all: readonly Place[], radius: number, radiusKm = EA
     const place = all[i]!;
     toUnit(place.lat, place.lon, unit, i * 3);
     claim[i] = radiusOf(place);
-    label[i] = labelRadiusOf(place);
+    label[i] = labelRadiusOf(place, radius, radiusKm);
   }
 
   // The built rows, packed, rebuilt when the radius moves. A hidden place is

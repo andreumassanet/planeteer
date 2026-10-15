@@ -3,7 +3,7 @@
 // this module is the entry point the rest of the game imports.
 
 export { LAND_HEIGHT } from './geo.ts';
-export { PLANET_RADIUS, UNITS_PER_DEGREE, angleForSag, onSphere } from './globe/planet.ts';
+export { HAZE_RADIUS, NOMINAL_RADIUS, PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE, angleForSag, onSphere } from './globe/planet.ts';
 export { groundColorAt } from './globe/ground-color.ts';
 export {
   GROUND_MARKS_GLSL,

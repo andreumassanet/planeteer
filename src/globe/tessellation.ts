@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { LAND_HEIGHT } from '../geo.ts';
-import { RELIEF_DETAIL, flattenWeightAt, reliefAt } from '../terrain.ts';
-import { angleForSag, onSphere } from './planet.ts';
+import { RELIEF_DETAIL, flattenWeightAt, reliefAt, shoreAt, shoreSample } from '../terrain.ts';
+import { PLANET_RADIUS, WORLD_SCALE, angleForSag, onSphere } from './planet.ts';
 
 // Tessellation limits for the land mesh. Edges are split until they are short
 // enough and close enough to the relief; the mesh stays watertight because the
@@ -16,14 +16,29 @@ export const DEG = Math.PI / 180;
  */
 export const MAX_EDGE = Math.min(angleForSag(LAND_HEIGHT * 0.5), RELIEF_DETAIL * 2);
 
-/** Largest gap allowed between the mesh and `reliefAt`, world units, tested at edge midpoints. */
+/**
+ * Largest gap allowed between the mesh and `reliefAt`, world units, tested at
+ * edge midpoints: on the shore ramp and on tight ground (`inlandAt`).
+ */
 const RELIEF_SAG = 3;
+/**
+ * The same, inland: off the shore ramp and off tight ground (`setTightGround`).
+ * The ramp keeps `RELIEF_SAG`, which `SHORE_LIP` is floored by; inland the
+ * drawn land is what everything stands on (`drawnRadius`), so the gap is a
+ * matter of shape: a sixth of the downs' height, which keeps the hills and
+ * takes the land mesh from about 2.27 M triangles to 1.62 M.
+ */
+const RELIEF_SAG_INLAND = 7.5;
 
 /** The tighter budget under a monument's pad, where a flat model stands on the mesh. */
 const PAD_SAG = 0.6;
 
-/** Floor on edge length: below it a smaller triangle is not more mountain. */
-export const MIN_EDGE = 0.08 * DEG;
+/**
+ * Floor on edge length, radians: below it a smaller triangle is not more
+ * mountain. 0.08 degrees of the nominal planet, about 22 units, held in units so
+ * a town's floor and a pad keep the resolution they were built against.
+ */
+export const MIN_EDGE = (0.08 * DEG) / WORLD_SCALE;
 
 /**
  * The floor at the rim of a pad. A triangle with one corner on the pad and the
@@ -31,9 +46,52 @@ export const MIN_EDGE = 0.08 * DEG;
  */
 export const PAD_MIN_EDGE = MIN_EDGE / 3;
 
-/** Error budget for a point, given how strongly a pad claims it. */
-export function sagFor(pad: number): number {
-  return RELIEF_SAG - (RELIEF_SAG - PAD_SAG) * pad;
+/** Error budget for a point, given how strongly a pad claims it and how far inland it is (`inlandAt`). */
+export function sagFor(pad: number, inland: number): number {
+  const open = RELIEF_SAG + (RELIEF_SAG_INLAND - RELIEF_SAG) * inland;
+  return open - (open - PAD_SAG) * pad;
+}
+
+/**
+ * Where the drawn land must keep to the relief whatever its distance from the
+ * sea: a road's corridor (`roadCorridors`), whose ribbon is laid on the relief.
+ * Set by `buildLand` for the length of one build.
+ */
+let tightGround: ((point: THREE.Vector3) => boolean) | null = null;
+
+export function setTightGround(tight: ((point: THREE.Vector3) => boolean) | null): void {
+  tightGround = tight;
+}
+
+/** How finely an edge is walked for tight ground, units: well under a corridor's width and the shore ramp's. */
+const TIGHT_STEP = 20;
+const tightProbe = new THREE.Vector3();
+const tightWalk = new THREE.Vector3();
+const tightShore = shoreSample();
+
+/** Whether the drawn land must keep `RELIEF_SAG` at a point: on the shore ramp, or on `tightGround`. */
+function tightAt(point: THREE.Vector3): boolean {
+  if (tightGround !== null && tightGround(point)) return true;
+  tightProbe.copy(point).normalize();
+  return shoreAt(tightProbe.x, tightProbe.y, tightProbe.z, tightShore).fall > 0;
+}
+
+/**
+ * How much of `RELIEF_SAG_INLAND` an edge from `a` to `b` may use, judged at
+ * its midpoint `mid`: none if any of it crosses tight ground, since the error
+ * is measured at the middle while a road or the shore may be under any part.
+ */
+export function inlandAlong(a: THREE.Vector3, b: THREE.Vector3, mid: THREE.Vector3): number {
+  const steps = Math.max(1, Math.ceil((a.angleTo(b) * PLANET_RADIUS) / TIGHT_STEP));
+  for (let k = 0; k <= steps; k++) {
+    if (tightAt(tightWalk.copy(a).lerp(b, k / steps))) return 0;
+  }
+  return inlandAt(mid);
+}
+
+/** 0 on the shore ramp or on tight ground, else 1: how much of `RELIEF_SAG_INLAND` a point may use. */
+export function inlandAt(point: THREE.Vector3): number {
+  return tightAt(point) ? 0 : 1;
 }
 
 /** Shortest edge worth building there, by the same grading. */
@@ -41,9 +99,9 @@ export function floorFor(pad: number): number {
   return MIN_EDGE - (MIN_EDGE - PAD_MIN_EDGE) * pad;
 }
 
-/** Error budget at a point: `RELIEF_SAG`, tightening to `PAD_SAG` under a pad. */
+/** Error budget at a point: `RELIEF_SAG`, looser inland, tightening to `PAD_SAG` under a pad. */
 function sagAt(point: THREE.Vector3): number {
-  return sagFor(flattenWeightAt(point.x, point.y, point.z));
+  return sagFor(flattenWeightAt(point.x, point.y, point.z), inlandAt(point));
 }
 
 /** Relief at a point given in degrees. */

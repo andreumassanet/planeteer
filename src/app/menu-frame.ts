@@ -6,7 +6,7 @@
  * gets its sky back.
  */
 import * as THREE from 'three';
-import { PLANET_RADIUS } from '../globe.ts';
+import { HAZE_RADIUS, PLANET_RADIUS } from '../globe.ts';
 import { surfaceQuality } from '../graphics-quality.ts';
 import { setSunDirection } from '../lights.ts';
 import { beginFrameBuild, endFrameBuild, fogFar } from '../view.ts';
@@ -49,8 +49,8 @@ export function installMenuSky(app: App): SkyDiscs {
     surfaceQuality.value = 0;
     const distance = camera.position.length();
     const altitude = Math.max(1, distance - PLANET_RADIUS);
-    fog.near = Math.sqrt(2 * PLANET_RADIUS * altitude) * 0.2;
-    fog.far = fogFar(altitude, PLANET_RADIUS);
+    fog.near = Math.sqrt(2 * HAZE_RADIUS * altitude) * 0.2;
+    fog.far = fogFar(altitude, HAZE_RADIUS);
     sky.update(camera.position.clone().setLength(PLANET_RADIUS), camera.position, altitude);
     setSunDirection(sky.state.sun, sky.state.solar.subsolarLon);
     clouds.update(sky.state.time, camera.position, fog);

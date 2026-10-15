@@ -1,3 +1,5 @@
+import { WORLD_SCALE } from './globe/planet.ts';
+
 /**
  * The quadtree the country is tiled on: `vegetation.ts` streams its tiles, and
  * `countryside.ts` plans one farm, mill or shrine a finest tile on the same
@@ -11,16 +13,17 @@
  * every step down.
  *
  * `ROOT_STEP` is the latitude spanned by the coarsest tile, in degrees, and
- * `LEVELS` the number of levels. 5 degrees and four levels put the finest tile
- * at 0.625 degrees, 174 world units: small enough that frustum culling has
- * something to throw away.
+ * `LEVELS` the number of levels. 5 nominal degrees (2.5 at `WORLD_SCALE` 2) and
+ * four levels put the finest tile at 174 world units: small enough that frustum
+ * culling has something to throw away. The tiles are held in units, not
+ * degrees, so a tile's plants and its plan cost what they were tuned to cost.
  */
-export const ROOT_STEP = 5;
+export const ROOT_STEP = 5 / WORLD_SCALE;
 export const LEVELS = 4;
 
 const DEG = Math.PI / 180;
 
-/** Degrees of latitude spanned by a tile of this level. 0.625 to 5. */
+/** Degrees of latitude spanned by a tile of this level, `ROOT_STEP / 8` to `ROOT_STEP`. */
 export const stepOf = (level: number): number => ROOT_STEP / 2 ** (LEVELS - 1 - level);
 
 /** Rows of latitude at this level. Integral at every level, by construction. */

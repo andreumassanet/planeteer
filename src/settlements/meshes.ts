@@ -80,14 +80,19 @@ export function townGlass(standing: readonly { flat: FlatVariant; matrix: THREE.
  * colour, atlas place, and the wind's four bytes with no bend in them (the
  * wood they hang on is still). 26 bytes a vertex.
  */
-export function townLeaves(cards: readonly LeafCard[], count: number, name: string, leaves: THREE.Material): THREE.Mesh {
+export function* townLeavesSteps(cards: readonly LeafCard[], count: number, name: string, leaves: THREE.Material): Generator<void, THREE.Mesh, void> {
   const position = new Float32Array(count * 3);
   const normal = new Int8Array(count * 3);
   const color = new Uint8Array(count * 3);
   const uv = new Uint16Array(count * 2);
   const wind = new Uint8Array(count * 4);
   let v = 0;
+  let sliced = 0;
   for (const { leaves: source, matrix } of cards) {
+    if (v - sliced >= MESH_SLICE) {
+      sliced = v;
+      yield;
+    }
     const e = matrix.elements;
     const scale = Math.hypot(e[0]!, e[1]!, e[2]!);
     const inverse = scale === 0 ? 0 : 1 / scale;
@@ -120,13 +125,39 @@ export function townLeaves(cards: readonly LeafCard[], count: number, name: stri
   geometry.setAttribute('color', new THREE.BufferAttribute(color, 3, true));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2, true));
   geometry.setAttribute('aWind', new THREE.BufferAttribute(wind, 4, true));
-  geometry.computeBoundingSphere();
+  yield* boundingSteps(geometry);
   const mesh = new THREE.Mesh(geometry, leaves);
   mesh.name = `town-leaves:${name}`;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.customDepthMaterial = leafDepthMaterial();
   return mesh;
+}
+
+/** How many vertices a town's mesh is written or measured over between two steps. */
+const MESH_SLICE = 20_000;
+
+/**
+ * A geometry's bounding sphere as `computeBoundingSphere` makes it (the box's
+ * centre, the farthest vertex from it), a slice of the vertices a step.
+ */
+export function* boundingSteps(geometry: THREE.BufferGeometry): Generator<void, void, void> {
+  const array = (geometry.getAttribute('position') as THREE.BufferAttribute).array as ArrayLike<number>;
+  const box = new THREE.Box3();
+  const at = new THREE.Vector3();
+  for (let from = 0; from < array.length; from += MESH_SLICE * 3) {
+    if (from > 0) yield;
+    const to = Math.min(array.length, from + MESH_SLICE * 3);
+    for (let i = from; i < to; i += 3) box.expandByPoint(at.set(array[i]!, array[i + 1]!, array[i + 2]!));
+  }
+  const centre = box.getCenter(new THREE.Vector3());
+  let farthest = 0;
+  for (let from = 0; from < array.length; from += MESH_SLICE * 3) {
+    yield;
+    const to = Math.min(array.length, from + MESH_SLICE * 3);
+    for (let i = from; i < to; i += 3) farthest = Math.max(farthest, centre.distanceToSquared(at.set(array[i]!, array[i + 1]!, array[i + 2]!)));
+  }
+  geometry.boundingSphere = new THREE.Sphere(centre, Math.sqrt(farthest));
 }
 
 /**

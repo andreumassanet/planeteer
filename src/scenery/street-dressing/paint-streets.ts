@@ -125,13 +125,15 @@ function streetsOf(d: Dresser, col: number, row: number): Street[] {
 
 /**
  * The paint phase, last: tactile pads at the middle crossing, then per cell
- * the guide strips, gullies and manholes, within what is left of the allowance.
+ * the guide strips, gullies and manholes, within what is left of the
+ * allowance, a step a cell.
  */
-export function paintStreets(d: Dresser): void {
+export function* paintStreetsSteps(d: Dresser): Generator<void, void, void> {
   const painter = createPainter(d);
   paintCrossing(d, painter);
   for (const { col, row } of d.order) {
     if (col === d.middle && row === d.middle) continue;
+    yield;
     paintCell(d, painter, col, row);
   }
 }

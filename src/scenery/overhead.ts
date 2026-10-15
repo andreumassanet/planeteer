@@ -23,9 +23,9 @@ import type { Overhead, OverheadSite } from './overhead/anchors.ts';
 import { PROFILES } from './overhead/config.ts';
 import { Out, prepare } from './overhead/geometry.ts';
 import { createHanger } from './overhead/hanger.ts';
-import { stringStreets } from './overhead/strings.ts';
+import { stringStreetsSteps } from './overhead/strings.ts';
 import { POLE_WIDTH } from '../roadside.ts';
-import { raisePoles } from './overhead/wires.ts';
+import { raisePolesSteps } from './overhead/wires.ts';
 
 export { OVERHEAD_CLEAR, SIDE_CLEAR } from './overhead/config.ts';
 export type { Hang } from './overhead/config.ts';
@@ -34,15 +34,29 @@ export type { OverheadHost } from './overhead/geometry.ts';
 
 /** The overhead of one near town, in its own frame, or null for none. */
 export function hangOverhead(site: OverheadSite): Overhead | null {
+  const steps = hangOverheadSteps(site);
+  for (;;) {
+    const step = steps.next();
+    if (step.done === true) return step.value;
+  }
+}
+
+/**
+ * `hangOverhead` in steps, a street at a time, for a town raised over
+ * frames. The crowns it keeps out of are the module's while it runs, so only
+ * one runs at a time.
+ */
+export function* hangOverheadSteps(site: OverheadSite): Generator<void, Overhead | null, void> {
   const profile = PROFILES[site.region];
   if (profile === undefined || site.grid.cells < 2 || site.hosts.length < 2) return null;
   const hosts = site.hosts.map(prepare);
+  yield;
   useCrowns(site.crowns);
   const out = new Out();
   const h = createHanger(site, profile, hosts, out, streetsOf(site.grid, site.band));
 
-  stringStreets(h);
-  raisePoles(h);
+  yield* stringStreetsSteps(h);
+  yield* raisePolesSteps(h);
 
   const triangles = out.triangles;
   if (triangles === 0) return null;

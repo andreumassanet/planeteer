@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import type { Bench } from '../bench.ts';
 import type { FolkAnchor } from '../folk.ts';
 import { PLANET_RADIUS } from '../globe.ts';
+import { BUILT_CEILING } from '../places.ts';
 import { CROWN_STRIDE } from '../scenery/tree-forms.ts';
 import { solidField } from '../scenery/solids.ts';
 import type { Registry } from './registry.ts';
-import type { BikeSlot, ParkedCar, Slot } from './types.ts';
+import type { Bay, BikeSlot, ParkedCar, Slot } from './types.ts';
 
 /**
  * What the standing towns publish to the world round the viewer: people,
@@ -25,15 +26,15 @@ export interface NearTowns {
 
 export function createNearTowns(registry: Registry, slots: readonly Slot[]): NearTowns {
   const folkDirection = new THREE.Vector3();
-  /** A town's anchor is within 160 units of anything it publishes. */
-  const cosOf = (radius: number): number => Math.cos((radius + 160) / PLANET_RADIUS);
+  /** A town's anchor is within `BUILT_CEILING` and ten units of anything it publishes. */
+  const cosOf = (radius: number): number => Math.cos((radius + BUILT_CEILING + 10) / PLANET_RADIUS);
 
   return {
     crownsNear(point, range, visit) {
       const rangeSq = range * range;
       for (const mesh of registry.crowned) {
-        // A town is under 150 units across: its middle first.
-        const reach = range + 220;
+        // A town reaches no further than `BUILT_CEILING` from its middle, its trees 70 more.
+        const reach = range + BUILT_CEILING + 70;
         if (mesh.position.distanceToSquared(point) > reach * reach) continue;
         const list = mesh.userData.crowns as Float32Array;
         for (let o = 0; o < list.length; o += CROWN_STRIDE) {
@@ -128,46 +129,53 @@ export function createNearTowns(registry: Registry, slots: readonly Slot[]): Nea
       }
     },
 
-    /**
-     * Folds a taken vehicle's vertices onto its first, in the town's buffer and
-     * its glass mesh, so it and its ink hull draw nothing; and takes its wall
-     * down. Cheaper than building the town again.
-     */
+    /** A taken vehicle folded out of its town (`foldBay`). */
     hideParked(id) {
       const parts = id.split(':');
       const slot = slots[Number(parts[1])];
       if (slot === undefined || slot.mesh === null) return;
       const bay = slot.parked.find((entry) => entry.id === id);
       if (bay === undefined || bay.hidden) return;
-      bay.hidden = true;
-      const position = slot.mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
-      const array = position.array as Float32Array;
-      const first = bay.start * 3;
-      for (let v = bay.start + 1; v < bay.start + bay.count; v++) {
-        array[v * 3] = array[first]!;
-        array[v * 3 + 1] = array[first + 1]!;
-        array[v * 3 + 2] = array[first + 2]!;
-      }
-      position.addUpdateRange(first, bay.count * 3);
-      position.needsUpdate = true;
-      const glassMesh = slot.mesh.userData.glass as THREE.Mesh | undefined;
-      if (glassMesh !== undefined && bay.glassCount > 0) {
-        const panes = glassMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
-        const glass = panes.array as Float32Array;
-        const head = bay.glassStart * 3;
-        for (let v = bay.glassStart + 1; v < bay.glassStart + bay.glassCount; v++) {
-          glass[v * 3] = glass[head]!;
-          glass[v * 3 + 1] = glass[head + 1]!;
-          glass[v * 3 + 2] = glass[head + 2]!;
-        }
-        panes.addUpdateRange(head, bay.glassCount * 3);
-        panes.needsUpdate = true;
-      }
-      const floor = slot.floor;
-      if (floor !== null && floor.solids !== null) {
-        const rest = floor.solids.solids.filter((solid) => solid !== bay.solid);
-        floor.solids = rest.length > 0 ? solidField(rest) : null;
-      }
+      foldBay(slot, bay);
     },
   };
+}
+
+/**
+ * Folds a taken vehicle's vertices onto its first, in the town's buffer and
+ * its glass mesh, so it and its ink hull draw nothing; and takes its wall
+ * down. Cheaper than building the town again.
+ */
+export function foldBay(slot: Slot, bay: Bay): void {
+  const mesh = slot.mesh;
+  if (mesh === null) return;
+  bay.hidden = true;
+  const position = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+  const array = position.array as Float32Array;
+  const first = bay.start * 3;
+  for (let v = bay.start + 1; v < bay.start + bay.count; v++) {
+    array[v * 3] = array[first]!;
+    array[v * 3 + 1] = array[first + 1]!;
+    array[v * 3 + 2] = array[first + 2]!;
+  }
+  position.addUpdateRange(first, bay.count * 3);
+  position.needsUpdate = true;
+  const glassMesh = mesh.userData.glass as THREE.Mesh | undefined;
+  if (glassMesh !== undefined && bay.glassCount > 0) {
+    const panes = glassMesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const glass = panes.array as Float32Array;
+    const head = bay.glassStart * 3;
+    for (let v = bay.glassStart + 1; v < bay.glassStart + bay.glassCount; v++) {
+      glass[v * 3] = glass[head]!;
+      glass[v * 3 + 1] = glass[head + 1]!;
+      glass[v * 3 + 2] = glass[head + 2]!;
+    }
+    panes.addUpdateRange(head, bay.glassCount * 3);
+    panes.needsUpdate = true;
+  }
+  const floor = slot.floor;
+  if (floor !== null && floor.solids !== null) {
+    const rest = floor.solids.solids.filter((solid) => solid !== bay.solid);
+    floor.solids = rest.length > 0 ? solidField(rest) : null;
+  }
 }

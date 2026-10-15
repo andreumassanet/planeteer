@@ -11,7 +11,7 @@ import { detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt } from '../te
 import type { FlagLayer, LandFlagData, RingSpan } from '../land-flags.ts';
 import { latOf, lonOf } from '../sphere.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, onSphere } from './planet.ts';
-import { densify, sagFor } from './tessellation.ts';
+import { densify, inlandAlong, sagFor, setTightGround } from './tessellation.ts';
 import { refine, retriangulate, steinerPoints } from './delaunay.ts';
 import type { Lake, LakePlan } from './lakes.ts';
 import { clampLat, lakesOf, planLakes, subtractLake } from './lakes.ts';
@@ -81,6 +81,8 @@ interface LandBuild {
   /** What the splice could not pair up, and what dropping triangles cost instead. */
   unpaired: number;
   droppedFaces: number;
+  /** Faces the ear clipper left inside a hole, and the filter took out. */
+  strayFaces: number;
   emit: (
     a: THREE.Vector3,
     b: THREE.Vector3,
@@ -195,6 +197,40 @@ interface RingSurface {
   triangles: number[][];
 }
 
+/** How close to each other, and to the ring's own boundary, a lake's shore point may be put into the mesh, degrees. */
+const SHORE_POINT_CLEAR = 0.02;
+
+/**
+ * The interior points of a ring with a lake it could not splice: the lattice
+ * off the water, and the lake's own shore where it runs inside the ring. The
+ * faces on the water are dropped afterwards, and with vertices on the shore
+ * the drop follows it, where with the lattice alone a kept triangle could
+ * reach a whole lattice step out over the water.
+ */
+function shoreSteiner(lattice: readonly number[], drops: readonly Lake[], outline: readonly number[][]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < lattice.length; i += 2) {
+    const lon = lattice[i]!;
+    const lat = lattice[i + 1]!;
+    if (!drops.some((lake) => insideRing(lake.points, lon, clampLat(lat)))) out.push(lon, lat);
+  }
+  const ring = outline as number[][];
+  const c = SHORE_POINT_CLEAR;
+  for (const lake of drops) {
+    let lastLon = Infinity;
+    let lastLat = Infinity;
+    for (const [lon, lat] of lake.outline) {
+      if (Math.abs(lon! - lastLon) < c && Math.abs(lat! - lastLat) < c) continue;
+      const clear = [[0, 0], [c, 0], [-c, 0], [0, c], [0, -c]].every(([dx, dy]) => insideRing(ring, lon! + dx!, clampLat(lat! + dy!)));
+      if (!clear) continue;
+      out.push(lon!, lat!);
+      lastLon = lon!;
+      lastLat = lat!;
+    }
+  }
+  return out;
+}
+
 /** Triangulates a ring: ear clipper, Delaunay with interior points, relief refinement, a final flip pass. Null when it yields nothing. */
 function triangulateRing(build: LandBuild, cuts: RingCuts): RingSurface | null {
   const { holes, drops } = cuts;
@@ -219,7 +255,8 @@ function triangulateRing(build: LandBuild, cuts: RingCuts): RingSurface | null {
   // The same points in the plane they were triangulated in, where `refine`
   // takes its midpoints.
   const lonLat = all.flatMap(([lon, lat]) => [lon!, lat!]);
-  faces = retriangulate(unit, lonLat, faces, steinerPoints([outline, ...holeOutlines]), undefined, true);
+  const lattice = steinerPoints([outline, ...holeOutlines]);
+  faces = retriangulate(unit, lonLat, faces, drops.length === 0 ? lattice : shoreSteiner(lattice, drops, outline), undefined, true);
   const relief = unit.map((p) => reliefAt(p.x, p.y, p.z));
   const scratch = new THREE.Vector3();
   // A second flip pass after the refinement, which leaves fans of needles. A
@@ -227,21 +264,32 @@ function triangulateRing(build: LandBuild, cuts: RingCuts): RingSurface | null {
   let triangles = retriangulate(unit, lonLat, refine(unit, lonLat, relief, faces), [], (a, b) => {
     onSphere((lonLat[a * 2]! + lonLat[b * 2]!) * 0.5, (lonLat[a * 2 + 1]! + lonLat[b * 2 + 1]!) * 0.5, scratch);
     const pad = Math.max(flattenWeightAt(scratch.x, scratch.y, scratch.z), detailWeightAt(scratch.x, scratch.y, scratch.z));
-    return Math.abs(reliefAt(scratch.x, scratch.y, scratch.z) - (relief[a]! + relief[b]!) * 0.5) <= sagFor(pad);
+    return Math.abs(reliefAt(scratch.x, scratch.y, scratch.z) - (relief[a]! + relief[b]!) * 0.5) <= sagFor(pad, inlandAlong(unit[a]!, unit[b]!, scratch));
   });
 
   // The fallback for a lake that could not be spliced: drop the faces on the
-  // water. The shore is ragged at the refinement's edge length.
-  if (drops.length > 0) {
+  // water, whose shore the lake's own points (`shoreSteiner`) are vertices of.
+  // A hole is asked too: a lake outline that touches itself at a point is a
+  // hole the ear clipper fills a lobe of, and those faces are water as well.
+  const wet = [...drops, ...holes];
+  if (wet.length > 0) {
     const before = triangles.length;
+    let strays = 0;
     triangles = triangles.filter(([a, b, c]) => {
       // From `unit`, not `all`: `refine` grew the vertex array.
       scratch.copy(unit[a!]!).add(unit[b!]!).add(unit[c!]!).normalize();
-      const lat = latOf(scratch.y);
+      const lat = clampLat(latOf(scratch.y));
       const lon = lonOf(scratch.x, scratch.z);
-      return !drops.some((lake) => insideRing(lake.points, lon, clampLat(lat)));
+      for (const lake of wet) {
+        const [w, south, e, north] = lake.box;
+        if (lon < w || lon > e || lat < south || lat > north || !insideRing(lake.points, lon, lat)) continue;
+        if (holes.includes(lake)) strays++;
+        return false;
+      }
+      return true;
     });
-    build.droppedFaces += before - triangles.length;
+    build.strayFaces += strays;
+    build.droppedFaces += before - triangles.length - strays;
   }
   return { outline, holeOutlines, boundary: all.length, unit, relief, triangles };
 }
@@ -438,8 +486,21 @@ function resolveSeams(build: LandBuild): void {
  * Normals and colours are bytes: position as Float32 is needed this far from the
  * origin, but a unit normal and a palette colour lose a quarter of a degree at
  * eight bits, and this is the largest buffer in the project.
+ *
+ * `tight` names the ground that must keep to the relief inland as well as at
+ * the coast (`roadCorridors`): every builder of the land hands in the same, or
+ * the drawn land differs between them.
  */
-export function buildLand(world: World): THREE.Mesh {
+export function buildLand(world: World, tight: ((point: THREE.Vector3) => boolean) | null = null): THREE.Mesh {
+  setTightGround(tight);
+  try {
+    return buildLandWith(world);
+  } finally {
+    setTightGround(null);
+  }
+}
+
+function buildLandWith(world: World): THREE.Mesh {
   // Idempotent, and normally already done by `loadWorld`: a mesh built against
   // a different terrain than the one the player walks on is the failure this
   // arrangement exists to prevent.
@@ -457,6 +518,7 @@ export function buildLand(world: World): THREE.Mesh {
     seamsOf: [],
     unpaired: 0,
     droppedFaces: 0,
+    strayFaces: 0,
     emit: createEmitter(buffers),
   };
 
@@ -487,6 +549,7 @@ export function buildLand(world: World): THREE.Mesh {
     splices: plan.cuts.reduce((n, cuts) => n + cuts.filter((c) => c.cut.kind === 'splice').length, 0),
     unpaired: build.unpaired,
     droppedFaces: build.droppedFaces,
+    strayFaces: build.strayFaces,
   };
   return mesh;
 }

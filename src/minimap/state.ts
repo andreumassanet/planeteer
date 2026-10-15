@@ -4,7 +4,7 @@ import type { PlanetSurface } from '../planet.ts';
 import type { Nearby } from '../places.ts';
 import type { Place } from '../places.ts';
 import { EARTH_KM, type Shape, buildShapes, createFrame, toUnit } from '../cartography.ts';
-import { PLANET_RADIUS } from '../globe.ts';
+import { PLANET_RADIUS, WORLD_SCALE } from '../globe.ts';
 import {
   DEFAULT_SIZE, BEARING_DEADZONE, GROUND_CEILING, MAX_PAD_MARKS, MAX_VIEW, MIN_VIEW, PIN_HEAD, PIN_RISE,
   PIN_SPACING, PLACE_SPACING, RIM_WIDTH, SHAPE_BANDS,
@@ -194,6 +194,8 @@ export function createState(world: World, options: MinimapOptions | number): Min
   // The body under the disc: Earth's own constants unless a surface is handed in.
   const surface = settings.surface;
   const RADIUS = surface?.radius ?? PLANET_RADIUS;
+  // The widest framing is geography: Earth's grows with `WORLD_SCALE`, another world keeps the nominal one.
+  const widest = MAX_VIEW * (surface === undefined ? WORLD_SCALE : 1);
 
   const canvas = document.createElement('canvas');
   const base = document.createElement('canvas');
@@ -201,7 +203,7 @@ export function createState(world: World, options: MinimapOptions | number): Min
   // The rim stroke straddles the disc edge, so half of it has to fit inside.
   const discRadius = centre - RIM_WIDTH / 2;
   const uiScale = size / DEFAULT_SIZE;
-  const view = MAX_VIEW / RADIUS;
+  const view = widest / RADIUS;
 
   const pinCount = monuments.length;
   const pinPoint = new Float32Array(pinCount * 3);
@@ -239,7 +241,7 @@ export function createState(world: World, options: MinimapOptions | number): Min
     borderWidth: Math.max(1, size / 200),
     uiScale,
     minAngle: MIN_VIEW / RADIUS,
-    maxAngle: MAX_VIEW / RADIUS,
+    maxAngle: widest / RADIUS,
     levels: createLevels(world, RADIUS, discRadius),
 
     pinCount,

@@ -20,7 +20,7 @@ import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { decodePlaces, decodeRails, decodeRoads, encodeRails, inflate } from '../src/pack.ts';
 import { indexPlaces, isShown, terrainSiteOf } from '../src/places.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
-import { tightestTurn } from '../src/roads.ts';
+import { roadCorridors, tightestTurn } from '../src/roads.ts';
 import { createSiteIndex } from '../src/fleet.ts';
 import {
   BED_FOOT,
@@ -224,7 +224,7 @@ console.log('\ndrawn:');
   // off the relief, and the bed's feet reach down to whichever is lower.
   const { buildLand } = await import('../src/globe.ts');
   const { drawnRadius, landProbeOf } = await import('../src/land-probe.ts');
-  const land = buildLand(world);
+  const land = buildLand(world, roadCorridors(roads, places));
   const probe = landProbeOf(land);
   const drawnGround = (point: Vector3): number => drawnRadius(world, probe, point);
   const trainMaterial = new MeshToonMaterial();

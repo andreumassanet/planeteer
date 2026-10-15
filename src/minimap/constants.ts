@@ -62,7 +62,7 @@ export const TARGET_PIN_SCALE = 1.3;
 /** Closer than this, in world units, the bearing mark is dropped: it would spin on top of the target. */
 export const BEARING_DEADZONE = 120;
 
-/** Half-width of the disc at its tightest and widest, world units. */
+/** Half-width of the disc at its tightest and widest, world units; the widest is nominal, times `WORLD_SCALE` on Earth. */
 export const MIN_VIEW = 220;
 export const MAX_VIEW = 4000;
 /** The disc round a walker, units, and the seconds of the way ahead it opens by with speed. */

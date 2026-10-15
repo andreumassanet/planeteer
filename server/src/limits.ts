@@ -8,17 +8,24 @@
  * No imports: the checks load this under Node and the Worker bundles it.
  */
 
+/** `NOMINAL_RADIUS` and `WORLD_SCALE` in `src/globe/planet.ts`. */
+export const NOMINAL_RADIUS = 16_000;
+export const WORLD_SCALE = 2;
 /** `PLANET_RADIUS` in `src/globe.ts`. */
-export const PLANET_RADIUS = 16_000;
+export const PLANET_RADIUS = NOMINAL_RADIUS * WORLD_SCALE;
 
 /** Below the lowest sea floor. */
-export const MIN_RADIUS = 15_000;
+export const MIN_RADIUS = PLANET_RADIUS - 1_000;
 
 /**
- * Above anything that flies: the radius plus twice the plane's ceiling
- * altitude (`PLANET_RADIUS * 1.45`). Bounds players and vehicles alike.
+ * How far above a world's surface anything may be: a loose bound, many times
+ * the plane's ceiling altitude, written at the nominal radius so the other
+ * worlds' shells do not move with Earth's size.
  */
-export const MAX_RADIUS = PLANET_RADIUS + 2 * (PLANET_RADIUS * 1.45);
+export const AIR_ALLOWANCE = 2 * (NOMINAL_RADIUS * 1.45);
+
+/** Above anything that flies. Bounds players and vehicles alike. */
+export const MAX_RADIUS = PLANET_RADIUS + AIR_ALLOWANCE;
 
 // ---------------------------------------------------------------------------
 // Worlds: one room per world; a state is bounded by its world's shell.
@@ -69,7 +76,7 @@ export function cleanBody(raw: unknown): string {
 export function shellOf(body: string): { min: number; max: number } {
   if (body === 'earth') return { min: MIN_RADIUS, max: MAX_RADIUS };
   const radius = BODY_RADII[body] ?? PLANET_RADIUS;
-  return { min: radius * 0.9, max: radius + Math.max(MAX_RADIUS - PLANET_RADIUS, radius * 0.3) };
+  return { min: radius * 0.9, max: radius + Math.max(AIR_ALLOWANCE, radius * 0.3) };
 }
 
 /** Units per second; about twice the plane's top speed at its ceiling. */

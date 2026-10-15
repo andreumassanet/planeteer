@@ -18,10 +18,11 @@
  * it deliberately has nothing else.
  *
  * The one number worth stating here rather than deriving it again: **Earth's
- * `radiusKm` and `globe.ts`'s `PLANET_RADIUS` are the same fact**, and
- * `KM_PER_UNIT` in the contract is their ratio. `scripts/check-system.ts`
- * asserts that `surfaceRadiusOf(6371)` comes back as exactly 16,000, so this
- * row cannot drift from the planet everyone is standing on.
+ * `radiusKm` and `globe.ts`'s `NOMINAL_RADIUS` are the same fact**, and
+ * `KM_PER_UNIT` in the contract is their ratio; Earth itself is drawn
+ * `WORLD_SCALE` times that. `scripts/check-system.ts` asserts that
+ * `surfaceRadiusOf(6371)` comes back as exactly `NOMINAL_RADIUS`, so the other
+ * worlds' scale cannot drift from it.
  */
 
 import { PALETTE } from '../../theme.ts';

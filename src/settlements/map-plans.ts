@@ -65,8 +65,8 @@ export function createMapPlans(
   squareSteps: (slot: Slot) => Generator<void, TownGrid | null, void>,
   planTownSteps: (slot: Slot, grid: TownGrid) => Generator<void, { placed: Placed[] }, void>,
   inTheCountry: WeakSet<Placed>,
-  /** Makes way for a plan built now: ends or finishes the far town under way. */
-  yieldFarJob: () => void,
+  /** Makes way for a plan built now: abandons the town build under way. */
+  endTownJob: () => void,
 ): MapPlans {
   const deps: PlanDeps = {
     world, frame, variants, squareSteps, planTownSteps, inTheCountry,
@@ -76,7 +76,7 @@ export function createMapPlans(
   /** The towns the map has asked for and nothing has planned yet, oldest first. */
   const planWanted: number[] = [];
   const planAsked = new Set<number>();
-  /** The plan under way, which shares the town frame and terraces with a far build and gives way to one. */
+  /** The plan under way, which shares the town frame and terraces with a town's build and gives way to one. */
   let planJob: { index: number; steps: Generator<void, TownPlan | null, void> } | null = null;
 
   function keepPlan(index: number, plan: TownPlan | null): void {
@@ -129,7 +129,7 @@ export function createMapPlans(
       if (known !== undefined) return known;
       const slot = slots[index];
       if (slot === undefined || !isShown(slot.place)) return null;
-      yieldFarJob();
+      endTownJob();
       const plan = drain(planSteps(deps, slot));
       keepPlan(index, plan);
       return plan;

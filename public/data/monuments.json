@@ -4,8 +4,8 @@
    "id": "eiffel-tower",
    "name": "Eiffel Tower",
    "iso": "FRA",
-   "lat": 48.741,
-   "lon": 2.1793,
+   "lat": 48.7783,
+   "lon": 2.2358,
    "footprint": 35,
    "height": 330,
    "year": 1889,
@@ -23,8 +23,8 @@
    "id": "arc-de-triomphe",
    "name": "Arc de Triomphe",
    "iso": "FRA",
-   "lat": 49.0096,
-   "lon": 2.2125,
+   "lat": 48.9169,
+   "lon": 2.2517,
    "footprint": 21,
    "height": 50,
    "year": 1836,
@@ -53,14 +53,14 @@
     50.5
    ],
    "shore": true,
-   "clearance": -52
+   "clearance": -48
   },
   {
    "id": "colosseum",
    "name": "Colosseum",
    "iso": "ITA",
-   "lat": 42.3193,
-   "lon": 13.0187,
+   "lat": 41.7913,
+   "lon": 12.6723,
    "footprint": 52,
    "height": 48,
    "year": 80,
@@ -71,15 +71,15 @@
     -40,
     42
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
    "id": "leaning-tower-pisa",
    "name": "Leaning Tower of Pisa",
    "iso": "ITA",
-   "lat": 43.694,
-   "lon": 10.6191,
+   "lat": 43.723,
+   "lon": 10.396,
    "footprint": 15,
    "height": 57,
    "year": 1372,
@@ -91,14 +91,14 @@
     11
    ],
    "setting": "plaza",
-   "clearance": 50
+   "clearance": 32
   },
   {
    "id": "st-peters-basilica",
    "name": "St Peter's Basilica",
    "iso": "ITA",
-   "lat": 42.3343,
-   "lon": 12.2803,
+   "lat": 42.0009,
+   "lon": 12.3486,
    "footprint": 55,
    "height": 136,
    "year": 1626,
@@ -109,15 +109,15 @@
     -47.5,
     36
    ],
-   "setting": "plaza",
-   "clearance": 50
+   "setting": "parcel",
+   "clearance": 44
   },
   {
    "id": "sagrada-familia",
    "name": "Sagrada Familia",
    "iso": "ESP",
-   "lat": 41.4771,
-   "lon": 1.685,
+   "lat": 41.4538,
+   "lon": 2.0146,
    "footprint": 38,
    "note": "Gaudí gave it the last 43 years of his life and is buried in its crypt; begun in 1882, it is still being built.",
    "plan": [
@@ -126,15 +126,15 @@
     -21.5,
     21.5
    ],
-   "setting": "plaza",
-   "clearance": 44
+   "setting": "parcel",
+   "clearance": 50
   },
   {
    "id": "alhambra",
    "name": "Alhambra",
    "iso": "ESP",
-   "lat": 37.009,
-   "lon": -3.5347,
+   "lat": 37.0556,
+   "lon": -3.5656,
    "footprint": 48,
    "note": "The palace-fortress of the Nasrid sultans of Granada, its courts lined with carved stucco and cooled by water from the Sierra Nevada.",
    "plan": [
@@ -150,8 +150,8 @@
    "id": "guggenheim-bilbao",
    "name": "Guggenheim Bilbao",
    "iso": "ESP",
-   "lat": 43.0277,
-   "lon": -3.0661,
+   "lat": 43.2165,
+   "lon": -2.6572,
    "footprint": 37,
    "year": 1997,
    "note": "Frank Gehry's titanium-clad museum on the Nervión, whose success gave a name to the 'Bilbao effect'.",
@@ -168,8 +168,8 @@
    "id": "big-ben",
    "name": "Elizabeth Tower",
    "iso": "GBR",
-   "lat": 51.4203,
-   "lon": -0.4795,
+   "lat": 51.4668,
+   "lon": -0.2276,
    "footprint": 10,
    "height": 96,
    "year": 1859,
@@ -187,8 +187,8 @@
    "id": "tower-bridge",
    "name": "Tower Bridge",
    "iso": "GBR",
-   "lat": 51.9502,
-   "lon": 0.4495,
+   "lat": 51.6025,
+   "lon": 0.5194,
    "footprint": 55,
    "height": 65,
    "year": 1894,
@@ -199,7 +199,7 @@
     -8,
     8
    ],
-   "clearance": 44
+   "clearance": 28
   },
   {
    "id": "stonehenge",
@@ -221,8 +221,8 @@
    "id": "brandenburg-gate",
    "name": "Brandenburg Gate",
    "iso": "DEU",
-   "lat": 52.1847,
-   "lon": 13.5289,
+   "lat": 52.4814,
+   "lon": 13.2368,
    "footprint": 44,
    "height": 26,
    "year": 1791,
@@ -233,7 +233,7 @@
     -10,
     10
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
@@ -257,8 +257,8 @@
    "id": "atomium",
    "name": "Atomium",
    "iso": "BEL",
-   "lat": 50.9905,
-   "lon": 4.8883,
+   "lat": 50.9356,
+   "lon": 4.213,
    "footprint": 39,
    "height": 102,
    "year": 1958,
@@ -269,15 +269,15 @@
     -38,
     38
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
    "id": "kinderdijk",
    "name": "Kinderdijk Windmills",
    "iso": "NLD",
-   "lat": 51.6297,
-   "lon": 4.7088,
+   "lat": 51.9469,
+   "lon": 4.9239,
    "footprint": 55,
    "note": "Nineteen windmills built around 1740 to keep the polders of the Alblasserwaard drained, and most of them still turn.",
    "plan": [
@@ -286,14 +286,14 @@
     -27.5,
     26
    ],
-   "clearance": 28
+   "clearance": 50
   },
   {
    "id": "charles-bridge",
    "name": "Charles Bridge",
    "iso": "CZE",
-   "lat": 50.4224,
-   "lon": 14.3003,
+   "lat": 50.2979,
+   "lon": 14.3556,
    "footprint": 54,
    "note": "Prague's stone bridge over the Vltava, begun under Charles IV in 1357 and lined with thirty Baroque statues.",
    "plan": [
@@ -308,8 +308,8 @@
    "id": "belem-tower",
    "name": "Belém Tower",
    "iso": "PRT",
-   "lat": 38.7136,
-   "lon": -9.4486,
+   "lat": 38.6993,
+   "lon": -9.385,
    "footprint": 25,
    "height": 30,
    "year": 1519,
@@ -328,8 +328,8 @@
    "id": "hungarian-parliament",
    "name": "Hungarian Parliament Building",
    "iso": "HUN",
-   "lat": 47.8025,
-   "lon": 19.1299,
+   "lat": 47.7578,
+   "lon": 19.0456,
    "footprint": 53,
    "height": 96,
    "year": 1904,
@@ -347,8 +347,8 @@
    "id": "st-basils-cathedral",
    "name": "Saint Basil's Cathedral",
    "iso": "RUS",
-   "lat": 55.8355,
-   "lon": 37.7307,
+   "lat": 55.8043,
+   "lon": 37.6931,
    "footprint": 12.3,
    "height": 65,
    "year": 1561,
@@ -366,8 +366,8 @@
    "id": "parthenon",
    "name": "Parthenon",
    "iso": "GRC",
-   "lat": 38.243,
-   "lon": 23.3918,
+   "lat": 38.2341,
+   "lon": 23.6117,
    "footprint": 51,
    "note": "The temple of Athena on the Acropolis, finished in 438 BC; its columns swell and lean so that they look straight.",
    "plan": [
@@ -376,14 +376,14 @@
     -46,
     49.5
    ],
-   "clearance": 12
+   "clearance": 20
   },
   {
    "id": "hagia-sophia",
    "name": "Hagia Sophia",
    "iso": "TUR",
-   "lat": 41.119,
-   "lon": 29.2861,
+   "lat": 41.1195,
+   "lon": 28.852,
    "footprint": 30,
    "height": 55,
    "year": 537,
@@ -395,14 +395,14 @@
     21
    ],
    "setting": "parcel",
-   "clearance": 4
+   "clearance": 40
   },
   {
    "id": "little-mermaid",
    "name": "The Little Mermaid",
    "iso": "DNK",
-   "lat": 55.9693,
-   "lon": 12.5487,
+   "lat": 55.909,
+   "lon": 12.5233,
    "footprint": 9.5,
    "year": 1913,
    "note": "Edvard Eriksen's bronze of Hans Christian Andersen's mermaid, only 1.25 metres tall, on a rock in Copenhagen harbour.",
@@ -420,8 +420,8 @@
    "id": "hallgrimskirkja",
    "name": "Hallgrímskirkja",
    "iso": "ISL",
-   "lat": 64.1808,
-   "lon": -21.2097,
+   "lat": 64.0138,
+   "lon": -21.6196,
    "footprint": 27.6,
    "height": 74.5,
    "year": 1986,
@@ -433,7 +433,7 @@
     12.5
    ],
    "setting": "plaza",
-   "clearance": 36
+   "clearance": 50
   },
   {
    "id": "borgund-stave-church",
@@ -450,7 +450,7 @@
     -16.5,
     16.5
    ],
-   "clearance": 28
+   "clearance": 50
   },
   {
    "id": "gergeti-trinity",
@@ -489,8 +489,8 @@
    "id": "bran-castle",
    "name": "Bran Castle",
    "iso": "ROU",
-   "lat": 45.4824,
-   "lon": 25.2999,
+   "lat": 45.5149,
+   "lon": 25.3672,
    "footprint": 25,
    "year": 1388,
    "note": "Built by the Saxons of Brașov in 1377-1388 to guard a pass into Transylvania; it is sold to visitors as Dracula's castle, though Vlad III's link to it is slight.",
@@ -506,7 +506,7 @@
    "id": "registan",
    "name": "The Registan",
    "iso": "UZB",
-   "lat": 39.884,
+   "lat": 39.841,
    "lon": 66.9758,
    "footprint": 36.5,
    "year": 1660,
@@ -556,8 +556,8 @@
    "id": "ziggurat-of-ur",
    "name": "Ziggurat of Ur",
    "iso": "IRQ",
-   "lat": 30.917,
-   "lon": 45.9448,
+   "lat": 30.9537,
+   "lon": 46.0202,
    "footprint": 38,
    "note": "A stepped temple mound built around 2100 BC for Nanna, the moon god of the Sumerian city of Ur.",
    "plan": [
@@ -572,8 +572,8 @@
    "id": "taj-mahal",
    "name": "Taj Mahal",
    "iso": "IND",
-   "lat": 27.1714,
-   "lon": 78.3962,
+   "lat": 27.1185,
+   "lon": 78.0895,
    "footprint": 39,
    "height": 73,
    "year": 1653,
@@ -584,15 +584,15 @@
     -27.5,
     27.5
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
    "id": "sigiriya",
    "name": "Sigiriya",
    "iso": "LKA",
-   "lat": 7.9641,
-   "lon": 80.9192,
+   "lat": 7.9362,
+   "lon": 80.8063,
    "footprint": 23.5,
    "note": "A palace on top of a rock 180 metres high, entered between the paws of a colossal stone lion, built by King Kashyapa in the 5th century.",
    "plan": [
@@ -607,8 +607,8 @@
    "id": "golden-temple",
    "name": "Golden Temple",
    "iso": "IND",
-   "lat": 31.8613,
-   "lon": 74.8362,
+   "lat": 31.7919,
+   "lon": 74.877,
    "footprint": 39,
    "note": "The holiest gurdwara of Sikhism, its gilded sanctum standing in a pool; its kitchen feeds tens of thousands every day.",
    "plan": [
@@ -624,8 +624,8 @@
    "id": "great-wall",
    "name": "Great Wall of China",
    "iso": "CHN",
-   "lat": 40.4116,
-   "lon": 116.026,
+   "lat": 40.356,
+   "lon": 116.008,
    "footprint": 52,
    "note": "Not one wall but many, built and rebuilt over two thousand years; its surveyed branches add up to 21,196 km.",
    "plan": [
@@ -640,8 +640,8 @@
    "id": "forbidden-city",
    "name": "Forbidden City",
    "iso": "CHN",
-   "lat": 40.0554,
-   "lon": 116.59,
+   "lat": 39.9918,
+   "lon": 116.5072,
    "footprint": 48,
    "note": "The palace of the Ming and Qing emperors for five centuries: 980 buildings behind a moat and a ten-metre wall.",
    "plan": [
@@ -657,8 +657,8 @@
    "id": "terracotta-army",
    "name": "Terracotta Army",
    "iso": "CHN",
-   "lat": 34.2356,
-   "lon": 109.511,
+   "lat": 34.465,
+   "lon": 109.3357,
    "footprint": 34,
    "note": "Some 8,000 life-size clay soldiers buried with China's first emperor around 210 BC, no two faces alike.",
    "plan": [
@@ -673,8 +673,8 @@
    "id": "potala-palace",
    "name": "Potala Palace",
    "iso": "CHN",
-   "lat": 29.3715,
-   "lon": 91.117,
+   "lat": 29.8627,
+   "lon": 91.2356,
    "footprint": 52,
    "note": "The winter palace of the Dalai Lamas, thirteen storeys climbing the Red Hill above Lhasa at 3,700 metres.",
    "plan": [
@@ -689,8 +689,8 @@
    "id": "bagan",
    "name": "Bagan",
    "iso": "MMR",
-   "lat": 21.188,
-   "lon": 94.7303,
+   "lat": 21.1703,
+   "lon": 94.8672,
    "footprint": 43,
    "note": "More than 2,000 Buddhist temples and pagodas still stand on the plain, of over 10,000 built between the 11th and 13th centuries.",
    "plan": [
@@ -705,8 +705,8 @@
    "id": "angkor-wat",
    "name": "Angkor Wat",
    "iso": "KHM",
-   "lat": 13.5982,
-   "lon": 103.867,
+   "lat": 13.5224,
+   "lon": 103.8774,
    "footprint": 48,
    "height": 65,
    "note": "The largest religious monument on Earth, built for Vishnu in the early 12th century; its five towers are lotus buds.",
@@ -722,8 +722,8 @@
    "id": "grand-palace",
    "name": "Grand Palace and Wat Phra Kaew",
    "iso": "THA",
-   "lat": 13.7857,
-   "lon": 100.9913,
+   "lat": 13.6797,
+   "lon": 100.4033,
    "footprint": 46.5,
    "year": 1782,
    "note": "Begun in 1782 when King Rama I moved the capital to Bangkok; Wat Phra Kaew, inside its walls, keeps the Emerald Buddha, the most revered image in Thailand.",
@@ -733,7 +733,7 @@
     -29,
     29.5
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
@@ -756,8 +756,8 @@
    "id": "burj-khalifa",
    "name": "Burj Khalifa",
    "iso": "ARE",
-   "lat": 24.9712,
-   "lon": 55.4257,
+   "lat": 25.1193,
+   "lon": 55.3557,
    "footprint": 14.5,
    "height": 828,
    "year": 2010,
@@ -769,14 +769,14 @@
     14
    ],
    "setting": "parcel",
-   "clearance": 50
+   "clearance": 32
   },
   {
    "id": "sultan-qaboos-grand-mosque",
    "name": "Sultan Qaboos Grand Mosque",
    "iso": "OMN",
-   "lat": 23.3105,
-   "lon": 58.4554,
+   "lat": 23.5012,
+   "lon": 58.4764,
    "footprint": 31.5,
    "height": 91.5,
    "year": 2001,
@@ -787,15 +787,15 @@
     -23,
     22
    ],
-   "setting": "plaza",
-   "clearance": 50
+   "setting": "parcel",
+   "clearance": 44
   },
   {
    "id": "tokyo-tower",
    "name": "Tokyo Tower",
    "iso": "JPN",
-   "lat": 35.8798,
-   "lon": 139.8222,
+   "lat": 35.7744,
+   "lon": 139.77,
    "footprint": 26,
    "height": 333,
    "year": 1958,
@@ -807,14 +807,14 @@
     18
    ],
    "setting": "parcel",
-   "clearance": 40
+   "clearance": 50
   },
   {
    "id": "mount-fuji",
    "name": "Mount Fuji",
    "iso": "JPN",
-   "lat": 35.4192,
-   "lon": 138.9003,
+   "lat": 35.361,
+   "lon": 138.728,
    "footprint": 55,
    "height": 3776,
    "note": "Japan's highest peak, a near-perfect cone of a volcano that last erupted in 1707.",
@@ -824,14 +824,14 @@
     -54.5,
     54.5
    ],
-   "clearance": 20
+   "clearance": 50
   },
   {
    "id": "himeji-castle",
    "name": "Himeji Castle",
    "iso": "JPN",
-   "lat": 35.1244,
-   "lon": 134.7114,
+   "lat": 34.893,
+   "lon": 134.626,
    "footprint": 28,
    "note": "The White Heron, Japan's finest surviving feudal castle, which came through the bombing of 1945 almost untouched.",
    "plan": [
@@ -840,15 +840,15 @@
     -19,
     15.5
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
    "id": "petronas-towers",
    "name": "Petronas Towers",
    "iso": "MYS",
-   "lat": 3.2058,
-   "lon": 101.7953,
+   "lat": 3.1626,
+   "lon": 101.7303,
    "footprint": 15.2,
    "height": 452,
    "year": 1998,
@@ -884,8 +884,8 @@
    "id": "borobudur",
    "name": "Borobudur",
    "iso": "IDN",
-   "lat": -7.4969,
-   "lon": 110.1758,
+   "lat": -7.5937,
+   "lon": 110.204,
    "footprint": 51,
    "note": "The largest Buddhist temple in the world, a 9th-century mountain of terraces holding 504 statues of the Buddha.",
    "plan": [
@@ -910,14 +910,14 @@
     -25.5,
     25
    ],
-   "clearance": 20
+   "clearance": 50
   },
   {
    "id": "taipei-101",
    "name": "Taipei 101",
    "iso": "TWN",
-   "lat": 24.9688,
-   "lon": 121.6188,
+   "lat": 25.0108,
+   "lon": 121.5726,
    "footprint": 14.5,
    "height": 508,
    "year": 2004,
@@ -929,14 +929,14 @@
     10.5
    ],
    "setting": "parcel",
-   "clearance": 40
+   "clearance": 50
   },
   {
    "id": "gyeongbokgung",
    "name": "Gyeongbokgung Palace",
    "iso": "KOR",
-   "lat": 37.6934,
-   "lon": 127.1647,
+   "lat": 37.6403,
+   "lon": 126.8714,
    "footprint": 42,
    "note": "The main palace of the Joseon kings, founded in 1395, burned in the invasions of 1592 and rebuilt in 1867.",
    "plan": [
@@ -946,14 +946,14 @@
     29
    ],
    "setting": "parcel",
-   "clearance": 50
+   "clearance": 28
   },
   {
    "id": "mount-everest",
    "name": "Mount Everest",
    "iso": "NPL",
-   "lat": 27.8156,
-   "lon": 87.2448,
+   "lat": 27.9209,
+   "lon": 87.0168,
    "footprint": 55,
    "height": 8849,
    "note": "The highest point on Earth, 8,849 metres; Tenzing Norgay and Edmund Hillary first stood on it in 1953.",
@@ -989,8 +989,8 @@
    "id": "bayterek-tower",
    "name": "Bayterek Tower",
    "iso": "KAZ",
-   "lat": 51.0694,
-   "lon": 71.2702,
+   "lat": 51.1277,
+   "lon": 71.3626,
    "footprint": 14.5,
    "height": 105,
    "year": 2002,
@@ -1026,8 +1026,8 @@
    "id": "hassan-ii-mosque",
    "name": "Hassan II Mosque",
    "iso": "MAR",
-   "lat": 33.4261,
-   "lon": -8.0807,
+   "lat": 33.4664,
+   "lon": -8.0085,
    "footprint": 27,
    "height": 210,
    "year": 1993,
@@ -1058,14 +1058,14 @@
     42
    ],
    "setting": "plaza",
-   "clearance": 24
+   "clearance": 50
   },
   {
    "id": "pyramids-of-giza",
    "name": "Pyramids of Giza",
    "iso": "EGY",
-   "lat": 30.0088,
-   "lon": 30.5463,
+   "lat": 30.0032,
+   "lon": 30.7874,
    "footprint": 55,
    "height": 139,
    "note": "The Great Pyramid of Khufu was the tallest thing people had built for almost 4,000 years, the last ancient wonder still standing.",
@@ -1081,8 +1081,8 @@
    "id": "great-sphinx",
    "name": "Great Sphinx",
    "iso": "EGY",
-   "lat": 29.5121,
-   "lon": 31.3705,
+   "lat": 29.6921,
+   "lon": 31.2453,
    "footprint": 40,
    "note": "A lion with a king's head, carved from the bedrock of the Giza plateau around 2500 BC, facing the sunrise.",
    "plan": [
@@ -1129,8 +1129,8 @@
    "id": "djenne-mosque",
    "name": "Great Mosque of Djenne",
    "iso": "MLI",
-   "lat": 14.0769,
-   "lon": -4.555,
+   "lat": 13.8511,
+   "lon": -4.409,
    "footprint": 41,
    "note": "The largest mud-brick building in the world; every year the whole town replasters it at the Crépissage festival.",
    "plan": [
@@ -1146,8 +1146,8 @@
    "id": "african-renaissance-monument",
    "name": "African Renaissance Monument",
    "iso": "SEN",
-   "lat": 14.7686,
-   "lon": -16.9491,
+   "lat": 14.8117,
+   "lon": -17.1384,
    "footprint": 21,
    "height": 49,
    "year": 2010,
@@ -1158,14 +1158,14 @@
     -20.5,
     19
    ],
-   "clearance": 50
+   "clearance": 32
   },
   {
    "id": "elmina-castle",
    "name": "Elmina Castle",
    "iso": "GHA",
-   "lat": 5.2748,
-   "lon": -1.4144,
+   "lat": 5.0642,
+   "lon": -1.4274,
    "footprint": 43,
    "year": 1482,
    "note": "Built by the Portuguese in 1482, the oldest European building south of the Sahara, later a hub of the Atlantic slave trade.",
@@ -1177,14 +1177,14 @@
     30.5
    ],
    "shore": true,
-   "clearance": 24
+   "clearance": -28
   },
   {
    "id": "lalibela",
    "name": "Rock-Hewn Churches of Lalibela",
    "iso": "ETH",
-   "lat": 12.2468,
-   "lon": 39.043,
+   "lat": 12.0138,
+   "lon": 38.8998,
    "footprint": 46.7,
    "note": "Eleven medieval churches carved downward into the living rock, joined by trenches and tunnels.",
    "plan": [
@@ -1216,8 +1216,8 @@
    "id": "victoria-falls",
    "name": "Victoria Falls",
    "iso": "ZWE",
-   "lat": -18.0874,
-   "lon": 25.807,
+   "lat": -17.9813,
+   "lon": 25.8469,
    "footprint": 54,
    "note": "Mosi-oa-Tunya, 'the smoke that thunders': the Zambezi falls more than 100 metres along a curtain 1.7 km wide.",
    "plan": [
@@ -1232,8 +1232,8 @@
    "id": "great-zimbabwe",
    "name": "Great Zimbabwe",
    "iso": "ZWE",
-   "lat": -20.3862,
-   "lon": 30.8234,
+   "lat": -20.2675,
+   "lon": 30.9339,
    "footprint": 40,
    "height": 11,
    "note": "The stone capital of a trading kingdom of the 11th to 15th centuries, its Great Enclosure laid in granite without mortar; the country takes its name from it.",
@@ -1249,8 +1249,8 @@
    "id": "avenue-of-the-baobabs",
    "name": "Avenue of the Baobabs",
    "iso": "MDG",
-   "lat": -20.3268,
-   "lon": 44.5992,
+   "lat": -20.2506,
+   "lon": 44.441,
    "footprint": 34,
    "note": "A dirt road lined with Grandidier's baobabs up to 800 years old, the last of a forest long since cleared.",
    "plan": [
@@ -1259,14 +1259,14 @@
     -26.5,
     26.5
    ],
-   "clearance": 50
+   "clearance": 36
   },
   {
    "id": "table-mountain",
    "name": "Table Mountain",
    "iso": "ZAF",
-   "lat": -33.6516,
-   "lon": 19.0636,
+   "lat": -33.8931,
+   "lon": 18.906,
    "footprint": 55,
    "height": 1085,
    "note": "A flat-topped sandstone massif over Cape Town, often draped in the cloud the city calls its tablecloth.",
@@ -1282,8 +1282,8 @@
    "id": "statue-of-liberty",
    "name": "Statue of Liberty",
    "iso": "USA",
-   "lat": 41.2071,
-   "lon": -73.9696,
+   "lat": 40.3679,
+   "lon": -73.9885,
    "footprint": 24,
    "height": 93,
    "year": 1886,
@@ -1302,8 +1302,8 @@
    "id": "empire-state",
    "name": "Empire State Building",
    "iso": "USA",
-   "lat": 40.8889,
-   "lon": -74.2668,
+   "lat": 40.8194,
+   "lon": -74.1594,
    "footprint": 18,
    "height": 443,
    "year": 1931,
@@ -1315,14 +1315,14 @@
     8
    ],
    "setting": "parcel",
-   "clearance": 44
+   "clearance": 50
   },
   {
    "id": "golden-gate-bridge",
    "name": "Golden Gate Bridge",
    "iso": "USA",
-   "lat": 37.7524,
-   "lon": -121.8463,
+   "lat": 38.0698,
+   "lon": -122.626,
    "footprint": 55,
    "height": 227,
    "year": 1937,
@@ -1334,14 +1334,14 @@
     -54.5,
     54.5
    ],
-   "clearance": 20
+   "clearance": 40
   },
   {
    "id": "mount-rushmore",
    "name": "Mount Rushmore",
    "iso": "USA",
-   "lat": 43.8753,
-   "lon": -103.4398,
+   "lat": 43.879,
+   "lon": -103.459,
    "footprint": 55,
    "year": 1941,
    "note": "Four presidents, each face 18 metres tall, carved into the granite of the Black Hills between 1927 and 1941.",
@@ -1357,8 +1357,8 @@
    "id": "space-needle",
    "name": "Space Needle",
    "iso": "USA",
-   "lat": 47.6949,
-   "lon": -122.1998,
+   "lat": 47.6838,
+   "lon": -122.2164,
    "footprint": 11.3,
    "height": 184,
    "year": 1962,
@@ -1370,14 +1370,14 @@
     11
    ],
    "setting": "parcel",
-   "clearance": 20
+   "clearance": 50
   },
   {
    "id": "cn-tower",
    "name": "CN Tower",
    "iso": "CAN",
-   "lat": 43.8187,
-   "lon": -79.5541,
+   "lat": 43.7386,
+   "lon": -79.4435,
    "footprint": 4.8,
    "height": 553,
    "year": 1976,
@@ -1396,8 +1396,8 @@
    "id": "niagara-falls",
    "name": "Niagara Falls",
    "iso": "CAN",
-   "lat": 43.2269,
-   "lon": -79.2037,
+   "lat": 43.083,
+   "lon": -79.075,
    "footprint": 52,
    "note": "Three falls on the border of Canada and the United States, together the most powerful waterfall in North America.",
    "plan": [
@@ -1413,8 +1413,8 @@
    "id": "chateau-frontenac",
    "name": "Château Frontenac",
    "iso": "CAN",
-   "lat": 46.6453,
-   "lon": -70.7988,
+   "lat": 46.7436,
+   "lon": -71.1104,
    "footprint": 32,
    "height": 79,
    "year": 1893,
@@ -1426,15 +1426,15 @@
     -18,
     23.5
    ],
-   "setting": "plaza",
-   "clearance": 36
+   "setting": "parcel",
+   "clearance": 12
   },
   {
    "id": "citadelle-laferriere",
    "name": "Citadelle Laferrière",
    "iso": "HTI",
-   "lat": 19.455,
-   "lon": -72.1922,
+   "lat": 19.5744,
+   "lon": -72.2437,
    "footprint": 31,
    "year": 1820,
    "note": "The largest fortress in the Americas, built by Henri Christophe after Haiti's independence to hold off a French return.",
@@ -1450,8 +1450,8 @@
    "id": "el-capitolio",
    "name": "El Capitolio",
    "iso": "CUB",
-   "lat": 22.9365,
-   "lon": -82.02,
+   "lat": 23.0047,
+   "lon": -82.2935,
    "footprint": 46,
    "height": 92,
    "year": 1929,
@@ -1462,15 +1462,15 @@
     -44.5,
     44.5
    ],
-   "setting": "plaza",
-   "clearance": 20
+   "setting": "parcel",
+   "clearance": 44
   },
   {
    "id": "the-pitons",
    "name": "The Pitons",
    "iso": "LCA",
-   "lat": 13.8063,
-   "lon": -61.0458,
+   "lat": 13.81,
+   "lon": -61.06,
    "footprint": 38,
    "height": 771,
    "note": "Two volcanic spires rising straight out of the Caribbean on the south-west coast of Saint Lucia.",
@@ -1504,8 +1504,8 @@
    "id": "teotihuacan",
    "name": "Teotihuacan",
    "iso": "MEX",
-   "lat": 19.7311,
-   "lon": -98.5119,
+   "lat": 19.7255,
+   "lon": -98.7197,
    "footprint": 54.5,
    "note": "A city of perhaps 100,000 people around AD 450, laid out along the Avenue of the Dead below the Pyramid of the Sun.",
    "plan": [
@@ -1537,8 +1537,8 @@
    "id": "christ-the-redeemer",
    "name": "Christ the Redeemer",
    "iso": "BRA",
-   "lat": -22.3791,
-   "lon": -43.5791,
+   "lat": -22.8401,
+   "lon": -43.6488,
    "footprint": 48,
    "height": 38,
    "year": 1931,
@@ -1549,7 +1549,7 @@
     -40.5,
     36.5
    ],
-   "clearance": 50
+   "clearance": 20
   },
   {
    "id": "angel-falls",
@@ -1572,8 +1572,8 @@
    "id": "las-lajas",
    "name": "Las Lajas Sanctuary",
    "iso": "COL",
-   "lat": 0.6572,
-   "lon": -77.53,
+   "lat": 0.8047,
+   "lon": -77.5854,
    "footprint": 27,
    "year": 1949,
    "note": "A neo-Gothic basilica built across a river gorge in the south of Colombia, a few kilometres from Ecuador.",
@@ -1615,14 +1615,14 @@
     -16.5,
     18
    ],
-   "clearance": 28
+   "clearance": 50
   },
   {
    "id": "moai-rapa-nui",
    "name": "Moai of Rapa Nui",
    "iso": "CHL",
-   "lat": -27.1035,
-   "lon": -109.2352,
+   "lat": -27.125,
+   "lon": -109.277,
    "footprint": 29,
    "note": "Nearly a thousand stone figures carved by the Rapa Nui; most stand with their backs to the sea, watching over the villages.",
    "plan": [
@@ -1648,14 +1648,14 @@
     -26,
     33
    ],
-   "clearance": 24
+   "clearance": 50
   },
   {
    "id": "sydney-opera-house",
    "name": "Sydney Opera House",
    "iso": "AUS",
-   "lat": -33.3695,
-   "lon": 151.4175,
+   "lat": -33.4917,
+   "lon": 151.215,
    "footprint": 45,
    "year": 1973,
    "note": "Jørn Utzon's shells took sixteen years to build, and their roofs carry more than a million glazed tiles.",
@@ -1666,14 +1666,14 @@
     42
    ],
    "shore": true,
-   "clearance": -20
+   "clearance": -16
   },
   {
    "id": "sydney-harbour-bridge",
    "name": "Sydney Harbour Bridge",
    "iso": "AUS",
-   "lat": -33.8518,
-   "lon": 150.558,
+   "lat": -33.9388,
+   "lon": 150.7306,
    "footprint": 52,
    "height": 134,
    "year": 1932,
@@ -1707,8 +1707,8 @@
    "id": "moeraki-boulders",
    "name": "Moeraki Boulders",
    "iso": "NZL",
-   "lat": -45.3212,
-   "lon": 170.5223,
+   "lat": -45.3707,
+   "lon": 170.6983,
    "footprint": 28,
    "note": "Spherical concretions up to two metres across, weathered out of the mudstone cliffs of the Otago coast.",
    "plan": [
@@ -1742,8 +1742,8 @@
    "id": "mount-yasur",
    "name": "Mount Yasur",
    "iso": "VUT",
-   "lat": -19.5162,
-   "lon": 169.4509,
+   "lat": -19.53,
+   "lon": 169.447,
    "footprint": 26,
    "height": 361,
    "note": "One of the most accessible active volcanoes in the world, erupting several times an hour for at least 800 years.",
@@ -1754,7 +1754,7 @@
     25.5
    ],
    "shore": true,
-   "clearance": -24
+   "clearance": -12
   },
   {
    "id": "south-pole",

@@ -23,7 +23,8 @@ import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand, coastEdges, groundRadius, o
 import { gradeAt, reliefAt, setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import type { Slope } from '../src/terrain.ts';
 import { terrainSiteOf } from '../src/places.ts';
-import { decodePlaces, inflate } from '../src/pack.ts';
+import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
+import { roadCorridors } from '../src/roads.ts';
 import { latOf, lonOf } from '../src/sphere.ts';
 import { isWater } from '../src/vehicles.ts';
 import { createLandProbe, drawnRadius } from '../src/land-probe.ts';
@@ -62,7 +63,8 @@ const placesRaw = decodePlaces(await inflate(readFileSync(resolve(here, '../publ
 setDetailSites(placesRaw.map(terrainSiteOf));
 const world = await loadWorld(UNITS_PER_DEGREE, await loadLakes());
 const started = Date.now();
-const land = buildLand(world);
+const roadNetwork = decodeRoads(await inflate(readFileSync(resolve(here, '../public/data/roads.bin'))));
+const land = buildLand(world, roadCorridors(roadNetwork.roads, placesRaw));
 console.log(`the land: ${(land.geometry.getAttribute('position').count / 3).toLocaleString()} triangles in ${Date.now() - started} ms`);
 const position = land.geometry.getAttribute('position').array as Float32Array;
 const spans = (land.userData['landFlags'] as LandFlagData).spans;

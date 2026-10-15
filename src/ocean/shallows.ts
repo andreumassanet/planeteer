@@ -32,7 +32,7 @@ import { FOAM_COLOR, clamp, depthMix, waterProfile } from './water-colour.ts';
  * not: the sphere carries the orbital read, which the knob is least able to give
  * up, and at low detail it has to carry more of the depth ramp, not less. The
  * ribbon only sharpens an answer the sphere already gives. `SHELF` does not grow
- * past 1 (a shelf is 172 km); more detail buys a finer tolerance, until it runs
+ * past 1 (a shelf is 86 km); more detail buys a finer tolerance, until it runs
  * out at the outlines themselves. The knob is read once, when the sea is built.
  */
 const SHELF_TOLERANCE = 3;

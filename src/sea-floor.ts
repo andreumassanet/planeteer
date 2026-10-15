@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { LandRing, World } from './geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE, coastEdges, onSphere } from './globe.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE, coastEdges, onSphere } from './globe.ts';
 import { meanTemperature } from './biome.ts';
 import { fbm } from './terrain.ts';
 import { hash3 } from './weather.ts';
@@ -461,9 +461,9 @@ export interface Cruiser {
  * it is the same however you arrive, and two tiles share their edge vertices
  * exactly — across a cube's edge as well — so the floor has no crack.
  */
-export const TILES_PER_FACE = 64;
+export const TILES_PER_FACE = 64 * WORLD_SCALE;
 export const TILE_QUADS = 32;
-/** A tile's side along the middle of a face, in units: a quarter of a degree short of four hundred. */
+/** A tile's side along the middle of a face, in units: about 393, whatever the planet's size (`WORLD_SCALE`). */
 export const TILE_UNITS = (PLANET_RADIUS * Math.PI) / 2 / TILES_PER_FACE;
 
 /** The six faces: normal, then the two in-face axes, `U x W = N` so a quad wound U then W faces out. */
@@ -728,12 +728,17 @@ function finishLife(key: number, life: TileLife, middle: { x: number; y: number;
   if (!life.wet) life.wet = isSeaAt(middle.x, middle.y, middle.z);
 }
 
-/** The shallowest water a school lives over, and how far from the shore it keeps. */
+/**
+ * The shallowest water a school lives over, and how far from the shore it
+ * keeps: 14 nominal units. The shore it measures is the drawn coast and the
+ * one it must not cross is the outlines', and the two are cut at a fixed angle,
+ * so the gap between them, and the margin, grow with `WORLD_SCALE`.
+ */
 export const SCHOOL_FLOOR = 3;
-export const SCHOOL_SHORE = 14;
-/** The same for the big swimmers. */
+export const SCHOOL_SHORE = 14 * WORLD_SCALE;
+/** The same for the big swimmers: 24 nominal units. */
 export const CRUISER_FLOOR = 5;
-export const CRUISER_SHORE = 24;
+export const CRUISER_SHORE = 24 * WORLD_SCALE;
 
 // ---------------------------------------------------------------------------
 // Where they are at an instant

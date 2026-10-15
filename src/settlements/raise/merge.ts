@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { MACHINE_BED } from '../../craft/parked.ts';
 import type { Ground } from '../ground/build.ts';
-import { townGlass, townLeaves } from '../meshes.ts';
+import { boundingSteps, townGlass, townLeavesSteps } from '../meshes.ts';
 import type { LeafCard } from '../meshes.ts';
 import { LAMP_HEAD } from '../rules.ts';
+import { unpublish } from '../registry.ts';
 import { writeSurface } from '../surfaces.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
 
@@ -12,6 +13,9 @@ import type { RaiseJob, RaiseKit } from './job.ts';
  * frame, then the floor as its tail; then the mesh placed by one transform,
  * so the vertex coordinates stay small and the bounding sphere is the town's.
  */
+
+/** How many floats of position (a third as many vertices) the merge copies between two steps. */
+const MERGE_SLICE = 3 * 20_000;
 
 /** The merged attributes, and where the floor starts in them. */
 interface TownBuffer {
@@ -32,7 +36,7 @@ interface TownBuffer {
 export function swapNearTrees(kit: RaiseKit, job: RaiseJob): { cards: LeafCard[]; leafVertices: number } {
   const cards: LeafCard[] = [];
   let leafVertices = 0;
-  if (!job.slot.builtPeopled) return { cards, leafVertices };
+  if (!job.peopled) return { cards, leafVertices };
   for (const item of job.standing) {
     const near = kit.variants.nearTrees.get(item.flat);
     if (near === undefined) continue;
@@ -71,6 +75,8 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
     const source = item.flat;
     const count = source.position.length;
     for (let i = 0; i < count; i += 3) {
+      // A run as long as a city's street dressing is a step a slice of it.
+      if (i > 0 && i % MERGE_SLICE === 0) yield;
       const x = source.position[i]!;
       const y = source.position[i + 1]!;
       const z = source.position[i + 2]!;
@@ -109,11 +115,18 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
     }
     vertex += written;
   }
+  // The floor, a slice a step.
+  for (let from = 0; from < ground.position.length; from += MERGE_SLICE) {
+    yield;
+    const to = Math.min(ground.position.length, from + MERGE_SLICE);
+    for (let i = from; i < to; i++) {
+      position[cursor + i] = ground.position[i]!;
+      normal[cursor + i] = ground.normal[i]!;
+      color[cursor + i] = ground.color[i]!;
+      outline[cursor + i] = Math.round(ground.normal[i]! * 127);
+    }
+  }
   yield;
-  position.set(ground.position, cursor);
-  normal.set(ground.normal, cursor);
-  color.set(ground.color, cursor);
-  for (let i = 0; i < ground.normal.length; i++) outline[cursor + i] = Math.round(ground.normal[i]! * 127);
   // The floor is the buffer's tail, so its pools land on the vertices the floor wrote them for.
   glow.set(ground.glow, vertex * 2);
   surface.set(ground.surface, vertex);
@@ -122,15 +135,24 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
   return { position, normal, color, outline, glow, surface, pane, total, groundVertices };
 }
 
+/** A town's mesh built and placed, not yet in the world. */
+export interface TownMesh {
+  mesh: THREE.Mesh;
+  leafMesh: THREE.Mesh | null;
+  glassMesh: THREE.Mesh | null;
+  cards: readonly LeafCard[];
+  total: number;
+  leafVertices: number;
+}
+
 /**
- * The town's mesh, placed and fading in, with its leaves and parked glass as
- * children; then everything published in the town's frame moved into the
- * world's once (the town does not move while it stands), and the town's
- * memory counted.
+ * The town's mesh, placed by the town's frame, with its leaves and parked
+ * glass as children, in steps: a city's mesh is measured and its leaves are
+ * merged a slice at a time.
  */
-export function placeTown(kit: RaiseKit, job: RaiseJob, ground: Ground, buffer: TownBuffer, cards: readonly LeafCard[], leafVertices: number): void {
+export function* townMeshSteps(kit: RaiseKit, job: RaiseJob, buffer: TownBuffer, cards: readonly LeafCard[], leafVertices: number): Generator<void, TownMesh, void> {
   const { slot } = job;
-  const { frame, registry } = kit;
+  const { frame } = kit;
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(buffer.position, 3));
   geometry.setAttribute('normal', new THREE.BufferAttribute(buffer.normal, 3));
@@ -140,7 +162,7 @@ export function placeTown(kit: RaiseKit, job: RaiseJob, ground: Ground, buffer: 
   geometry.setAttribute('atlasLit', new THREE.BufferAttribute(buffer.glow, 2, true));
   geometry.setAttribute('atlasSurface', new THREE.BufferAttribute(buffer.surface, 1, false));
   geometry.setAttribute('atlasPane', new THREE.BufferAttribute(buffer.pane, 2, true));
-  geometry.computeBoundingSphere();
+  yield* boundingSteps(geometry);
 
   const mesh = new THREE.Mesh(geometry, kit.material);
   mesh.name = `town:${slot.place.name}`;
@@ -152,17 +174,53 @@ export function placeTown(kit: RaiseKit, job: RaiseJob, ground: Ground, buffer: 
   mesh.userData.dressing = slot.dressing;
   mesh.position.copy(frame.origin);
   mesh.quaternion.setFromRotationMatrix(frame.basis);
-  const leafMesh = leafVertices > 0 ? townLeaves(cards, leafVertices, slot.place.name, kit.leaves) : null;
+  yield;
+  const leafMesh = leafVertices > 0 ? yield* townLeavesSteps(cards, leafVertices, slot.place.name, kit.leaves) : null;
   if (leafMesh !== null) {
     mesh.add(leafMesh);
     mesh.userData.leaves = leafMesh;
-    registry.townCrowns(mesh, cards);
   }
+  yield;
   const glassMesh = townGlass(job.standing, slot.place.name);
   if (glassMesh !== null) {
     mesh.add(glassMesh);
     mesh.userData.glass = glassMesh;
   }
+  return { mesh, leafMesh, glassMesh, cards, total: buffer.total, leafVertices };
+}
+
+/**
+ * The last step, and the only one the world sees: whatever the slot had
+ * standing is let go of (its mesh left to the caller to retire), and the new
+ * town's floor, walls, people, lamps, bays, benches and racks are published
+ * with its mesh fading in, all at once. Everything published in the town's
+ * frame is moved into the world's here (the town does not move while it
+ * stands), and the town's memory counted.
+ */
+export function commitTown(kit: RaiseKit, job: RaiseJob, ground: Ground, town: TownMesh): void {
+  const { slot } = job;
+  const { registry } = kit;
+  const { mesh, leafMesh, glassMesh } = town;
+  unpublish(registry, slot);
+
+  slot.builtPeopled = job.peopled;
+  slot.planned = job.placed.length;
+  slot.drowned = job.drowned;
+  slot.buried = job.buried;
+  slot.onRelief = job.onRelief;
+  slot.buildings = job.built.size;
+  slot.paved = ground.paved;
+  slot.floor = job.floor;
+  if (slot.floor !== null) {
+    registry.floors.add(slot);
+    registry.noteFloor(slot);
+  }
+  slot.folk = job.folk;
+  slot.parked = job.parked;
+  slot.benches = job.benches;
+  slot.bikeSlots = job.bikeSlots;
+
+  if (leafMesh !== null) registry.townCrowns(mesh, town.cards);
   registry.group.add(mesh);
   registry.fader.in(mesh);
   if (leafMesh !== null) registry.fader.in(leafMesh);
@@ -171,10 +229,10 @@ export function placeTown(kit: RaiseKit, job: RaiseJob, ground: Ground, buffer: 
 
   slot.mesh = mesh;
   const glassVertices = glassMesh === null ? 0 : glassMesh.geometry.getAttribute('position').count;
-  slot.triangles = (buffer.total + leafVertices + glassVertices) / 3;
+  slot.triangles = (town.total + town.leafVertices + glassVertices) / 3;
   slot.parts = job.standing.length;
   // Three float triples, two light bytes, three ink bytes, a surface byte and two pane bytes: 44 bytes a vertex.
-  slot.bytes = buffer.total * (3 * 4 * 3 + 2 + 3 + 1 + 2) + leafVertices * 26 + glassVertices * 36;
+  slot.bytes = town.total * (3 * 4 * 3 + 2 + 3 + 1 + 2) + town.leafVertices * 26 + glassVertices * 36;
 }
 
 /** Moves the town's people, lamps, bays, benches and racks into the world's frame, and registers the town for each. */

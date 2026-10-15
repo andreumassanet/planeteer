@@ -150,12 +150,13 @@ export function checkShoreRamp(ctx: WorldContext): void {
     }
     if (edge === Infinity) continue;
     // The last land before the water and 130 units back (the widest ramp, so
-    // the second sample is on the shelf). The whole walk must stay ashore, or
-    // it has crossed a peninsula and says nothing about this shore.
+    // the second sample is on the shelf). The whole walk must stay ashore, and
+    // a ramp's width past the second sample too, or the walk has crossed a
+    // peninsula onto the far shore's ramp and says nothing about this one.
     const wet = step(lat, lon, bearing, edge - 10);
     const dry = step(lat, lon, bearing, edge - 130);
     let ashore = true;
-    for (let back = 0; back <= 120 && ashore; back += 10) {
+    for (let back = 0; back <= 250 && ashore; back += 10) {
       const [y, x] = step(lat, lon, bearing, edge - 10 - back);
       if (world.countryAt(y, x) === 0) ashore = false;
     }

@@ -666,6 +666,17 @@ export function buildCars(models: ReadonlyMap<string, Model>): CraftModel[] {
   return SPECS.map((spec) => carModel(spec, models, k));
 }
 
+/** `buildCars` a craft a step, for a caller building over frames. */
+export function* buildCarsSteps(models: ReadonlyMap<string, Model>): Generator<void, CraftModel[], void> {
+  const k = carScale(models);
+  const built: CraftModel[] = [];
+  for (const spec of SPECS) {
+    yield;
+    built.push(carModel(spec, models, k));
+  }
+  return built;
+}
+
 // ---------------------------------------------------------------------------
 // The traffic's drivers
 // ---------------------------------------------------------------------------

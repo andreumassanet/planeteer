@@ -12,9 +12,10 @@ import type { DressFront } from './types.ts';
 /**
  * The façade phase: awnings, signs and blades on a shop's ground floor, then
  * flower boxes, shutters and air conditioners under the windows above.
- * Fronts are taken nearest the middle first; returns how many were dressed.
+ * Fronts are taken nearest the middle first, a step a front; returns how
+ * many were dressed.
  */
-export function dressFronts(d: Dresser): number {
+export function* dressFrontsSteps(d: Dresser): Generator<void, number, void> {
   const { input, sink, style } = d;
   const half = d.grid.half;
   let dressed = 0;
@@ -22,6 +23,7 @@ export function dressFronts(d: Dresser): number {
     .map((front, index) => ({ front, index, d: Math.hypot(front.solid.x, front.solid.z) }))
     .sort((a, b) => a.d - b.d || a.index - b.index);
   for (const { front, index, d: dist } of fronts) {
+    yield;
     // The least a front comes to is a shutter's pair; past that, nothing more fits.
     if (sink.triangles + 12 > d.cap) break;
     if (front.kind === 'civic') continue;

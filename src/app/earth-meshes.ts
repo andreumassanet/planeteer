@@ -39,13 +39,14 @@ export interface EarthMeshes {
   oceanLights: OceanLights;
 }
 
-export async function buildEarthMeshes(world: World, scene: THREE.Scene, sky: Sky): Promise<EarthMeshes> {
+/** `tight` is the roads' corridors (`roadCorridors`), which the land keeps close to the relief in. */
+export async function buildEarthMeshes(world: World, scene: THREE.Scene, sky: Sky, tight: ((point: THREE.Vector3) => boolean) | null): Promise<EarthMeshes> {
   await stage('filling the ocean');
   const ocean = createOcean(world);
   scene.add(ocean.group);
 
   await stage('raising the land');
-  const land = buildLand(world);
+  const land = buildLand(world, tight);
   scene.add(land);
   const landProbe = landProbeOf(land);
   const groundAt = (point: THREE.Vector3): number => drawnRadius(world, landProbe, point);

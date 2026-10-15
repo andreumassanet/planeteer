@@ -1,6 +1,6 @@
 /** The cloud deck's constants, its turn with the wind, and the coverage field. */
 import * as THREE from 'three';
-import { PLANET_RADIUS } from '../globe.ts';
+import { PLANET_RADIUS, WORLD_SCALE } from '../globe.ts';
 import { fbm } from '../terrain.ts';
 import { latOf } from '../sphere.ts';
 
@@ -17,8 +17,11 @@ export const RIM_LIFT = 95;
 
 /**
  * How finely the field is sampled: 20 * 4^DETAIL cells, 327,680 at 7, a cell 99
- * units across. A puff is seeded on a kept cell and nowhere else, so this is the
- * resolution of the weather's agreement with the sky.
+ * nominal units across (198 at `WORLD_SCALE` 2). A puff is seeded on a kept cell
+ * and nowhere else, so this is the resolution of the weather's agreement with
+ * the sky. The deck's widths are written at the nominal radius and multiplied by
+ * `WORLD_SCALE`, so the field, its cells and the shade map baked from it keep
+ * their proportions on any planet; its heights are the sky's and stay.
  */
 export const DETAIL = 7;
 
@@ -27,9 +30,9 @@ export const DETAIL = 7;
  * is `PLANET_RADIUS / wavelength`, because a direction is a unit vector and the
  * noise lattice lives in that space.
  */
-const WEATHER_SPAN = 900;
-const WARP_SPAN = 7000;
-const BASE_SPAN = 5200;
+const WEATHER_SPAN = 900 * WORLD_SCALE;
+const WARP_SPAN = 7000 * WORLD_SCALE;
+const BASE_SPAN = 5200 * WORLD_SCALE;
 
 const WEATHER_FREQUENCY = PLANET_RADIUS / WEATHER_SPAN;
 const WARP_FREQUENCY = PLANET_RADIUS / WARP_SPAN;
@@ -81,16 +84,18 @@ export function deckTurn(timeMs: number, target: THREE.Quaternion): THREE.Quater
 
 /**
  * How big a puff is, horizontally: `PUFF_RIM` at a bank's edge, `PUFF_HEART`
- * where it is deepest, each varied by `PUFF_JITTER` either way. The rim's must
- * still reach over its own 99-unit cell; at a thousand units up a 300-unit lobe
- * is 33 degrees of sky.
+ * where it is deepest, each varied by `PUFF_JITTER` either way: 85 and 300
+ * nominal units. The rim's must still reach over its own cell (`DETAIL`).
  */
-export const PUFF_RIM = 85;
-export const PUFF_HEART = 300;
+export const PUFF_RIM = 85 * WORLD_SCALE;
+export const PUFF_HEART = 300 * WORLD_SCALE;
 export const PUFF_JITTER = 0.22;
-/** How tall a puff is against how wide, at the rim and at the heart. */
-export const TALL_RIM = 0.6;
-export const TALL_HEART = 0.95;
+/**
+ * How tall a puff is against how wide, at the rim and at the heart: 0.6 and
+ * 0.95 of a nominal width, so a puff that widens with the planet keeps its height.
+ */
+export const TALL_RIM = 0.6 / WORLD_SCALE;
+export const TALL_HEART = 0.95 / WORLD_SCALE;
 /**
  * How much of its lower half a puff keeps: the belly is the sphere's bottom
  * squashed to this, so a bank's floor is nearly flat and a heap stands on it
@@ -116,7 +121,7 @@ export const TOWER_FROM = 0.72;
 export const SPACING = 0.85;
 export const COVERED = 0.7;
 /** The hash grid those tests run on: at least the largest refusal distance. */
-export const SEED_GRID = 320;
+export const SEED_GRID = 320 * WORLD_SCALE;
 
 /**
  * How a heap shades as one soft mass rather than a pile of balls. The upper
@@ -148,12 +153,12 @@ export const SPLIT_RANGE = 11000;
 /** The sub-chunks the near levels are culled and chosen by: DETAIL-3 faces, 64 a base face, ~2,300 units across. */
 export const SUB_LEVEL = 3;
 /**
- * The smallest puff of the far set. From past `SPLIT_RANGE` a rim puff of 85
- * units is a few pixels and there are tens of thousands of them, so the far set
+ * The smallest puff of the far set, 210 nominal units. From past `SPLIT_RANGE` a rim puff
+ * is a few pixels and there are tens of thousands of them, so the far set
  * is seeded again over the same cells with no puff under this: a bank is the
  * same bank, a little fuller at its rim, from a fraction of the puffs.
  */
-export const FAR_LEAST = 210;
+export const FAR_LEAST = 210 * WORLD_SCALE;
 
 /**
  * The soft edge: how far a face must turn from the eye before it is drawn

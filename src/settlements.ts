@@ -91,9 +91,9 @@ export function createSettlements(
   const squareOf = (slot: Slot) => squareSteps(frame, world, slot, roadGates, broken);
   const planner = createPlanner(frame, roadGates, styleFor, variants.variantOf, (slot, grid, style) =>
     countrysideSteps(frame, slots, roadGates, inTheCountry, slot, grid, style));
-  // Bound once the lifecycle exists: a plan built now makes way for the far town under way.
+  // Bound once the lifecycle exists: a plan built now makes way for the town under way.
   let lifecycle: Lifecycle | null = null;
-  const plans = createMapPlans(world, frame, slots, variants, squareOf, planner.planTownSteps, inTheCountry, () => lifecycle!.yieldFarJob());
+  const plans = createMapPlans(world, frame, slots, variants, squareOf, planner.planTownSteps, inTheCountry, () => lifecycle!.endJob());
   const kit: RaiseKit = {
     world,
     frame,

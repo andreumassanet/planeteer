@@ -1,33 +1,39 @@
 import type * as THREE from 'three';
 import type { TownGrid } from '../scenery/grid.ts';
 import type { Placed } from '../scenery/index.ts';
+import { parkedModelsSteps } from '../craft/parked.ts';
 import { drain } from './budget.ts';
+import { foldBay } from './near.ts';
+import { unpublish } from './registry.ts';
 import type { Registry } from './registry.ts';
 import type { Slot } from './types.ts';
 
 /**
- * A town's life in the streamer: raised whole or a step at a time, built again
- * with its old mesh drawn until the new one stands, and dropped.
+ * A town's life in the streamer: raised a step at a time, built again with
+ * its old mesh drawn and its old floor stood on until the new one stands, and
+ * dropped.
  */
 export interface Lifecycle {
-  /** Raises a town whole, ending or finishing any far town under way first. */
+  /** Raises a town whole, abandoning any build under way first. */
   raise(slot: Slot): void;
   /** Plans a town's plots whole, for `compare`. */
   planTown(slot: Slot, grid: TownGrid): { placed: Placed[] };
   /** Takes a town out: dissolved, or at once when `instant`. */
   drop(slot: Slot, instant?: boolean): void;
-  /** Builds a standing town again and trades the old mesh for the new one in the same frame, as a cross-dissolve. */
-  rebuild(slot: Slot): void;
   /** Whether a town whose rank moved has to be built again to show it. */
   needsRebuild(slot: Slot): boolean;
-  /** Steps a far town while `more` allows; true once it stands. */
-  stepFar(slot: Slot, more: () => boolean): boolean;
-  /** Makes way for another build: a far town begun from nothing is abandoned, one being rebuilt is finished. */
-  yieldFarJob(): void;
-  /** Abandons the far town under way and takes back what its steps published. */
-  endFarJob(): void;
-  /** The town a far job is building, or null. */
-  farSlot(): Slot | null;
+  /**
+   * Steps a town's build while `more` allows, beginning it if it is not the
+   * one under way (which abandons that one); true once it stands, or once it
+   * turned out to build nothing.
+   */
+  step(slot: Slot, near: boolean, more: () => boolean): boolean;
+  /** Abandons the build under way: what stood stays standing, and is built again later. */
+  endJob(): void;
+  /** The town being built, or null. */
+  jobSlot(): Slot | null;
+  /** Whether the build under way is a near one. */
+  jobNear(): boolean;
 }
 
 export function createLifecycle(
@@ -38,160 +44,109 @@ export function createLifecycle(
   endPlanJob: () => void,
 ): Lifecycle {
   /**
-   * A far town built a step at a time over as many frames as it takes, asking
-   * the frame's allowance between steps, so a big city arriving from the plane
-   * is not one long frame. A town built again keeps its old mesh drawn until
-   * the last step. A near town is still built whole: the ground under a foot is
-   * worth the frame.
+   * One town built a step at a time over as many frames as it takes, near or
+   * far, asking the frame's allowance between steps, so neither a city arriving
+   * from the plane nor one walked into is one long frame. The raise publishes
+   * nothing until its last step, so the town it replaces (`old`) stands, is
+   * drawn and is stood on until then, and an abandoned build costs nothing but
+   * the work.
    */
-  let farJob: { slot: Slot; steps: Generator<void, void, void>; old: THREE.Mesh | null } | null = null;
+  let job: { slot: Slot; steps: Generator<void, void, void>; old: THREE.Mesh | null; near: boolean } | null = null;
 
-  /** A far town's steps: its region's variants first, then the town. */
-  function* farSteps(slot: Slot): Generator<void, void, void> {
+  /** A town's steps: its region's variants first (and the parked craft for a peopled one), then the town. */
+  function* townSteps(slot: Slot): Generator<void, void, void> {
     yield* warmSteps(slot);
+    if (slot.peopled) yield* parkedModelsSteps();
     yield* raiseSteps(slot);
   }
 
-  function endFarJob(): void {
-    if (farJob === null) return;
-    const slot = farJob.slot;
-    const old = farJob.old;
-    farJob.steps.return(undefined);
-    farJob = null;
-    if (slot.mesh !== null) return;
-    // A town being built again goes out as the town it was.
-    if (old !== null) registry.retire(old, false);
-    slot.stale = false;
-    if (slot.floor !== null) registry.noteFloor(slot);
-    slot.floor = null;
-    registry.floors.delete(slot);
-    slot.folk = [];
-    slot.parked = [];
-    slot.benches = [];
-    slot.bikeSlots = [];
-    slot.paved = 0;
+  function endJob(): void {
+    if (job === null) return;
+    const { slot, old } = job;
+    job.steps.return(undefined);
+    job = null;
+    // What stood goes on standing, and is built again when it is next served.
+    if (old !== null && slot.mesh === old) slot.stale = true;
   }
 
-  function stepFar(slot: Slot, more: () => boolean): boolean {
-    // The steps share the town frame and the terraces with any other build.
-    if (farJob !== null && farJob.slot !== slot) endFarJob();
-    endPlanJob();
-    if (farJob === null) {
-      const old = slot.mesh;
-      if (old !== null) letGoOf(registry, slot);
-      farJob = { slot, steps: farSteps(slot), old };
+  /** A build run to its end: the old mesh retired, or the slot emptied when nothing would stand. */
+  function finish(slot: Slot, old: THREE.Mesh | null): void {
+    if (old === null) return;
+    if (slot.mesh === old) {
+      // It would not build: nothing stands here, as after `drop`.
+      unpublish(registry, slot);
+      emptied(slot);
     }
-    const job = farJob;
+    registry.retire(old, false);
+    // A vehicle taken from the old town while the new one was built leaves its bay empty in this one too.
+    for (const bay of slot.parked) if (!bay.hidden && registry.parkedTaken(bay.id)) foldBay(slot, bay);
+  }
+
+  function needsRebuild(slot: Slot): boolean {
+    // A far town built near keeps its parked cars and stops publishing people,
+    // so only kit assets, or a far build now near, need a rebuild.
+    if (slot.mesh === null || slot.builtPeopled === slot.peopled) return false;
+    return slot.style.assets !== undefined || slot.peopled;
+  }
+
+  function step(slot: Slot, near: boolean, more: () => boolean): boolean {
+    // The steps share the town frame and the terraces with any other build.
+    if (job !== null && job.slot !== slot) endJob();
+    endPlanJob();
+    job ??= { slot, steps: townSteps(slot), old: slot.mesh, near };
+    const current = job;
     do {
-      if (job.steps.next().done === true) {
-        farJob = null;
-        if (job.old !== null) {
-          registry.retire(job.old, false);
-          settleRebuilt(slot);
-        }
+      if (current.steps.next().done === true) {
+        job = null;
+        finish(slot, current.old);
+        // Its rank may have moved while it was built.
+        if (needsRebuild(slot)) slot.stale = true;
         return true;
       }
     } while (more());
     return false;
   }
 
-  function yieldFarJob(): void {
-    endPlanJob();
-    if (farJob === null) return;
-    if (farJob.old === null) endFarJob();
-    else stepFar(farJob.slot, () => true);
-  }
-
-  function raise(slot: Slot): void {
-    yieldFarJob();
-    drain(raiseSteps(slot));
-  }
-
   return {
-    raise,
+    raise(slot) {
+      endJob();
+      endPlanJob();
+      const old = slot.mesh;
+      drain(townSteps(slot));
+      finish(slot, old);
+    },
     planTown(slot, grid) {
-      yieldFarJob();
+      endJob();
+      endPlanJob();
       return drain(planTownSteps(slot, grid));
     },
-    drop: (slot, instant) => drop(registry, slot, instant),
-    rebuild(slot) {
-      const old = slot.mesh;
-      if (old === null) {
-        raise(slot);
-        return;
-      }
-      letGoOf(registry, slot);
-      raise(slot);
-      registry.retire(old, false);
-      settleRebuilt(slot);
+    drop(slot, instant) {
+      if (job?.slot === slot) endJob();
+      drop(registry, slot, instant);
     },
-    needsRebuild(slot) {
-      // A far town built near keeps its parked cars and stops publishing people,
-      // so only kit assets, or a far build now near, need a rebuild.
-      if (slot.mesh === null || slot.builtPeopled === slot.peopled) return false;
-      return slot.style.assets !== undefined || slot.peopled;
-    },
-    stepFar,
-    yieldFarJob,
-    endFarJob,
-    farSlot: () => farJob?.slot ?? null,
+    needsRebuild,
+    step,
+    endJob,
+    jobSlot: () => job?.slot ?? null,
+    jobNear: () => job?.near ?? false,
   };
 }
 
 /** Takes a town out: dissolved, or at once when `instant`. */
 function drop(registry: Registry, slot: Slot, instant = false): void {
-  if (slot.mesh === null) return;
-  slot.stale = false;
-  slot.folk = [];
-  registry.inhabited.delete(slot);
-  registry.lit.delete(slot);
-  slot.lampHeads = null;
-  slot.parked = [];
-  registry.parkedTowns.delete(slot);
-  slot.benches = [];
-  registry.benchTowns.delete(slot);
-  slot.bikeSlots = [];
-  registry.rackTowns.delete(slot);
-  registry.retire(slot.mesh, instant);
-  slot.mesh = null;
+  const mesh = slot.mesh;
+  if (mesh === null) return;
+  // The floor goes with the mesh, or it is a plinth a player walks on over open ground.
+  unpublish(registry, slot);
+  registry.retire(mesh, instant);
+  emptied(slot);
+}
+
+/** A slot with nothing standing counts nothing. */
+function emptied(slot: Slot): void {
   slot.triangles = 0;
   slot.parts = 0;
   slot.paved = 0;
-  // The floor goes with the mesh, or it is a plinth a player walks on over open ground.
-  if (slot.floor !== null) registry.noteFloor(slot);
-  slot.floor = null;
-  registry.floors.delete(slot);
   slot.bytes = 0;
-}
-
-/**
- * What a standing town published goes ahead of building it again; its mesh
- * is left to the caller. `noteFloor` first, because it reads the floor.
- */
-function letGoOf(registry: Registry, slot: Slot): void {
-  if (slot.floor !== null) registry.noteFloor(slot);
-  slot.floor = null;
-  registry.floors.delete(slot);
-  registry.inhabited.delete(slot);
-  registry.lit.delete(slot);
-  slot.lampHeads = null;
-  slot.folk = [];
-  registry.parkedTowns.delete(slot);
-  slot.parked = [];
-  slot.benches = [];
-  registry.benchTowns.delete(slot);
-  slot.bikeSlots = [];
-  registry.rackTowns.delete(slot);
-  slot.mesh = null;
-}
-
-/** After a town was built again: if it would not build, nothing stands here, as after `drop`. */
-function settleRebuilt(slot: Slot): void {
-  if (slot.mesh === null) {
-    slot.triangles = 0;
-    slot.parts = 0;
-    slot.paved = 0;
-    slot.bytes = 0;
-    slot.stale = false;
-  }
+  slot.stale = false;
 }

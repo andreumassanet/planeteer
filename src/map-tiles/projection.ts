@@ -39,7 +39,7 @@ export const BAKED_LEVELS = 3;
  * stamp. Bump it when anything that changes what a tile looks like changes,
  * or stored tiles are drawn beside new ones.
  */
-export const MAP_STYLE = 'maps-2';
+export const MAP_STYLE = 'maps-3';
 
 /** The level whose pixels are no larger than a screen pixel at this many screen pixels a sheet unit. */
 export function levelFor(pixelsPerUnit: number): number {

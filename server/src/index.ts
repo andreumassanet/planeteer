@@ -56,7 +56,7 @@
  * wherever the vehicle has got to.
  *
  * A vehicle comes to rest when its driver leaves, disconnects or is silent
- * for `SILENT_MS`. Resting poses are stored as `veh:<id>` -> `{ p, at, k? }`
+ * for `SILENT_MS`. Resting poses are stored as `veh<WORLD_SCALE>:<id>` -> `{ p, at, k? }`
  * on parking and every `SAVE_MS` while driven. A vehicle untouched for
  * `EXPIRE_MS` returns to its site unless a player is within `WATCHED_REACH`.
  * Seats are not stored: each socket's attachment carries its own, and a wake
@@ -83,6 +83,7 @@ import {
   shellOf,
   spendChat,
   spendHonk,
+  WORLD_SCALE,
 } from './limits.ts';
 import {
   KEY,
@@ -141,7 +142,11 @@ const WATCHED_RETRY_MS = 10 * 60_000;
  * About 100 characters of `hi` each, so this keeps `hi` near half a megabyte.
  */
 const MAX_STORED = 5_000;
-const STORED = 'veh:';
+/**
+ * The key prefix of a resting pose. A pose is a world position, so the prefix
+ * carries the planet's size: rows kept at another radius are never read back.
+ */
+const STORED = `veh${WORLD_SCALE}:`;
 
 export class Room extends DurableObject<Env> {
   private readonly crafts = new Map<string, Craft>();

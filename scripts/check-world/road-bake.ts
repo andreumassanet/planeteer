@@ -5,7 +5,7 @@ import { check } from './harness.ts';
 import { Vector3 } from 'three';
 import { toLatLon } from '../../src/geo.ts';
 import { PLANET_RADIUS } from '../../src/globe.ts';
-import { isShown, radiusOf } from '../../src/places.ts';
+import { isShown, nominalRadiusOf, radiusOf } from '../../src/places.ts';
 import { packedBend } from '../../src/pack.ts';
 import {
   carriageEdges,
@@ -558,7 +558,7 @@ export function checkBakeAccounting(roads: Road[], settled: Place[], world: Worl
   for (let i = 0; i < settled.length; i++) {
     if (!isShown(settled[i]!) || degree[i]! > 0) continue;
     alone++;
-    if (radiusOf(settled[i]!) < 55) continue;
+    if (nominalRadiusOf(settled[i]!) < 55) continue;
     aloneBig++;
     if (aloneNames.length < 6) aloneNames.push(settled[i]!.name);
   }

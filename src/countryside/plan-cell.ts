@@ -1,7 +1,7 @@
 /** Planning one cell: what the ground allows, which big thing it draws, and where it finds room. */
 import * as THREE from 'three';
 import type { World } from '../geo.ts';
-import { UNITS_PER_DEGREE } from '../globe.ts';
+import { UNITS_PER_DEGREE, WORLD_SCALE } from '../globe.ts';
 import { MAX_RELIEF, reliefAt, shoreDistance } from '../terrain.ts';
 import { biomeAt, biomeSample } from '../biome.ts';
 import type { BiomeId } from '../biome.ts';
@@ -105,7 +105,9 @@ export function createCellPlanner(world: World, options: CountrysideOptions, sit
       const turbines = turbineWeight(iso, region);
       if (turbines > 0 && nearTown > 120) choices.push({ item: 'turbines', weight: turbines });
     }
-    if (t.coast < t.cellDeg) {
+    // The coast field is sampled on a fixed half-degree grid, so a cell is
+    // coastal by its nominal size in degrees, not by its own.
+    if (t.coast < t.cellDeg * WORLD_SCALE) {
       choices.push({ item: 'lighthouse', weight: nearTown < 2500 ? 1.4 : 0.5 });
       if (nearTown > 150 && biome !== 'ice' && biome !== 'desert') choices.push({ item: 'fishing', weight: 1.1 });
     }

@@ -195,3 +195,13 @@ function partModel(spec: PartSpec): CraftModel {
 export function buildPartCraft(): CraftModel[] {
   return SPECS.map(partModel);
 }
+
+/** `buildPartCraft` a craft a step, for a caller building over frames. */
+export function* buildPartCraftSteps(): Generator<void, CraftModel[], void> {
+  const built: CraftModel[] = [];
+  for (const spec of SPECS) {
+    yield;
+    built.push(partModel(spec));
+  }
+  return built;
+}

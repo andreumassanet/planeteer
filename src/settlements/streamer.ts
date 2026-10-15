@@ -33,8 +33,7 @@ import type { SettlementStats, Slot } from './types.ts';
 /**
  * The near/far streamer: which towns should stand, judged by distance, pixels
  * on screen, the view cone, a triangle budget and a count; and the build queue
- * served against the frame's allowance, near towns whole and far ones a step
- * at a time.
+ * served a step at a time against the frame's allowance.
  */
 export interface Streamer {
   readonly stats: SettlementStats;
@@ -123,8 +122,8 @@ export function createStreamer(
       }
       requeueOnRelief(state);
       build(state, viewer);
-      // The map's plans, in what the towns left of the frame, and only while no far town is half built.
-      if (lifecycle.farSlot() === null && plans.pending) plans.stepPlans(performance.now());
+      // The map's plans, in what the towns left of the frame, and only while no town is half built.
+      if (lifecycle.jobSlot() === null && plans.pending) plans.stepPlans(performance.now());
       count(state);
     },
     requeue(index) {
@@ -160,8 +159,8 @@ function candidatesOf(state: StreamState, viewer: THREE.Vector3, range: number):
     anchor.set(anchors[i * 3]!, anchors[i * 3 + 1]!, anchors[i * 3 + 2]!);
     // The pad covers what stands past the square's own radius: a tall block, the edge slope.
     const bound = slot.radius + 40;
-    // A far town half built is judged as a standing one, so it is finished rather than thrown away.
-    const standingNow = slot.mesh !== null || state.lifecycle.farSlot() === slot;
+    // A town half built is judged as a standing one, so it is finished rather than thrown away.
+    const standingNow = slot.mesh !== null || state.lifecycle.jobSlot() === slot;
     const admitted = standingNow ? cone.keeps(anchor, bound) : cone.admits(anchor, bound);
     if (admitted) candidates.push({ index: i, distance });
     else if (standingNow) behind.push({ index: i, distance });
@@ -192,7 +191,8 @@ function rankPeople(state: StreamState, candidates: readonly Candidate[]): void 
 
 /**
  * What is on screen first, then what stands behind it, while the budget and
- * the count have room: a town on screen always outranks one behind. A near
+ * the count have room: a town on screen always outranks one behind, and one
+ * within `NEAR_BUILD` is chosen even over the budget. A near
  * town's cost over a far one comes out of `NEAR_ALLOWANCE` first; and only
  * `FAR_WANTING` unbuilt far towns are wanted at once, so their estimates do
  * not evict towns already standing.
@@ -216,8 +216,10 @@ function choose(state: StreamState, candidates: readonly Candidate[], behind: re
       nearExtra += extra;
       cost -= extra;
     }
-    if (triangles + cost > budget && chosen.length > 0) continue;
-    if (slot.mesh === null && state.lifecycle.farSlot() !== slot && candidate.distance - slot.radius >= NEAR_BUILD) {
+    // The ground the viewer is in or about to be is built whatever it costs; the knob's automatic mode answers for the frames.
+    const near = candidate.distance - slot.radius < NEAR_BUILD;
+    if (triangles + cost > budget && chosen.length > 0 && !near) continue;
+    if (slot.mesh === null && state.lifecycle.jobSlot() !== slot && !near) {
       if (farWanting >= FAR_WANTING) {
         state.moreFar = true;
         continue;
@@ -238,13 +240,16 @@ function scan(state: StreamState, viewer: THREE.Vector3, range: number): void {
   rankPeople(state, candidates);
   state.wanted = choose(state, candidates, behind);
   const set = new Set(state.wanted);
-  const far = lifecycle.farSlot();
-  if (far !== null && !set.has(far.index)) lifecycle.endFarJob();
+  const building = lifecycle.jobSlot();
+  if (building !== null && !set.has(building.index)) lifecycle.endJob();
   for (let i = 0; i < slots.length; i++) {
     if (slots[i]!.mesh !== null && !set.has(i)) lifecycle.drop(slots[i]!);
   }
-  // Only what is on screen is built or built again; a town behind keeps its build.
-  state.queue = state.wanted.filter((index) => slots[index]!.mesh === null || (slots[index]!.stale && !behindSet.has(index)));
+  // Only what is on screen is built or built again; a town behind keeps its build, and one half built is finished.
+  const under = lifecycle.jobSlot();
+  state.queue = state.wanted.filter(
+    (index) => slots[index]!.mesh === null || slots[index] === under || (slots[index]!.stale && !behindSet.has(index)),
+  );
 }
 
 /**
@@ -276,9 +281,13 @@ function requeueOnRelief(state: StreamState): void {
 }
 
 /**
- * Serves the queue: near towns whole and out of the whole frame's allowance,
- * far towns a step at a time out of their share, a far town under way
- * finished before another is begun.
+ * Serves the queue a step at a time out of the frame's allowance, near towns
+ * before far ones: a build under way is finished before another is begun,
+ * except that a near town waiting abandons a far build (whose old town goes
+ * on standing). Every town stays drawn and stood on as it was until its
+ * replacement stands. The one exception to the allowance is a near town with
+ * nothing standing under the viewer, which is built whole: the ground under a
+ * foot is worth the frame, and that is an arrival.
  */
 function build(state: StreamState, viewer: THREE.Vector3): void {
   const { queue, slots, lifecycle, stats } = state;
@@ -289,27 +298,29 @@ function build(state: StreamState, viewer: THREE.Vector3): void {
   let stepped = false;
   while (queue.length > 0) {
     const head = slots[queue[0]!]!;
-    const near = head.anchor.distanceTo(viewer) - head.radius < NEAR_BUILD;
+    const headNear = isNear(head, viewer);
+    const under = lifecycle.jobSlot();
+    const resume = under !== null && queue.includes(under.index) && (lifecycle.jobNear() || !headNear);
+    const slot = resume ? under : head;
+    const near = resume ? lifecycle.jobNear() : headNear;
     if (!mayBuild(began, allowance, near, 'towns')) break;
-    const far = lifecycle.farSlot();
-    const slot = !near && far !== null && queue.includes(far.index) ? far : head;
-    if (slot.mesh !== null && !slot.stale) {
-      queue.shift();
-      continue;
-    }
-    if (near) {
-      queue.shift();
-      lifecycle.rebuild(slot);
-      built++;
+    if (slot.mesh !== null && !slot.stale && under !== slot) {
+      queue.splice(queue.indexOf(slot.index), 1);
       continue;
     }
     stepped = true;
-    if (!lifecycle.stepFar(slot, () => mayBuild(began, allowance, false, 'towns'))) break;
+    const whole = near && slot.mesh === null && slot.anchor.distanceTo(viewer) < slot.radius * Math.SQRT2;
+    if (!lifecycle.step(slot, near, () => whole || mayBuild(began, allowance, near, 'towns'))) break;
     queue.splice(queue.indexOf(slot.index), 1);
     built++;
   }
   if (built > 0 || stepped) stats.lastBuildMs = Number((performance.now() - began).toFixed(2));
   stats.built += built;
+}
+
+/** Whether a town is near the viewer: the ground they stand in, or the next step of it (`NEAR_BUILD`). */
+function isNear(slot: Slot, viewer: THREE.Vector3): boolean {
+  return slot.anchor.distanceTo(viewer) - slot.radius < NEAR_BUILD;
 }
 
 function count(state: StreamState): void {

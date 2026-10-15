@@ -24,14 +24,17 @@ export const SWELL_FREQUENCY = 2.4;
  *   read as terrain.
  * - Zero-mean (`DOWNS_MEAN`): `biome.ts` reads relief as temperature, so lifting
  *   the whole land would move every treeline and snowline.
- * - Two octaves at 24: the finest cell stays coarser than `RELIEF_DETAIL`, so
- *   the mesh's edge limit does not move.
+ * - Two octaves at 48, twice the 24 they had on the nominal planet: the downs
+ *   are country you walk in, so they keep their wavelength in units (about
+ *   4,200) while the swell and the ranges, written in radians, widen with the
+ *   planet. The finest cell (1/96 radian) stays coarser than `RELIEF_DETAIL`
+ *   (1/120), so the mesh's edge limit does not move.
  */
 export const DOWNS_HEIGHT = 45;
-export const DOWNS_FREQUENCY = 24;
+export const DOWNS_FREQUENCY = 48;
 export const DOWNS_OCTAVES = 2;
-/** Measured mean of `ridged` at this frequency and octave count. */
-export const DOWNS_MEAN = 0.48;
+/** Measured mean of `ridged` at this frequency and octave count, over 400,000 points on the sphere. */
+export const DOWNS_MEAN = 0.49;
 /** The downs in flat country, as a fraction of their height in high country. */
 export const DOWNS_LOW = 0.55;
 

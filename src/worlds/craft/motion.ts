@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 import type { Handling, WindSpec } from '../contract.ts';
-import { PLANE_ACCELERATION_TIME, PLANE_CEILING, PLANE_CLIMB_MIN, PLANE_CLIMB_RATE, PLANE_CRUISE_HIGH, PLANE_CRUISE_LOW, PLANE_FLARE, PLANE_TOUCHDOWN, PLANE_VERTICAL_TIME } from '../../vehicles.ts';
+import { PLANE_ACCELERATION_TIME, PLANE_CEILING, PLANE_CLIMB_MIN, PLANE_CLIMB_RATE, PLANE_CRUISE_LOW, PLANE_CRUISE_NOMINAL, PLANE_FLARE, PLANE_TOUCHDOWN, PLANE_VERTICAL_TIME } from '../../vehicles.ts';
 import { NEEDLE_REST, NEEDLE_SWEEP, WHEEL_LOCK } from '../../craft/cabin.ts';
 import type { Controls, Craft, Model } from './types.ts';
 import { AEROSTAT_CEILING, FLAME_LENGTH, SAUCER_BANK, SAUCER_NOD, SAUCER_VERTICAL_TIME, SAUCER_WOBBLE, TURBO } from './handling.ts';
@@ -114,7 +114,7 @@ export function createMotion(craft: Craft, object: THREE.Object3D, model: () => 
  * Eases the speed toward what the throttle asks for. The afterburner makes a
  * ship in the air go `TURBO` times as fast and climb twice as hard while it
  * burns; a ship aloft rides the height, from its own top low down to
- * `PLANE_CRUISE_HIGH`'s share of it at `PLANE_CEILING`. Returns that top.
+ * `PLANE_CRUISE_NOMINAL`'s share of it at `PLANE_CEILING`. Returns that top.
  */
 function accelerate(craft: Craft, config: MotionConfig, state: MotionState, dt: number, controls: Controls | null, groundAt: GroundAt, R: number): number {
   const { flies, saucer, handling } = config;
@@ -123,7 +123,7 @@ function accelerate(craft: Craft, config: MotionConfig, state: MotionState, dt: 
   state.burn += ((burning ? 1 : 0) - state.burn) * Math.min(1, dt * 3);
   const over = craft.position.length() - (R + groundAt(craft.position));
   const high = flies && craft.airborne ? Math.min(1, Math.max(0, over / PLANE_CEILING)) : 0;
-  const top = handling.top * (1 + (PLANE_CRUISE_HIGH / PLANE_CRUISE_LOW - 1) * high) * (1 + (TURBO - 1) * state.burn);
+  const top = handling.top * (1 + (PLANE_CRUISE_NOMINAL / PLANE_CRUISE_LOW - 1) * high) * (1 + (TURBO - 1) * state.burn);
   const target = throttle > 0 ? Math.max(throttle, state.burn) * top : throttle * handling.reverse;
   if (flies && craft.airborne && !saucer) craft.speed += (target - craft.speed) * (1 - Math.exp(-dt / PLANE_ACCELERATION_TIME)) * (1 + 2 * state.burn);
   else if (saucer && craft.airborne) {

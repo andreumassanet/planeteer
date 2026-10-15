@@ -23,9 +23,9 @@ import type { CraftModel } from './contract.ts';
 import { craftMaterial } from './build.ts';
 import { tone } from '../monuments/contract.ts';
 import { PALETTE } from '../theme.ts';
-import { buildCars } from './cars.ts';
+import { buildCarsSteps } from './cars.ts';
 import { bicycleModel } from './cycles.ts';
-import { buildPartCraft } from './traffic-craft.ts';
+import { buildPartCraftSteps } from './traffic-craft.ts';
 
 /**
  * Where a vehicle the countryside stands (a farm's tractor) starts counting in
@@ -66,15 +66,30 @@ let models: Map<string, CraftModel> | null = null;
  */
 export function parkedModel(craft: string): CraftModel | null {
   if (models === null) {
-    const kit = new Map<string, Model>();
-    try {
-      for (const name of CAR_KIT) kit.set(name, sceneryModel(name));
-    } catch {
-      return null;
-    }
-    models = new Map([...buildCars(kit), ...buildPartCraft(), bicycleModel()].map((model) => [model.id, model]));
+    const steps = parkedModelsSteps();
+    while (steps.next().done !== true);
   }
-  return models.get(craft) ?? null;
+  return models?.get(craft) ?? null;
+}
+
+/**
+ * Builds the parked craft a craft a step, for a caller that would rather not
+ * build them all in one frame (a town raised over frames); nothing once they
+ * are built, or while the kit is not registered.
+ */
+export function* parkedModelsSteps(): Generator<void, void, void> {
+  if (models !== null) return;
+  const kit = new Map<string, Model>();
+  try {
+    for (const name of CAR_KIT) kit.set(name, sceneryModel(name));
+  } catch {
+    return;
+  }
+  const cars = yield* buildCarsSteps(kit);
+  const parts = yield* buildPartCraftSteps();
+  yield;
+  // Another caller may have built them meanwhile.
+  models ??= new Map([...cars, ...parts, bicycleModel()].map((model) => [model.id, model]));
 }
 
 /** A parked craft's buffers: everything opaque, and its see-through glass where it was asked for apart. */

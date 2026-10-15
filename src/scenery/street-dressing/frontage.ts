@@ -33,10 +33,10 @@ interface Strip {
 
 /**
  * The building-line phase: furniture along the plot lines facing a street,
- * nearest the middle first, then bollards at the middle crossing. Returns how
- * many pieces stood.
+ * nearest the middle first, a step a strip, then bollards at the middle
+ * crossing. Returns how many pieces stood.
  */
-export function layBuildingLine(d: Dresser): number {
+export function* layBuildingLineSteps(d: Dresser): Generator<void, number, void> {
   const stand = createStander(d);
   const { input, sink, style } = d;
   const strips = stripsOf(d);
@@ -51,6 +51,7 @@ export function layBuildingLine(d: Dresser): number {
   const most = Math.round(10 + input.urbanity * 70);
   for (const strip of strips) {
     if (items >= most || sink.triangles + 12 > d.cap) break;
+    yield;
     const rng = rngFrom(input.seed, 'frontage', strip.col, strip.row, strip.side);
     const [ox, oz] = SIDE_OUT[strip.side]!;
     const alongZ = strip.side % 2 === 0;

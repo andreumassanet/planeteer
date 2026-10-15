@@ -118,7 +118,8 @@ console.log('\nin the world — what a herd costs, against what a mover would');
   // would be the one that looked broken.
   {
     const cold = createLife(world, raw, { animals: ANIMALS, rigs });
-    const spot = at(-1.29, 36.82, 8);
+    // East of Nairobi, past its square: from the middle of a city no herd is within `HERD_REACH`.
+    const spot = at(-1.29, 37.30, 8);
     let firstBird = 0;
     let firstHerd = 0;
     for (let f = 1; f <= 60; f++) {
@@ -126,7 +127,7 @@ console.log('\nin the world — what a herd costs, against what a mover would');
       if (firstBird === 0 && cold.stats.birds > 0) firstBird = f;
       if (firstHerd === 0 && cold.stats.herd > 0) firstHerd = f;
     }
-    console.log(`\n  cold arrival at Nairobi: first bird on frame ${firstBird}, first herd on frame ${firstHerd}`);
+    console.log(`\n  cold arrival east of Nairobi: first bird on frame ${firstBird}, first herd on frame ${firstHerd}`);
     check(firstHerd > 0 && firstHerd <= 6, 'a herd is standing within a few frames of arriving',
       `frame ${firstHerd} against the birds' ${firstBird}`);
     check(cold.herds.frame === 60, 'the probe counts frames, so a stale reading is visible',
@@ -162,11 +163,13 @@ console.log('\nin the world — what a herd costs, against what a mover would');
     return { reached: fresh.herds.clearOfTown, kept: fresh.herds.clearOfSlope };
   };
   // The herd scan reaches `HERD_REACH`, six to thirteen cells, so a steep
-  // place is one whose nearest cells are steep: the fjord is Geiranger, where
-  // the first six are.
+  // place is one whose nearest cells are steep. The ranges are drawn in
+  // radians and the planet is `WORLD_SCALE` times the nominal one, so most
+  // of them are gentler than the gate: of 34 ranges sampled, these two are
+  // where a cell in reach is still past `MAX_SLOPE`.
   const STEEP: [string, number, number][] = [
-    ['the Alps', 46.5, 8.0],
-    ['Geirangerfjord', 62.1, 7.2],
+    ['the Southern Patagonian Andes', -49.3, -73.0],
+    ['the Caucasus', 43.3, 42.5],
   ];
   const GENTLE: [string, number, number][] = [
     ['the Sahara', 23.0, 12.0],

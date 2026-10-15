@@ -7,9 +7,8 @@ import { rngFrom } from '../scenery/random.ts';
 import type { Rng } from '../scenery/random.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, ROTOR_RADIUS } from '../countryside-kit.ts';
 import { dirAt } from './frame.ts';
-import { fieldFits, free, lineFree } from './ground.ts';
+import { cropGrade, fieldFits, free, lineFree } from './ground.ts';
 import type { Site } from './ground.ts';
-import { CROP_GRADE, FIELD_GRADE } from './tables.ts';
 import type { CountryPiece, CountryPlan, CropId } from './types.ts';
 
 /** What a feature builder is told about the spot it was handed. */
@@ -51,7 +50,7 @@ export function tryPut(s: Site, plan: CountryPlan, part: string, x: number, z: n
 }
 
 export function addField(s: Site, plan: CountryPlan, crop: CropId, x: number, z: number, yaw: number, halfX: number, halfZ: number, round = false): boolean {
-  if (!fieldFits(s, x, z, yaw, halfX, halfZ, round, CROP_GRADE[crop] ?? FIELD_GRADE)) return false;
+  if (!fieldFits(s, x, z, yaw, halfX, halfZ, round, cropGrade(crop))) return false;
   plan.fields.push({ crop, at: dirAt(s.frame, x, z, new THREE.Vector3()), yaw, halfX, halfZ, round });
   s.claimed.push({ x, z, radius: Math.hypot(halfX, halfZ), yaw, halfX, halfZ });
   return true;

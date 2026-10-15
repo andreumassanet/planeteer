@@ -1,5 +1,6 @@
 /** The shape of an airstrip's search and of the discs it keeps clear. */
 import * as THREE from 'three';
+import { BUILT_CEILING } from '../places.ts';
 import { STRIP_APPROACH, STRIP_BACK, STRIP_HALF, STRIP_LENGTH, stripPoint } from '../craft/airstrip.ts';
 import { FIELD_BEARINGS, FIELD_CLEAR, FIELD_STEP, PLANE_FIELD, PLANE_RINGS } from './site-rules.ts';
 import type { FieldKeepout, FleetSite } from './site-types.ts';
@@ -28,7 +29,7 @@ export const STRIP_HEADINGS = 9;
  * rockets' pads warm the strips this far past what they are asked for.
  */
 export const FIELD_SPREAD =
-  150 + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + STRIP_LENGTH + STRIP_APPROACH + STRIP_DISC;
+  BUILT_CEILING + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + STRIP_LENGTH + STRIP_APPROACH + STRIP_DISC;
 
 /** How far apart two strips' stands may be and their grounds still meet: each its drawn length and `STRIP_HALF` across. */
 export const STRIP_MEET = 2 * Math.hypot(STRIP_LENGTH + STRIP_BACK + 8, STRIP_HALF);

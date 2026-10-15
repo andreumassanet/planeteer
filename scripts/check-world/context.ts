@@ -12,7 +12,9 @@ import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../../src/terrain.ts';
 import { terrainSiteOf } from '../../src/places.ts';
 import type { Place } from '../../src/places.ts';
-import { decodeLakes, decodePlaces, inflate } from '../../src/pack.ts';
+import { decodeLakes, decodePlaces, decodeRoads, inflate } from '../../src/pack.ts';
+import { roadCorridors } from '../../src/roads.ts';
+import type { Vector3 } from 'three';
 import { setLandmarks } from '../../src/landmark-ground.ts';
 import type { Plan } from '../../src/landmark-ground.ts';
 import { here } from './harness.ts';
@@ -39,6 +41,8 @@ export interface WorldContext {
   readonly world: World;
   readonly placed: PlacedMonument[];
   readonly placesRaw: Place[];
+  /** The roads' corridors, which the land keeps close to the relief in (`roadCorridors`); null without a matching `roads.bin`. */
+  readonly tight: ((point: Vector3) => boolean) | null;
 }
 
 export const monumentsPath = resolve(here, '../public/data/monuments.json');
@@ -75,5 +79,8 @@ export async function loadContext(): Promise<WorldContext> {
     `world: ${world.countries.length} countries, ${world.rings.length} rings, ` +
     `${world.rings.reduce((n, r) => n + r.points.length, 0).toLocaleString()} points, ${loadMs} ms\n`,
   );
-  return { world, placed, placesRaw };
+  const roadsPath = resolve(here, '../public/data/roads.bin');
+  const network = existsSync(roadsPath) ? decodeRoads(await inflate(readFileSync(roadsPath))) : null;
+  const tight = network !== null && network.places === placesRaw.length ? roadCorridors(network.roads, placesRaw) : null;
+  return { world, placed, placesRaw, tight };
 }

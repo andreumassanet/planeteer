@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
-import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE } from '../src/globe.ts';
 import { PAD_MARGIN, SHORE_CLEAR, reliefAt } from '../src/terrain.ts';
 import { latLonOf, toUnit, unitAt } from '../src/sphere.ts';
 import { MAX_FOOTPRINT, createContext } from '../src/monuments/contract.ts';
@@ -281,8 +281,8 @@ function separate(): string[] {
  */
 /** How far a `shore` landmark may move to be seated, in units; chosen by sweeping. */
 const SEAT_BUDGET = 20;
-/** The furthest the seat pass walks a landmark on dry land, in units (64 km). */
-const SEAT_REACH = 160;
+/** The furthest the seat pass walks a landmark on dry land, in units: 160 nominal, 64 km. */
+const SEAT_REACH = 160 * WORLD_SCALE;
 /** Dry ground needed past the plan: `PAD_MARGIN`, so the level pad is on land to its rim. */
 const DRY_MARGIN = PAD_MARGIN;
 /**
@@ -508,8 +508,8 @@ const seated = [...seatedBy].map(([id, km]) => ({ id, km }));
  *   water under its plan (`shoreOutsideNear`).
  */
 const OUTSIDE_GAP = 10;
-/** How far a landmark may be walked out of a town, in world units, before it is left where it was. */
-const OUTSIDE_REACH = 400;
+/** How far a landmark may be walked out of a town, in world units (400 nominal, as a town's size), before it is left where it was. */
+const OUTSIDE_REACH = 400 * WORLD_SCALE;
 
 /** The built towns near a spot: the square of each, in its own frame, and the landmark's point in it. */
 interface Host {

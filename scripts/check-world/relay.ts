@@ -1,5 +1,5 @@
 import { check } from './harness.ts';
-import { PLANET_RADIUS } from '../../src/globe.ts';
+import { NOMINAL_RADIUS, PLANET_RADIUS, WORLD_SCALE } from '../../src/globe.ts';
 import { PLANE_CEILING, PLANE_CRUISE_HIGH } from '../../src/vehicles.ts';
 import * as relay from '../../server/src/limits.ts';
 
@@ -7,7 +7,11 @@ import * as relay from '../../server/src/limits.ts';
 // climb or run past the relay's limits is a player the relay silently drops.
 export function checkRelay(): void {
   console.log('\nthe relay');
-  check(relay.PLANET_RADIUS === PLANET_RADIUS, 'the relay’s planet is the world’s', `${relay.PLANET_RADIUS} against ${PLANET_RADIUS}`);
+  check(
+    relay.PLANET_RADIUS === PLANET_RADIUS && relay.NOMINAL_RADIUS === NOMINAL_RADIUS && relay.WORLD_SCALE === WORLD_SCALE,
+    'the relay’s planet is the world’s',
+    `${relay.PLANET_RADIUS} against ${PLANET_RADIUS}, scale ${relay.WORLD_SCALE} against ${WORLD_SCALE}`,
+  );
   const highest = PLANET_RADIUS + PLANE_CEILING;
   check(
     highest * 1.25 <= relay.MAX_RADIUS,

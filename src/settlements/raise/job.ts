@@ -11,7 +11,9 @@ import type { TownFrame } from '../frame.ts';
 import type { GroundBuilder } from '../ground/build.ts';
 import type { MapPlans } from '../map-plans.ts';
 import type { Registry } from '../registry.ts';
-import type { Bay, FlatVariant, LitPlot, Slot } from '../types.ts';
+import type { Bench } from '../../bench.ts';
+import type { FolkAnchor } from '../../folk.ts';
+import type { Bay, BikeSlot, FlatVariant, LitPlot, Slot, SlotFloor } from '../types.ts';
 import type { Surface } from '../../surfaces.ts';
 import type { Variants } from '../variants.ts';
 
@@ -31,9 +33,22 @@ export interface Standing {
   surface?: Surface;
 }
 
-/** The raise's state, filled phase by phase. */
+/**
+ * The raise's state, filled phase by phase. What the town publishes (its
+ * floor, people, bays, benches and racks) is held here until the last step,
+ * so the town standing meanwhile keeps answering for itself.
+ */
 export interface RaiseJob {
   readonly slot: Slot;
+  /** Whether it is built with people, parked vehicles and near assets: `slot.peopled` when it began. */
+  readonly peopled: boolean;
+  /** The floor being laid, in the town's frame; on the slot once the town stands. */
+  floor: SlotFloor | null;
+  /** Its people, bays, benches and rack slots, in the town's frame until the mesh is placed. */
+  readonly folk: FolkAnchor[];
+  readonly parked: Bay[];
+  readonly benches: Bench[];
+  readonly bikeSlots: BikeSlot[];
   readonly grid: TownGrid;
   readonly placed: Placed[];
   readonly standing: Standing[];

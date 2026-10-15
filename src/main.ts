@@ -27,6 +27,7 @@ import { arrive } from './app/arrival.ts';
 import { finishLoading, fuelVehicles, warmUp } from './app/vehicles.ts';
 import { prepareAvatar } from './avatar.ts';
 import { notice } from './notice.ts';
+import { roadCorridors } from './roads.ts';
 
 async function start(): Promise<void> {
   const began = performance.now();
@@ -62,7 +63,7 @@ async function start(): Promise<void> {
   // The hero's model downloads alongside the world; without it there is no player.
   app.avatarReady = prepareAvatar();
   app.avatarReady.catch(fail);
-  Object.assign(app, await buildEarthMeshes(app.world, app.scene, app.sky));
+  Object.assign(app, await buildEarthMeshes(app.world, app.scene, app.sky, roadCorridors(app.baked.roads, app.places.all)));
 
   // The front door opens on a finished sky; the rest builds underneath it.
   await stage('opening the sky');

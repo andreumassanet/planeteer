@@ -11,7 +11,7 @@ export const bucketKey = (lat: number, lon: number): number => (Math.floor(lat) 
 
 export function townsIn(f: FeatureCtx, south: number, north: number, west: number, east: number): number[] {
   if (f.townBuckets === null) return [];
-  // The biggest square reaches 0.54 degrees of latitude from its centre.
+  // The biggest square (`BUILT_CEILING`) reaches 0.4 degrees of latitude from its centre.
   const out: number[] = [];
   for (let lat = Math.floor(south - 0.6); lat <= Math.floor(north + 0.6); lat++) {
     const spread = 0.6 / Math.max(0.05, Math.cos(Math.min(89, Math.abs(lat) + 1) * DEG));

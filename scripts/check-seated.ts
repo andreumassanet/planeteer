@@ -42,6 +42,7 @@ import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from '../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import { indexPlaces, isShown, radiusOf, terrainSiteOf } from '../src/places.ts';
+import { roadCorridors } from '../src/roads.ts';
 import type { Road } from '../src/roads.ts';
 import { decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { latOf, lonOf, unitAt } from '../src/sphere.ts';
@@ -105,7 +106,7 @@ if (roads.length === 0) {
 }
 const fields = createSiteIndex({ world, places, roads, monuments });
 const started = Date.now();
-const land = buildLand(world);
+const land = buildLand(world, roadCorridors(roads, places));
 console.log(`the land: ${(land.geometry.getAttribute('position').count / 3).toLocaleString()} triangles in ${Date.now() - started} ms`);
 const probe = landProbeOf(land);
 

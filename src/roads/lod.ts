@@ -1,4 +1,4 @@
-import { PLANET_RADIUS } from '../globe.ts';
+import { HAZE_RADIUS } from '../globe.ts';
 import { detailReach, fogFar, horizonAt } from '../view.ts';
 import { ROAD_CLASSES } from './classes.ts';
 
@@ -40,5 +40,5 @@ export function classReaches(into: number[]): number[] {
  * everything but a trunk.
  */
 export function reachFor(altitude: number): number {
-  return Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(Math.min(34000, Math.max(2600, horizonAt(altitude, PLANET_RADIUS) * 2))));
+  return Math.min(fogFar(altitude, HAZE_RADIUS) * 1.1, detailReach(Math.min(34000, Math.max(2600, horizonAt(altitude, HAZE_RADIUS) * 2))));
 }

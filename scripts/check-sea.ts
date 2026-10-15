@@ -407,7 +407,9 @@ console.log('\nthe drawn sea');
   const [waterLow, waterHigh] = radii(water);
   const [, decorHigh, decorUsed] = radii(decor);
   check(floorHigh < 0 && floorLow > -OPEN_DEPTH - 10, 'the floor is under the sea', `${floorUsed} vertices, ${floorLow.toFixed(1)} to ${floorHigh.toFixed(2)}`);
-  check(waterLow >= surfaceLift(Infinity) - 1e-3 && waterHigh <= surfaceLift(0) + 1e-3, "the water stands on the ribbon's heights", `${waterLow.toFixed(3)} to ${waterHigh.toFixed(3)}`);
+  // Two of float32's steps at the planet's radius: the vertices are stored that far out.
+  const floatStep = 2 * 2 ** (Math.floor(Math.log2(PLANET_RADIUS)) - 23);
+  check(waterLow >= surfaceLift(Infinity) - floatStep && waterHigh <= surfaceLift(0) + floatStep, "the water stands on the ribbon's heights", `${waterLow.toFixed(3)} to ${waterHigh.toFixed(3)}`);
   check(decorUsed > 0 && decorHigh < 0, 'the decor is all under the surface', `${decorUsed} vertices, the highest ${decorHigh.toFixed(2)}`);
   // Every decor frame is proper: a mirrored one turns a piece inside out.
   const life = createSeaLife();

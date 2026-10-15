@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../globe.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE } from '../globe.ts';
 import { isShown } from '../places.ts';
 import type { Place } from '../places.ts';
 import { seedOf } from '../scenery/random.ts';
@@ -13,10 +13,10 @@ import { placeDirection } from './town.ts';
 const DEG = Math.PI / 180;
 
 /**
- * Longest road the network will build, in world units: 1,000 units is about
- * 400 km, past which two towns no longer read as connected.
+ * Longest road the network will build, in world units: 1,000 nominal units,
+ * about 400 km, past which two towns no longer read as connected.
  */
-export const MAX_ROAD_LENGTH = 1000;
+export const MAX_ROAD_LENGTH = 1000 * WORLD_SCALE;
 
 /**
  * The two proximity graphs. Gabriel keeps an edge when no third place lies in

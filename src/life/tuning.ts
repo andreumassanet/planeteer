@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { RUN_SPEED, SEAT_SHIN, SEAT_THIGH, WALK_SPEED } from '../avatar.ts';
 import { FAUNA_RESCALE } from '../fauna/contract.ts';
-import { PLANET_RADIUS } from '../globe.ts';
+import { HAZE_RADIUS } from '../globe.ts';
 import { BODY_SCALE } from '../stature.ts';
 import { detailReach, fogFar } from '../view.ts';
 
@@ -99,7 +99,7 @@ const BASE_REACH = { road: ROAD_REACH, foot: FOOT_REACH, water: WATER_REACH, air
  * the knob.
  */
 export function moverReach(family: keyof typeof CEILING, altitude: number): number {
-  return altitude > CEILING[family] ? 0 : Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(BASE_REACH[family]));
+  return altitude > CEILING[family] ? 0 : Math.min(fogFar(altitude, HAZE_RADIUS) * 1.1, detailReach(BASE_REACH[family]));
 }
 
 /**

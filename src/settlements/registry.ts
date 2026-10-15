@@ -94,3 +94,25 @@ export function createRegistry(): Registry {
     },
   };
 }
+
+/**
+ * Takes back everything a standing town published, ahead of publishing its
+ * replacement or leaving it unbuilt; its mesh is left to the caller.
+ * `noteFloor` first, because it reads the floor.
+ */
+export function unpublish(registry: Registry, slot: Slot): void {
+  if (slot.floor !== null) registry.noteFloor(slot);
+  slot.floor = null;
+  registry.floors.delete(slot);
+  registry.inhabited.delete(slot);
+  registry.lit.delete(slot);
+  slot.lampHeads = null;
+  slot.folk = [];
+  registry.parkedTowns.delete(slot);
+  slot.parked = [];
+  slot.benches = [];
+  registry.benchTowns.delete(slot);
+  slot.bikeSlots = [];
+  registry.rackTowns.delete(slot);
+  slot.mesh = null;
+}

@@ -3,10 +3,11 @@ import { BENCH_LONGEST } from '../../bench.ts';
 import { PLANET_RADIUS } from '../../globe.ts';
 import { floorLiftAt } from '../../scenery/floor.ts';
 import { GROUND_LIFT } from '../../scenery/ground.ts';
-import { hangOverhead } from '../../scenery/overhead.ts';
-import { dressTown, streetDressingEnabled } from '../../scenery/street-dressing.ts';
+import { hangOverheadSteps } from '../../scenery/overhead.ts';
+import { dressTownSteps, streetDressingEnabled } from '../../scenery/street-dressing.ts';
 import { crownOf } from '../../scenery/tree-forms.ts';
 import type { Ground } from '../ground/build.ts';
+import { timedSteps } from '../budget.ts';
 import { rectOf } from '../plots.ts';
 import { CLEAR_FOLK, CLEAR_LAMP, DRESS_LEAST, DRESS_MOST, DRESS_SHARE, KIND_OF, footprintOf, urbanityOf } from '../rules.ts';
 import type { FlatVariant } from '../types.ts';
@@ -38,15 +39,16 @@ function runOf(run: { position: Float32Array; normal: Float32Array; color: Float
 /**
  * What hangs over the streets (`scenery/overhead.ts`), keeping its poles off
  * every lamp, bench, bay and person laid out before it, and its lines out of
- * the near trees' crowns.
+ * the near trees' crowns. In steps, a street at a time.
  */
-export function hangOver(kit: RaiseKit, job: RaiseJob, ground: Ground, band: number): void {
+export function* hangOverSteps(kit: RaiseKit, job: RaiseJob, ground: Ground, band: number): Generator<void, void, void> {
   const { slot, grid } = job;
   const { frame, world } = kit;
   slot.overhead = null;
-  if (!slot.peopled || slot.floor === null) return;
+  if (!job.peopled || job.floor === null) return;
+  let ms = 0;
   const began = performance.now();
-  const field = slot.floor.field;
+  const field = job.floor.field;
   const overheadDir = new THREE.Vector3();
   const overheadAt = new THREE.Vector3();
   const keep: number[] = [];
@@ -55,7 +57,7 @@ export function hangOver(kit: RaiseKit, job: RaiseJob, ground: Ground, band: num
   for (let i = 0; i + 3 < ground.benches.length; i += 4) keep.push(ground.benches[i]!, ground.benches[i + 2]!, BENCH_LONGEST * 0.5 + 0.6);
   // The cars actually parked and the people actually standing, with each one's stroll a pace apart.
   for (let i = 0; i < job.parkedLayout.length; i += 4) keep.push(job.parkedLayout[i]!, job.parkedLayout[i + 1]!, job.parkedLayout[i + 2]! + 0.4);
-  for (const person of slot.folk) {
+  for (const person of job.folk) {
     const paces = Math.max(1, Math.ceil(person.from.distanceTo(person.to)));
     for (let n = 0; n <= paces; n++) {
       const t = n / paces;
@@ -75,7 +77,8 @@ export function hangOver(kit: RaiseKit, job: RaiseJob, ground: Ground, band: num
     crowns.push(overheadAt.x, overheadAt.y, overheadAt.z, crown.radius * scale, crown.half * scale);
     keep.push(e[12]!, e[14]!, 1.2);
   }
-  const hung = hangOverhead({
+  ms += performance.now() - began;
+  const hung = yield* timedSteps(hangOverheadSteps({
     region: slot.style.id,
     seed: slot.seed,
     urbanity: urbanityOf(slot.place.pop),
@@ -92,12 +95,12 @@ export function hangOver(kit: RaiseKit, job: RaiseJob, ground: Ground, band: num
       if (!(lift > 0)) return null;
       return overheadAt.copy(overheadDir).multiplyScalar(PLANET_RADIUS + elevation + lift).sub(frame.origin).applyMatrix4(frame.inverse).y;
     },
-  });
+  }), (spent) => (ms += spent));
   if (hung === null) return;
   const count = hung.position.length / 3;
   job.standing.push({ flat: runOf(hung, count), matrix: new THREE.Matrix4(), glow: 1 });
   job.vertices += count;
-  slot.overhead = { triangles: hung.triangles, spans: hung.spans, poles: hung.poles, masts: hung.masts, wires: hung.wires, cells: hung.cells, ms: performance.now() - began };
+  slot.overhead = { triangles: hung.triangles, spans: hung.spans, poles: hung.poles, masts: hung.masts, wires: hung.wires, cells: hung.cells, ms };
   job.overheadSpots.push(...hung.spots);
 }
 
@@ -106,13 +109,14 @@ export function hangOver(kit: RaiseKit, job: RaiseJob, ground: Ground, band: num
  * tables, racks and the paint, keeping off every wall and spot laid before,
  * within a budget that is a share of what already stands. Its walls join the
  * town's; its chairs are benches and its rack slots the fleet's bicycles'.
+ * In steps, a front, a strip or a cell at a time.
  */
-export function dressStreets(kit: RaiseKit, job: RaiseJob, ground: Ground, band: number): void {
+export function* dressStreetsSteps(kit: RaiseKit, job: RaiseJob, ground: Ground, band: number): Generator<void, void, void> {
   const { slot, grid } = job;
   const { frame, registry } = kit;
   slot.dressing = null;
-  slot.bikeSlots = [];
-  if (!slot.peopled || slot.floor === null || !streetDressingEnabled()) return;
+  if (!job.peopled || job.floor === null || !streetDressingEnabled()) return;
+  let ms = 0;
   const began = performance.now();
   const dressDir = new THREE.Vector3();
   const dressAt = new THREE.Vector3();
@@ -125,7 +129,8 @@ export function dressStreets(kit: RaiseKit, job: RaiseJob, ground: Ground, band:
     discs.push(entry.plot.x, entry.plot.z, Math.min(1.5, Math.max(0.6, footprintOf(entry.partId) * entry.scale * 0.35)));
   }
   const standingTriangles = (job.vertices + job.takenVertices) / 3 + ground.position.length / 9;
-  const dressed = dressTown({
+  ms += performance.now() - began;
+  const dressed = yield* timedSteps(dressTownSteps({
     seed: slot.seed,
     region: slot.style.id,
     iso: slot.place.iso,
@@ -151,7 +156,8 @@ export function dressStreets(kit: RaiseKit, job: RaiseJob, ground: Ground, band:
     models: kit.variants.dressModels,
     road: slot.ground.road,
     budget: Math.round(Math.min(DRESS_MOST, Math.max(DRESS_LEAST, standingTriangles * DRESS_SHARE))),
-  });
+  }), (spent) => (ms += spent));
+  const closing = performance.now();
   if (dressed.triangles > 0) {
     const count = dressed.triangles * 3;
     job.standing.push({ flat: runOf(dressed, count), matrix: new THREE.Matrix4(), glow: 1 });
@@ -162,8 +168,8 @@ export function dressStreets(kit: RaiseKit, job: RaiseJob, ground: Ground, band:
     for (const anchor of dressed.anchors) {
       const position = new THREE.Vector3(anchor.x, anchor.y, anchor.z);
       const facing = new THREE.Vector3(anchor.fx, 0, anchor.fz);
-      if (anchor.kind === 'seat') slot.benches.push({ position, facing, sink: 0, key: `chair:${slot.index}:${chairs++}` });
-      else slot.bikeSlots.push({ id: `rack:${slot.index}:${slot.bikeSlots.length}`, place: slot.index, position, forward: facing });
+      if (anchor.kind === 'seat') job.benches.push({ position, facing, sink: 0, key: `chair:${slot.index}:${chairs++}` });
+      else job.bikeSlots.push({ id: `rack:${slot.index}:${job.bikeSlots.length}`, place: slot.index, position, forward: facing });
     }
     const log = registry.seatLog;
     if (log !== null) {
@@ -175,5 +181,5 @@ export function dressStreets(kit: RaiseKit, job: RaiseJob, ground: Ground, band:
       }
     }
   }
-  slot.dressing = { triangles: dressed.triangles, solids: dressed.solids.length, counts: dressed.counts, ms: performance.now() - began };
+  slot.dressing = { triangles: dressed.triangles, solids: dressed.solids.length, counts: dressed.counts, ms: ms + performance.now() - closing };
 }

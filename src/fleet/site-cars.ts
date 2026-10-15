@@ -1,7 +1,7 @@
 /** The cars parked on the lane a town's roads leave by. */
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
-import { radiusOf } from '../places.ts';
+import { nominalRadiusOf } from '../places.ts';
 import { ROAD_CLASSES, courseOf, coursePoint, courseTangent, parameterAt } from '../roads.ts';
 import { rngFrom } from '../scenery/random.ts';
 import { keepsLeft } from '../traffic/regions.ts';
@@ -25,7 +25,7 @@ export function createCarSites(w: SiteWorld) {
       const j = rng.int(i + 1);
       [order[i], order[j]] = [order[j]!, order[i]!];
     }
-    const cap = carsFor(radiusOf(place));
+    const cap = carsFor(nominalRadiusOf(place));
     const parked: THREE.Vector3[] = [];
     // Right-hand traffic parks on the right of the way out, and the other
     // half of the world on the left: `keepsLeft`, asked of the town.

@@ -5,6 +5,7 @@
  * badge is written once, after the country and the place have both settled.
  */
 import { createFlagCanvas } from '../flags.ts';
+import { nominalRadiusOf } from '../places.ts';
 import type { Nearby } from '../places.ts';
 import { h, icon } from '../ui.ts';
 import { ARROW_STEP, BUMP, OFFSHORE_KM, R2D, SETTLE_FLIGHT, SETTLE_LAND, SETTLE_OCEAN, SETTLE_PLACE, sizeWord } from './constants.ts';
@@ -52,7 +53,7 @@ function renderPlace(ctx: HudCtx): void {
   // The country you stand in, which is not always the town's.
   placeCountry.textContent = near !== null && country !== null ? country.name : '';
   // The town's size, for whoever asks.
-  place.title = [placeName.textContent, near === null ? '' : sizeWord(near.radius), placeCountry.textContent].filter((part) => part !== '').join(' · ');
+  place.title = [placeName.textContent, near === null ? '' : sizeWord(options.surface === undefined ? nominalRadiusOf(near.place) : near.radius), placeCountry.textContent].filter((part) => part !== '').join(' · ');
   // Ground that belongs to nobody on a body with no sea has no plate at all.
   placeFlag.replaceChildren(...(country ? [createFlagCanvas(country.iso, 26, 17)] : options.surface?.sea === false ? [] : [oceanPlate(26, 17)]));
   // Rewritten by the next `renderRange`, which is in the same frame.

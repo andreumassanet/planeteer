@@ -1,5 +1,5 @@
 /** How far a landmark is built from the viewer, and which are worth building at all. */
-import { PLANET_RADIUS } from '../globe.ts';
+import { HAZE_RADIUS } from '../globe.ts';
 import { detailReach, fogFar, horizonAt, slantRange } from '../view.ts';
 
 /**
@@ -8,7 +8,7 @@ import { detailReach, fogFar, horizonAt, slantRange } from '../view.ts';
  * (`MIN_APPARENT_PIXELS`) keeps the small ones from being built that far out.
  */
 export function reachFor(altitude: number): number {
-  return Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(Math.min(24000, Math.max(1500, horizonAt(altitude, PLANET_RADIUS) * 2))));
+  return Math.min(fogFar(altitude, HAZE_RADIUS) * 1.1, detailReach(Math.min(24000, Math.max(1500, horizonAt(altitude, HAZE_RADIUS) * 2))));
 }
 
 /** `reachFor` along the slant, because a monument is on the ground and the viewer may not be. */

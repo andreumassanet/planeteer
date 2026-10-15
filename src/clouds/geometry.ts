@@ -1,6 +1,6 @@
 /** The deck's meshes: the shared puff shape, instancing, bounding caps, and the haze the clouds sit in. */
 import * as THREE from 'three';
-import { PLANET_RADIUS } from '../globe.ts';
+import { HAZE_RADIUS } from '../globe.ts';
 import { weatherHazeAt } from '../view.ts';
 import { BELLY, CLOUD_BASE } from './field.ts';
 import { CLOUD_ORDER } from './types.ts';
@@ -25,8 +25,8 @@ export function hazeAt(
   haze: { color: { value: THREE.Color }; near: { value: number }; far: { value: number } },
 ): void {
   const above = Math.max(1, altitude);
-  const horizon = Math.sqrt(2 * PLANET_RADIUS * (above + CLOUD_BASE));
-  const far = horizon * (1.05 + (above / PLANET_RADIUS) * 6) * weatherHazeAt(altitude);
+  const horizon = Math.sqrt(2 * HAZE_RADIUS * (above + CLOUD_BASE));
+  const far = horizon * (1.05 + (above / HAZE_RADIUS) * 6) * weatherHazeAt(altitude);
   haze.far.value = far;
   haze.near.value = far * 0.2;
   haze.color.value.copy(fog.color);

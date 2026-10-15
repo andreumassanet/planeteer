@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { detailWeightAt, flattenWeightAt, reliefAt } from '../terrain.ts';
 import { PLANET_RADIUS, onSphere } from './planet.ts';
-import { DEG, MAX_EDGE, PAD_MIN_EDGE, floorFor, sagFor } from './tessellation.ts';
+import { DEG, MAX_EDGE, PAD_MIN_EDGE, floorFor, inlandAlong, sagFor } from './tessellation.ts';
 
 /** Packs an ordered pair of vertex indices into one number. */
 const EDGE_KEY = 8388608;
@@ -395,7 +395,7 @@ export function refine(vertices: THREE.Vector3[], lonLat: number[], relief: numb
       return -1;
     }
     const height = reliefAt(midpoint.x, midpoint.y, midpoint.z);
-    if (!tooLong && Math.abs(height - (relief[lo]! + relief[hi]!) * 0.5) <= sagFor(pad)) {
+    if (!tooLong && Math.abs(height - (relief[lo]! + relief[hi]!) * 0.5) <= sagFor(pad, inlandAlong(vertices[lo]!, vertices[hi]!, midpoint))) {
       edges.set(key, -1);
       return -1;
     }

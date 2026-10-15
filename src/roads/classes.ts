@@ -1,4 +1,4 @@
-import { radiusOf } from '../places.ts';
+import { nominalRadiusOf } from '../places.ts';
 import { CARRIAGEWAY_HALF } from '../scenery/grid.ts';
 
 export interface RoadClass {
@@ -26,12 +26,12 @@ export const ROAD_CLASSES: readonly RoadClass[] = [
 ];
 
 /**
- * Which class a road between two places is, by the smaller end's `radiusOf`:
- * a lane joining a village to a capital is still a lane. The thresholds are
- * the built radii of 22,300 people (road) and 587,000 (trunk).
+ * Which class a road between two places is, by the smaller end's
+ * `nominalRadiusOf`: a lane joining a village to a capital is still a lane. The
+ * thresholds are the nominal radii of 22,300 people (road) and 587,000 (trunk).
  */
 export function classOf(a: { pop: number; radius?: number }, b: { pop: number; radius?: number }): number {
-  const importance = Math.min(radiusOf(a), radiusOf(b));
+  const importance = Math.min(nominalRadiusOf(a), nominalRadiusOf(b));
   if (importance >= 55.5) return 2;
   if (importance >= 17.1) return 1;
   return 0;

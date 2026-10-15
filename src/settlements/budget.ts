@@ -1,4 +1,4 @@
-import { PLANET_RADIUS } from '../globe.ts';
+import { HAZE_RADIUS, WORLD_SCALE } from '../globe.ts';
 import { townGrid } from '../scenery/grid.ts';
 import { detailArea, detailCount, detailPixels, detailReach, fogFar, horizonAt, slantRange } from '../view.ts';
 import type { Slot } from './types.ts';
@@ -12,7 +12,7 @@ import type { Slot } from './types.ts';
  * the hypotenuse with the altitude.
  */
 export function reachFor(altitude: number): number {
-  return Math.min(fogFar(altitude, PLANET_RADIUS) * 1.1, detailReach(Math.min(20000, Math.max(1400, horizonAt(altitude, PLANET_RADIUS) * 2))));
+  return Math.min(fogFar(altitude, HAZE_RADIUS) * 1.1, detailReach(Math.min(20000, Math.max(1400, horizonAt(altitude, HAZE_RADIUS) * 2))));
 }
 
 export function rangeFor(altitude: number): number {
@@ -30,6 +30,17 @@ export function drain<T>(steps: Generator<void, T, void>): T {
   }
 }
 
+/** Steps passed through, the milliseconds of each handed to `spend`: the time worked, not the frames waited between. */
+export function* timedSteps<T>(steps: Generator<void, T, void>, spend: (ms: number) => void): Generator<void, T, void> {
+  for (;;) {
+    const began = performance.now();
+    const step = steps.next();
+    spend(performance.now() - began);
+    if (step.done === true) return step.value;
+    yield;
+  }
+}
+
 /**
  * How many pixels of the screen a settlement has to span before it is built:
  * the whole level-of-detail scheme. An object subtends about
@@ -44,8 +55,17 @@ export const PIXELS_PER_RADIAN = 937;
  * The ceiling on resident geometry, in triangles (drawn twice by the outline
  * pass), at detail 1. Binds where the count cap does not: standing among
  * several large cities.
+ *
+ * A town is `WORLD_SCALE` times as wide as the nominal planet's and costs its
+ * square as much, while the haze is not scaled, so the towns in a view are
+ * fewer by the same square and the total a view needs is unchanged; what the
+ * square does change is the grain. 380,000 held four of the biggest city's
+ * estimate at the default knob (0.5) on the nominal planet and holds one here,
+ * so a city behind a village was refused. Scaled by `WORLD_SCALE` rather than
+ * its square: two of the biggest city at the default knob, and a view's total
+ * at most twice what it was.
  */
-const TRIANGLE_BUDGET = 380_000;
+const TRIANGLE_BUDGET = 380_000 * WORLD_SCALE;
 
 /** As the knob leaves it; the ground inside a radius goes as its square. */
 export const triangleBudget = (): number => detailArea(TRIANGLE_BUDGET);

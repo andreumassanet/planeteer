@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PLANET_RADIUS } from './globe.ts';
+import { HAZE_RADIUS } from './globe.ts';
 import { applyPose } from './fleet.ts';
 import { weatherHazeAt } from './view.ts';
 import type { CraftKind, CraftModel } from './craft/contract.ts';
@@ -42,8 +42,8 @@ export type { AirSchedule } from './air-traffic/schedule.ts';
  */
 export function airlinerFar(altitude: number): number {
   const above = Math.max(0, altitude);
-  const horizon = Math.sqrt(2 * PLANET_RADIUS * (above + CRUISE));
-  return horizon * (1.05 + (above / PLANET_RADIUS) * 6) * weatherHazeAt(altitude);
+  const horizon = Math.sqrt(2 * HAZE_RADIUS * (above + CRUISE));
+  return horizon * (1.05 + (above / HAZE_RADIUS) * 6) * weatherHazeAt(altitude);
 }
 
 /** What `main.ts` hands a frame. */

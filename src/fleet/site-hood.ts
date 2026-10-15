@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
-import { radiusOf } from '../places.ts';
+import { BUILT_CEILING, radiusOf } from '../places.ts';
 import { roadClearance } from '../roads.ts';
 import { siteGap } from '../landmark-ground.ts';
 import { distanceToPath } from './site-world.ts';
@@ -69,8 +69,8 @@ export function createNeighbourhood(w: SiteWorld): FieldNeighbourhood {
   function localise(p: number, span: number, clear: number): void {
     const centre = centres[p]!;
     local.towns.length = 0;
-    // A town's disc is at most 150 units round its centre (`nearTown`).
-    for (const q of townsNear(centre, span + 150 + clear + 1, townList)) {
+    // A town's disc is at most `BUILT_CEILING` round its centre (`nearTown`).
+    for (const q of townsNear(centre, span + BUILT_CEILING + clear + 1, townList)) {
       const c = centres[q]!;
       keepTown(local, q, c.x, c.y, c.z, radiusOf(places[q]!));
     }

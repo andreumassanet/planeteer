@@ -1,7 +1,7 @@
 import { only, fail } from './setup.ts';
 import { WORLD_IDS, loadWorldSpec } from '../../src/worlds/registry.ts';
 import { WORLD_TOWN_MAX, WORLD_TOWN_MIN, WORLD_TOWN_SCALE, worldTownLaw, validateBody, townRadii, surfaceRadiusOf, angularDistance, WORLD_TOWN_GAP } from '../../src/system/contract.ts';
-import { radiusFor } from '../../src/places.ts';
+import { nominalRadiusFor } from '../../src/places.ts';
 import { EARTH_GRAVITY, JUMP_SPEED } from '../../src/worlds/player.ts';
 import { colours, PALETTE_COLORS, checkGround, checkTowns, checkBuilt, checkDrawn, checkSky } from './ground.ts';
 import { createTerrain } from '../../src/worlds/terrain.ts';
@@ -14,7 +14,7 @@ if (ids.length === 0) fail(`no world '${only}' (there are ${WORLD_IDS.join(', ')
 
 // The law a town's size follows is Earth's, scaled up and clamped (`worldTownLaw`).
 for (const pop of [40000, 300000]) {
-  const want = Math.min(WORLD_TOWN_MAX, Math.max(WORLD_TOWN_MIN, WORLD_TOWN_SCALE * radiusFor(pop)));
+  const want = Math.min(WORLD_TOWN_MAX, Math.max(WORLD_TOWN_MIN, WORLD_TOWN_SCALE * nominalRadiusFor(pop)));
   if (Math.abs(worldTownLaw(pop) - want) > 1e-9) fail(`worldTownLaw(${pop}) is ${worldTownLaw(pop)} and Earth's law scaled says ${want}`);
 }
 

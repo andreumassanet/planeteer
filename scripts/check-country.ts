@@ -45,7 +45,7 @@ import { REGIONS, REGION_IDS } from '../src/scenery/regions.ts';
 import { createSceneryContext, measure } from '../src/scenery/contract.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, PIECE_TRIANGLES, buildRotor, pieceRng } from '../src/countryside-kit.ts';
 import type { RotorKind } from '../src/countryside-kit.ts';
-import { createCountryside, FEATURE_KINDS } from '../src/countryside.ts';
+import { createCountryside, cropGrade, fieldSteepness, FEATURE_KINDS } from '../src/countryside.ts';
 import { BENCH_REACH, BENCH_SEAT, BENCH_SIT_AHEAD } from '../src/bench.ts';
 import type { Bench } from '../src/bench.ts';
 import type { CountryPlan, FeatureKind } from '../src/countryside.ts';
@@ -269,7 +269,7 @@ console.log('\nwhat is built keeps its ground:');
       if (hit !== null) bad.push(`${plan.key} a field of ${field.crop} in a ${hit.what} by ${hit.depth.toFixed(1)}`);
       if (world.elevationAt(field.at) <= 0) wet++;
       frameAt(field.at);
-      if (gradeAt(field.at, east, north, Math.min(field.halfX, field.halfZ) * 0.7, slope).grade > 0.2) steep++;
+      if (fieldSteepness(field.at, east, north, field.halfX, field.halfZ, slope) > cropGrade(field.crop)) steep++;
     }
     for (const line of plan.lines) {
       lines++;
@@ -282,7 +282,7 @@ console.log('\nwhat is built keeps its ground:');
   }
   check(bad.length === 0, `no piece, field or fence inside a town's country, a landmark, a road or a plane's field (${pieces} pieces, ${fieldCount} fields, ${lines} fences)`, bad.slice(0, 5).join('; '));
   check(wet === 0, 'nothing but a jetty or a boat stands on water', `${wet}`);
-  check(steep === 0, 'no field on a slope it could not be ploughed on, nothing on scree', `${steep}`);
+  check(steep === 0, 'no field on a slope steeper than its crop is grown on, nothing on scree', `${steep}`);
 }
 
 // --- occupancy, which the herds ask ------------------------------------------------------

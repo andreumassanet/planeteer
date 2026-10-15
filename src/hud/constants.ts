@@ -41,7 +41,7 @@ export const ARROW_STEP = 4 / R2D;
 /** How near the screen's edge a waypoint label may come, in CSS pixels. */
 export const LABEL_MARGIN = 12;
 
-/** Village, town or city off the one size law: the cuts at 13 and 30 units are about 10,000 and 100,000 people. */
+/** Village, town or city off the one size law, by a nominal radius: the cuts at 13 and 30 units are about 10,000 and 100,000 people. */
 export const sizeWord = (radius: number): string => (radius < 13 ? 'village' : radius < 30 ? 'town' : 'city');
 
 /** The badge a vehicle's keys are shown beside. */

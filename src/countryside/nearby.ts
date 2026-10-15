@@ -1,6 +1,6 @@
 /** What is built round the cell being planned: towns, landmarks, planes' fields and carriageways, in its frame. */
 import * as THREE from 'three';
-import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../globe.ts';
+import { PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE } from '../globe.ts';
 import { isShown, radiusOf } from '../places.ts';
 import { countryReach } from '../scenery/grid.ts';
 import { roadClearance, roadGeometryFor, roadIndexFor } from '../roads.ts';
@@ -13,8 +13,12 @@ import { DEG, localX, localZ } from './frame.ts';
 import type { CellFrame } from './frame.ts';
 import type { CountrysideOptions } from './types.ts';
 
-/** How far from a town counts as near it, and from a road: what `find` and the density both mean by far. */
-export const NEAR_TOWN = 800;
+/**
+ * How far from a town counts as near it, and from a road: what `find` and the
+ * density both mean by far. The town's is 800 nominal units, since towns stand
+ * as far apart as the planet puts them; the road's is a walk off the verge.
+ */
+export const NEAR_TOWN = 800 * WORLD_SCALE;
 export const NEAR_ROAD = 220;
 
 export interface Disc {

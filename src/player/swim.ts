@@ -51,8 +51,11 @@ export function createSwim(core: PlayerCore, ring: Splash) {
     const lift = controls.lift;
     const wanted = lift < 0 ? DIVE_SPEED : lift > 0 ? -RISE_SPEED : s.dive > 0 ? -DIVE_BUOYANCY : 0;
     s.diveRate += (wanted - s.diveRate) * approach(1 / DIVE_EASE, dt);
-    s.dive = clamp(s.dive + s.diveRate * dt, 0, diveFloor(position));
+    const floor = diveFloor(position);
+    s.dive = clamp(s.dive + s.diveRate * dt, 0, floor);
+    // Held at the surface or on the floor, the way on is spent.
     if (s.dive === 0 && s.diveRate < 0) s.diveRate = 0;
+    if (s.dive === floor && s.diveRate > 0) s.diveRate = 0;
   }
 
   return { enterWater, diveOn };

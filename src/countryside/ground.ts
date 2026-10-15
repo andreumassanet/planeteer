@@ -9,6 +9,8 @@ import { dirAt, inCell } from './frame.ts';
 import type { CellFrame } from './frame.ts';
 import { roadGap } from './nearby.ts';
 import type { Disc, Nearby } from './nearby.ts';
+import { CROP_GRADE, FIELD_GRADE } from './tables.ts';
+import type { CropId } from './types.ts';
 
 /** Keep-clear margins past what each thing already claims, world units. */
 const TOWN_MARGIN = 6;
@@ -147,8 +149,24 @@ export function fieldFits(s: Site, x: number, z: number, yaw: number, halfX: num
     }
   }
   const u = dirAt(frame, x, z, new THREE.Vector3());
-  if (gradeAt(u, frame.east, frame.north, Math.hypot(halfX, halfZ) * 0.7, s.slope).grade > grade) return false;
-  return gradeAt(u, frame.east, frame.north, Math.min(halfX, halfZ) * 0.5, s.slope).grade <= grade * 1.3;
+  return fieldSteepness(u, frame.east, frame.north, halfX, halfZ, s.slope) <= grade;
+}
+
+/**
+ * How steep a field's ground is, to set against its crop's grade: the fall
+ * across most of the rectangle, or a third less strictly over its narrow
+ * middle, whichever is the worse. The one measure the planner and the check
+ * both take.
+ */
+export function fieldSteepness(u: THREE.Vector3, east: THREE.Vector3, north: THREE.Vector3, halfX: number, halfZ: number, slope: Slope): number {
+  const across = gradeAt(u, east, north, Math.hypot(halfX, halfZ) * 0.7, slope).grade;
+  const middle = gradeAt(u, east, north, Math.min(halfX, halfZ) * 0.5, slope).grade / 1.3;
+  return Math.max(across, middle);
+}
+
+/** The steepest ground a crop is grown on (`CROP_GRADE`, else `FIELD_GRADE`). */
+export function cropGrade(crop: CropId): number {
+  return CROP_GRADE[crop] ?? FIELD_GRADE;
 }
 
 /** A fence or a wall is only drawn where every few units of it are free. */

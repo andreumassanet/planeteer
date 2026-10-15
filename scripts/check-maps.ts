@@ -170,22 +170,46 @@ console.log('a town as it stands:');
       return { ...latLonOf(at, ll) };
     };
     const reach = plan.grid.half * 0.35;
-    for (let k = 0; k < plan.buildings.length / 6 && tried < 24; k++) {
-      const x = plan.buildings[k * 6]!;
-      const zz = plan.buildings[k * 6 + 1]!;
-      if (Math.abs(x) < reach || Math.min(plan.buildings[k * 6 + 4]!, plan.buildings[k * 6 + 5]!) < 2) continue;
+    const b = plan.buildings;
+    const near = (a: number, c: number): boolean => Math.abs(((a >> 16) & 0xff) - ((c >> 16) & 0xff)) + Math.abs(((a >> 8) & 0xff) - ((c >> 8) & 0xff)) + Math.abs((a & 0xff) - (c & 0xff)) < 12;
+    // Whether the plan itself puts a roof of this colour at a point (either
+    // turn of a box, a unit's margin): there a painted mirror image could not
+    // be told from the town as it stands, so the point is no witness.
+    const planRoofAt = (x: number, zz: number, roof: number): boolean => {
+      for (let k = 0; k < b.length / 6; k++) {
+        if (!near(plan.roofs[k]!, roof)) continue;
+        const dx = x - b[k * 6]!;
+        const dz = zz - b[k * 6 + 1]!;
+        const c = b[k * 6 + 2]!;
+        const sn = b[k * 6 + 3]!;
+        const hx = b[k * 6 + 4]! + 1;
+        const hz = b[k * 6 + 5]! + 1;
+        for (const turn of [1, -1]) {
+          if (Math.abs(dx * c + turn * dz * sn) <= hx && Math.abs(-turn * dx * sn + dz * c) <= hz) return true;
+        }
+      }
+      return false;
+    };
+    let witnesses = 0;
+    for (let k = 0; k < b.length / 6 && tried < 48; k++) {
+      const x = b[k * 6]!;
+      const zz = b[k * 6 + 1]!;
+      if (Math.abs(x) < reach || Math.min(b[k * 6 + 4]!, b[k * 6 + 5]!) < 2) continue;
       tried++;
       const roof = plan.roofs[k]!;
       const want = [(roof >> 16) & 0xff, (roof >> 8) & 0xff, roof & 0xff];
       const close = (rgb: [number, number, number] | null): boolean => rgb !== null && Math.abs(rgb[0] - want[0]!) + Math.abs(rgb[1] - want[1]!) + Math.abs(rgb[2] - want[2]!) < 12;
       const p = where(x, zz);
       if (close(pixelAt(p.lat, p.lon))) found++;
-      // Across the town's own north-south line, where a reflected affine would have put it.
+      // Across the town's own north-south line, where a reflected affine would
+      // have put it; asked only where the town has no such roof of its own.
+      if (planRoofAt(-x, zz, roof)) continue;
+      witnesses++;
       const m = where(-x, zz);
       if (close(pixelAt(m.lat, m.lon))) mirrored++;
     }
     check(tried >= 4 && found >= tried * 0.85, `${name}: its buildings stand in their roofs' colours where its frame puts them`, `${found}/${tried}`);
-    check(mirrored < Math.max(2, tried * 0.3), `${name}: and not at their mirror images`, `${mirrored}/${tried}`);
+    check(witnesses >= 4 && mirrored < Math.max(2, witnesses * 0.3), `${name}: and not at their mirror images`, `${mirrored}/${witnesses} where the town has no such roof of its own`);
   }
 }
 

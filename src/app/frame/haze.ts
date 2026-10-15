@@ -4,7 +4,7 @@
  * elevation), and every streamer is handed the same altitude, so what is
  * built and what the haze hides stay one question.
  */
-import { PLANET_RADIUS } from '../../globe.ts';
+import { HAZE_RADIUS, PLANET_RADIUS } from '../../globe.ts';
 import { COCKPIT_NEAR } from '../../craft/body.ts';
 import { fogFar } from '../../view.ts';
 import type { App } from '../context.ts';
@@ -24,9 +24,9 @@ export function updateHaze(app: App, tick: Tick): number {
   const { fog, rig, player } = app;
   const elevation = Math.max(0, tick.ground - PLANET_RADIUS);
   const altitude = Math.max(STREAM_FLOOR, tick.eyeOverGround + HAZE_ELEVATION * elevation);
-  const horizon = Math.sqrt(2 * PLANET_RADIUS * altitude);
+  const horizon = Math.sqrt(2 * HAZE_RADIUS * altitude);
   // Streamers cap their reach on the same `fogFar`.
-  fog.far = fogFar(altitude, PLANET_RADIUS);
+  fog.far = fogFar(altitude, HAZE_RADIUS);
   // The near edge follows the far one in when weather closes it.
   fog.near = Math.min(horizon * 0.2, fog.far * 0.3);
 

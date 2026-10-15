@@ -1,4 +1,5 @@
 import './sky.ts';
+import { NOMINAL_RADIUS, WORLD_SCALE } from '../../src/globe/planet.ts';
 import { PLANET_RADIUS, EARTH_RADIUS_KM, KM_PER_UNIT, surfaceRadiusOf, AU_KM, apparentPixels, AU_UNITS, type Body, type Species, SUN_DRAWN, drawnRadiusOf, meshWithin, EARTH_DRAWN, eclipticToWorld } from '../../src/system/contract.ts';
 import { near, fail, DEG } from './setup.ts';
 import { AVATAR_HEIGHT } from '../../src/stature.ts';
@@ -15,14 +16,15 @@ import { lonOf, latOf } from '../../src/sphere.ts';
 
 console.log('\n\n=== the scale ===\n');
 
-console.log(`  Earth is PLANET_RADIUS ${PLANET_RADIUS} against a real ${EARTH_RADIUS_KM} km,`);
+console.log(`  the nominal Earth is ${NOMINAL_RADIUS} units (Earth is drawn at ${PLANET_RADIUS}) against a real ${EARTH_RADIUS_KM} km,`);
 // Read a world unit as a metre and the planet is 1:398 — which is the sense
 // the scale table means, and it is *not* the avatar's scale. The avatar is 3.77
 // units for a 1.75 m person, so the body is at about 1:0.46 of the same
 // reading. That conflict is real, it is written down rather than hidden, and it
 // is the reason this file states which of the two any number belongs to.
-console.log(`  so one world unit is ${KM_PER_UNIT.toFixed(5)} km, and read as a metre that is 1:${((EARTH_RADIUS_KM * 1000) / PLANET_RADIUS).toFixed(0)}.`);
-near('Earth round-trips through surfaceRadiusOf', surfaceRadiusOf(EARTH_RADIUS_KM), PLANET_RADIUS, 1e-9);
+console.log(`  so one world unit is ${KM_PER_UNIT.toFixed(5)} km, and read as a metre that is 1:${((EARTH_RADIUS_KM * 1000) / NOMINAL_RADIUS).toFixed(0)}.`);
+near('the nominal Earth round-trips through surfaceRadiusOf', surfaceRadiusOf(EARTH_RADIUS_KM), NOMINAL_RADIUS, 1e-9);
+near('Earth is drawn WORLD_SCALE times the nominal planet', PLANET_RADIUS, NOMINAL_RADIUS * WORLD_SCALE, 1e-9);
 
 {
   const auInUnits = AU_KM / KM_PER_UNIT;
@@ -31,7 +33,7 @@ near('Earth round-trips through surfaceRadiusOf', surfaceRadiusOf(EARTH_RADIUS_K
   const ulp = 2 ** (Math.floor(Math.log2(neptune)) - 23);
   console.log(`\n  at true scale: 1 au is ${(auInUnits / 1e6).toFixed(1)} M units and Neptune's orbit ${(neptune / 1e9).toFixed(2)} G units.`);
   console.log(`    float32 spacing there: ${ulp.toFixed(0)} units — ${(ulp / AVATAR_HEIGHT).toFixed(0)} people. Positions do not exist at that range.`);
-  console.log(`    Earth from Mars at closest approach: ${apparentPixels(PLANET_RADIUS, 0.52 * auInUnits).toFixed(3)} px.`);
+  console.log(`    Earth from Mars at closest approach: ${apparentPixels(NOMINAL_RADIUS, 0.52 * auInUnits).toFixed(3)} px.`);
   if (ulp < AVATAR_HEIGHT) fail('float32 can hold a true-scale Neptune after all — the compression argument needs re-deriving');
 }
 

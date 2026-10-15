@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { World } from '../geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from '../globe.ts';
-import { isShown } from '../places.ts';
+import { BUILT_CEILING, isShown } from '../places.ts';
 import type { Place } from '../places.ts';
 import {
   courseOf,
@@ -139,7 +139,7 @@ export function createSiteTowns(source: FleetSource): SiteTowns {
 
   /** Inside any built town's square, grown by `margin` units. */
   function inSquare(direction: THREE.Vector3, margin: number): boolean {
-    for (const q of townsNear(direction, 150 + margin + 10, townList)) {
+    for (const q of townsNear(direction, BUILT_CEILING + margin + 10, townList)) {
       const town = townOf(places[q]!);
       if (direction.dot(town.up) <= 0) continue;
       townOffset(town, direction, offset);

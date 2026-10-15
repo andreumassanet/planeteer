@@ -58,7 +58,6 @@ export function standBenches(kit: RaiseKit, job: RaiseJob, ground: Ground): void
   const { slot } = job;
   const { frame } = kit;
   const at = kit.scratch.at;
-  slot.benches = [];
   for (let i = 0; i + 3 < ground.benches.length; i += 4) {
     const rng = rngFrom(slot.seed, 'bench', i);
     const flat = kit.variants.variantOf(BENCH_PART, slot.style, rng.int(VARIANTS));
@@ -69,7 +68,7 @@ export function standBenches(kit: RaiseKit, job: RaiseJob, ground: Ground): void
     job.standing.push({ flat, matrix: matrix.clone(), glow: 0 });
     job.vertices += flat.position.length / 3;
     job.solids.push(solidOf(flat, at.x, at.z, yaw, 1, frame.origin.length() - PLANET_RADIUS + at.y - GROUND_LIFT));
-    slot.benches.push({
+    job.benches.push({
       position: new THREE.Vector3(Math.sin(yaw) * BENCH_SIT_AHEAD, 0, Math.cos(yaw) * BENCH_SIT_AHEAD).add(at),
       facing: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
       sink: 0,
@@ -118,7 +117,7 @@ export function standPeople(kit: RaiseKit, job: RaiseJob, ground: Ground): void 
       const rng = rngFrom(slot.seed, 'person', j);
       const yaw = f[at + 9]!;
       // In the town's frame here; into the world's once the mesh is placed.
-      slot.folk.push({
+      job.folk.push({
         key: `${slot.seed}|${j}`,
         position: new THREE.Vector3(f[at]!, f[at + 1]!, f[at + 2]!),
         quaternion: new THREE.Quaternion().setFromAxisAngle(AXIS_Y, Number.isNaN(yaw) ? rng.range(0, Math.PI * 2) : yaw),
@@ -142,9 +141,10 @@ export function standPeople(kit: RaiseKit, job: RaiseJob, ground: Ground): void 
  * What can be taken is parked as the craft that takes it, named before it is
  * built; one already taken leaves its bay laid out (`parkedLayout`) and its
  * wall as a ghost, so the town and its names are the same whoever drove off.
- * Every vehicle is a wall, its roof measured from the kerb it stands on.
+ * Every vehicle is a wall, its roof measured from the kerb it stands on. A
+ * step a vehicle, since the first of a kind and paint builds its buffer.
  */
-export function standParked(kit: RaiseKit, job: RaiseJob, ground: Ground): void {
+export function* standParkedSteps(kit: RaiseKit, job: RaiseJob, ground: Ground): Generator<void, void, void> {
   const { slot } = job;
   const { frame, variants, scratch, registry } = kit;
   const urbanity = urbanityOf(slot.place.pop);
@@ -159,6 +159,7 @@ export function standParked(kit: RaiseKit, job: RaiseJob, ground: Ground): void 
   const bayStride = Math.max(1, Math.floor(bays / Math.max(1, wantParked)));
   let placedCars = 0;
   for (let i = 0; i < bays && placedCars < wantParked; i += bayStride) {
+    if (placedCars > 0) yield;
     const rng = rngFrom(slot.seed, 'parked', i);
     const kind = rng.weighted(mix);
     const look = rng.int(VARIANTS);
@@ -197,7 +198,7 @@ export function standParked(kit: RaiseKit, job: RaiseJob, ground: Ground): void 
         solid,
         hidden: false,
       };
-      slot.parked.push(bay);
+      job.parked.push(bay);
       logParked(kit, craft!, scratch.local);
     }
     job.standing.push({ flat, matrix: matrix.clone(), glow: 0, bay });
@@ -208,17 +209,19 @@ export function standParked(kit: RaiseKit, job: RaiseJob, ground: Ground): void 
 /**
  * The bicycles in the racks: a share of the slots (`RACK_FILL`), each drawn
  * off the town's seed, holds one that can be taken, named after the kerb's
- * cars and counting every car placed and bicycle stood. Each is a wall.
+ * cars and counting every car placed and bicycle stood. Each is a wall. A
+ * step a bicycle.
  */
-export function standRackBikes(kit: RaiseKit, job: RaiseJob): void {
+export function* standRackBikesSteps(kit: RaiseKit, job: RaiseJob): Generator<void, void, void> {
   const { slot } = job;
   const { frame, variants, scratch, registry } = kit;
-  if (slot.bikeSlots.length === 0) return;
+  if (job.bikeSlots.length === 0) return;
   let stood = 0;
   const first = PARKED_SLOT + job.parkedLayout.length / 4;
-  for (let k = 0; k < slot.bikeSlots.length && first + stood <= 99; k++) {
+  for (let k = 0; k < job.bikeSlots.length && first + stood <= 99; k++) {
     if (!rngFrom(slot.seed, 'rack-bike', k).chance(RACK_FILL)) continue;
-    const rack = slot.bikeSlots[k]!;
+    if (stood > 0) yield;
+    const rack = job.bikeSlots[k]!;
     const id = `bicycle:${slot.index}:${first + stood++}`;
     const flat = variants.machineVariant(id, 'bicycle');
     if (flat === null) break;
@@ -241,7 +244,7 @@ export function standRackBikes(kit: RaiseKit, job: RaiseJob): void {
       solid,
       hidden: false,
     };
-    slot.parked.push(bay);
+    job.parked.push(bay);
     job.standing.push({ flat, matrix: matrix.clone(), glow: 0, bay });
     job.vertices += flat.position.length / 3;
     logParked(kit, 'bicycle', rack.position);

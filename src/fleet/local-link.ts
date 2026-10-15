@@ -1,9 +1,10 @@
 /** The fleet link for a world with nobody else in it: what you moved is kept on this machine for a day. */
 import type { FleetLink, MovedVehicle } from '../craft/contract.ts';
+import { WORLD_SCALE } from '../globe/planet.ts';
 import { isPose } from './pose.ts';
 
-/** Where the local link keeps what was moved, and for how long. */
-const LOCAL_KEY = 'atlas.fleet.moved';
+/** Where the local link keeps what was moved, and for how long. A pose is a world position, so the key carries the planet's size. */
+const LOCAL_KEY = `atlas.fleet.moved.${WORLD_SCALE}`;
 const LOCAL_EXPIRY_MS = 24 * 3600 * 1000;
 /** How often a pose being driven is written down, at most. */
 const LOCAL_SAVE_MS = 2000;

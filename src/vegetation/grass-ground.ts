@@ -52,6 +52,14 @@ const DRY_OF: Readonly<Record<BiomeId, number>> = {
 };
 /** How far either way the made ground is stepped for its slope, units: well inside one face of an edge slope. */
 const MADE_STEP = 0.8;
+/**
+ * The second difference of the ground over two texels past which it steps
+ * rather than slopes, units. A kerb's drop (`KERB_DROP`, 0.8) and a terrace's
+ * riser are past it, and so is the crease at the top and foot of a town's
+ * edge slope, where a blade laid across would stand off the ground; the
+ * land's own folds over a texel are a fraction of it.
+ */
+const RISER_FOLD = 0.6;
 /** A field of straw's grass: the crop's colour, most of the way to dry. */
 const STRAW_DRY = 0.75;
 /**
@@ -212,6 +220,40 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
     return radius - Math.min(spread, lower);
   }
 
+  /**
+   * Whether the ground steps between this texel and a neighbour: the second
+   * difference over the next texel either way, along either axis, past
+   * `RISER_FOLD`. A slope, or a fold in the land, is a fraction of that; a
+   * town's terrace riser or kerb is its height.
+   */
+  function risesBetween(direction: THREE.Vector3, radius: number, spread: number): boolean {
+    for (const along of [grassSet.across, grassSet.north]) {
+      grassProbe.copy(direction).addScaledVector(along, (2 * spread) / PLANET_RADIUS).normalize();
+      const ahead = groundUnder(grassProbe, 0);
+      grassProbe.copy(direction).addScaledVector(along, (-2 * spread) / PLANET_RADIUS).normalize();
+      const behind = groundUnder(grassProbe, 0);
+      if (ahead === null || behind === null) continue;
+      if (Math.abs(ahead + behind - 2 * radius) > RISER_FOLD) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Whether a town's lawn holds all round a texel, as far as its blades are
+   * laid (`spread` each way): the margin the town keeps off its streets is
+   * measured from the texel, and a corner of it can still reach a pavement.
+   */
+  function swardRound(direction: THREE.Vector3, spread: number): boolean {
+    for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+      grassProbe.copy(direction)
+        .addScaledVector(grassSet.across, (a * spread) / PLANET_RADIUS)
+        .addScaledVector(grassSet.north, (b * spread) / PLANET_RADIUS)
+        .normalize();
+      if (groundUnder(grassProbe, LAWN_MARGIN) === null) return false;
+    }
+    return true;
+  }
+
   function at(direction: THREE.Vector3, out: GrassSite, spread = 0): GrassSite | null {
     const lat = latOf(direction.y);
     const lon = lonOf(direction.x, direction.z);
@@ -274,9 +316,16 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
     // gone where it is all rock: no blade stands on a cliff.
     // A town's ground answers no drawn normal; where it is the land's own (an
     // edge slope) the town draws it as the land, so it is asked the same.
-    if (shading.lengthSq() === 0 && !bare) madeNormal(direction, shading);
+    const townGround = shading.lengthSq() === 0;
+    if (townGround && !bare) madeNormal(direction, shading);
     const rock = shading.lengthSq() > 0 ? rockAt(shading, sitePoint.copy(direction).multiplyScalar(radius)) : 0;
-    if (spread > 0) radius = lowered(direction, radius, spread);
+    if (spread > 0) {
+      // A riser between a texel and the next is no line a blade can be laid
+      // on: bare either side of it, so the blades stop short of the step.
+      if (!bare && risesBetween(direction, radius, spread)) bare = true;
+      if (!bare && townGround && !swardRound(direction, spread)) bare = true;
+      radius = lowered(direction, radius, spread);
+    }
 
     out.radius = radius + (lane >= 0 ? STRIP_LIFT : 0);
     out.density = bare ? 0 : ground.density * (1 - worn * WORN_THIN) * (1 - rock);

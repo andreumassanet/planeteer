@@ -1,6 +1,6 @@
 // The sea's numbers. Distances are world units; `PLANET_RADIUS` rules the rest.
 
-import { PLANET_RADIUS, angleForSag } from '../globe.ts';
+import { PLANET_RADIUS, WORLD_SCALE, angleForSag } from '../globe.ts';
 
 export const DEG = Math.PI / 180;
 
@@ -9,8 +9,8 @@ export const DEG = Math.PI / 180;
  * sphere's vertices sit at exactly `PLANET_RADIUS`, so a face dips this far
  * below sea level at its centre; it must stay well under the lowest ground
  * (`SHORE_LIP`, 4 units). The sphere also carries the depth colour field, and
- * the shallows hand off to it at `SHELF`, so the vertex spacing (221 units at
- * this detail) must be well under that.
+ * the shallows hand off to it at `SHELF`, where the ramp is already slow, so
+ * the vertex spacing (about 320 units at this detail, 110) need only be under it.
  *
  * Nothing displaces the surface: waves would be spent out of the same margin,
  * and in a four-band toon ramp a wave only shows where the normal turns, which
@@ -22,19 +22,24 @@ export const OCEAN_SAG = 0.4;
 export const OCEAN_DETAIL = Math.ceil(63.4349 / (angleForSag(OCEAN_SAG) / DEG)) - 1;
 
 /**
- * How far out from the coast the shallows reach. A real shelf runs 50 to 200 km
- * and a unit is 0.4 km, so 430 is 172 km. From the plane's ceiling that is a
- * 9-pixel fringe round every continent; the shore ramp's 130 would be a hairline.
+ * How far out from the coast the shallows reach, in units: 86 km on this
+ * planet, inside a real shelf's 50 to 200. It is sized for the eye, which
+ * flies at the same altitudes whatever the planet's size: from the plane's
+ * ceiling it is a 9-pixel fringe round every continent, where the shore
+ * ramp's 130 would be a hairline. The steep half of the colour ramp
+ * (`waterColor`) lies inside it; past it the ramp runs out to `ABYSS`, slowly
+ * enough for the sphere's own vertices to carry it.
  */
 export const SHELF = 430;
 
 /**
- * Where the water is as dark as it gets, in units from the nearest land. Not a
+ * Where the water is as dark as it gets, in units from the nearest land (2,600
+ * nominal, about 1,000 km). Not a
  * depth (the planet has no bathymetry) but distance from land, which decides
  * most of the open sea's colour anyway. The enclosed seas fall in the pale half
  * of the ramp; only the middle of an ocean is at the dark end.
  */
-export const ABYSS = 2600;
+export const ABYSS = 2600 * WORLD_SCALE;
 
 /**
  * The widest a quad of the ribbon may be, in either direction. A quad spanning

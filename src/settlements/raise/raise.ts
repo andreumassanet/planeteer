@@ -5,23 +5,26 @@ import { solidField } from '../../scenery/solids.ts';
 import type { TownGrid } from '../../scenery/grid.ts';
 import type { Ground } from '../ground/build.ts';
 import { urbanityOf } from '../rules.ts';
-import type { Slot } from '../types.ts';
-import { standBenches, standLamps, standParked, standPeople, standRackBikes, standSignals } from './furniture.ts';
+import type { Slot, SlotFloor } from '../types.ts';
+import { standBenches, standLamps, standParkedSteps, standPeople, standRackBikesSteps, standSignals } from './furniture.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
-import { mergeSteps, placeTown, swapNearTrees } from './merge.ts';
+import { commitTown, mergeSteps, swapNearTrees, townMeshSteps } from './merge.ts';
 import { standLone, standPlotsSteps } from './stand.ts';
-import { dressStreets, hangOver } from './street.ts';
+import { dressStreetsSteps, hangOverSteps } from './street.ts';
 
 /**
  * A town raised in steps: it yields between the cells it plans, the plots it
  * stands, the courses of floor it lays and the parts it merges, so a caller
  * can stop between any two and come back next frame. Everything it touches
- * between two steps is its own (the slot, the town frame and the terraces),
- * which is why only one runs at a time.
+ * between two steps is its own (the job, the town frame and the terraces),
+ * which is why only one runs at a time. Nothing is published until the last
+ * step, which trades whatever the slot had standing for the new town at once
+ * (`commitTown`): a town built again goes on answering a foot, a wall and the
+ * people's queries as it was until then, and one abandoned half way leaves
+ * nothing behind. The old mesh is the caller's to retire.
  */
 export function* raiseSteps(kit: RaiseKit, slot: Slot): Generator<void, void, void> {
-  if (slot.mesh !== null || slot.failed) return;
-  slot.builtPeopled = slot.peopled;
+  if (slot.failed) return;
   slot.stale = false;
 
   const grid = yield* kit.squareSteps(slot);
@@ -33,47 +36,56 @@ export function* raiseSteps(kit: RaiseKit, slot: Slot): Generator<void, void, vo
   yield* standPlotsSteps(kit, job);
   standLone(kit, job);
   // What stood near is what the map draws.
-  if (slot.builtPeopled) kit.plans.keepPlan(slot.index, kit.plans.slotPlan(slot, grid, job.solids, job.solidFlats, job.solidKinds, job.treesAt, job.pavedCells));
-
-  slot.planned = placed.length;
-  slot.drowned = job.drowned;
-  slot.buried = job.buried;
-  slot.onRelief = job.onRelief;
-  slot.buildings = job.built.size;
+  if (job.peopled) kit.plans.keepPlan(slot.index, kit.plans.slotPlan(slot, grid, job.solids, job.solidFlats, job.solidKinds, job.treesAt, job.pavedCells));
   if (job.standing.length === 0) {
+    slot.planned = placed.length;
+    slot.drowned = job.drowned;
+    slot.buried = job.buried;
+    slot.buildings = 0;
     // Nothing would stand, not even the centre building: marked failed so the streamer stops asking.
     slot.failed = true;
     return;
   }
+  yield;
 
   // The floor goes into the same buffer as the houses on it: one mesh, one draw call.
   const band = streetBand(grid, slot.ground.street);
   const ground = yield* kit.buildGroundSteps(slot, grid, band, urbanityOf(slot.place.pop), job.litPlots, job.pavedCells);
-  slot.paved = ground.paved;
-  publishFloor(kit, slot, grid, band, ground);
+  job.floor = floorOf(kit, grid, band, ground);
+  yield;
 
   standLamps(kit, job, ground);
   standSignals(kit, job, ground);
+  yield;
   standBenches(kit, job, ground);
-  slot.folk = [];
-  slot.parked = [];
-  if (slot.peopled) {
+  if (job.peopled) {
+    yield;
     standPeople(kit, job, ground);
-    standParked(kit, job, ground);
+    yield;
+    yield* standParkedSteps(kit, job, ground);
   }
-  hangOver(kit, job, ground, band);
-  dressStreets(kit, job, ground, band);
-  standRackBikes(kit, job);
-  if (slot.floor !== null) slot.floor.solids = job.solids.length > 0 ? solidField(job.solids) : null;
+  yield* hangOverSteps(kit, job, ground, band);
+  yield* dressStreetsSteps(kit, job, ground, band);
+  yield* standRackBikesSteps(kit, job);
+  yield;
+  if (job.floor !== null) job.floor.solids = job.solids.length > 0 ? solidField(job.solids) : null;
 
   const { cards, leafVertices } = swapNearTrees(kit, job);
+  yield;
   const buffer = yield* mergeSteps(job, ground);
-  placeTown(kit, job, ground, buffer, cards, leafVertices);
+  const town = yield* townMeshSteps(kit, job, buffer, cards, leafVertices);
+  commitTown(kit, job, ground, town);
 }
 
 function openRaise(kit: RaiseKit, slot: Slot, grid: TownGrid, placed: RaiseJob['placed']): RaiseJob {
   return {
     slot,
+    peopled: slot.peopled,
+    floor: null,
+    folk: [],
+    parked: [],
+    benches: [],
+    bikeSlots: [],
     grid,
     placed,
     standing: [],
@@ -103,11 +115,11 @@ function openRaise(kit: RaiseKit, slot: Slot, grid: TownGrid, placed: RaiseJob['
  * the square's half-diagonal plus one course of edge slope. Its walls are
  * filled in once everything with a wall has been placed.
  */
-function publishFloor(kit: RaiseKit, slot: Slot, grid: TownGrid, band: number, ground: Ground): void {
-  if (ground.terraces.size === 0) return;
-  const { frame, registry } = kit;
+function floorOf(kit: RaiseKit, grid: TownGrid, band: number, ground: Ground): SlotFloor | null {
+  if (ground.terraces.size === 0) return null;
+  const { frame } = kit;
   const span = grid.half * Math.SQRT2;
-  slot.floor = {
+  return {
     up: frame.up.clone(),
     across: frame.across.clone(),
     north: frame.north.clone(),
@@ -119,6 +131,4 @@ function publishFloor(kit: RaiseKit, slot: Slot, grid: TownGrid, band: number, g
     lawn: ground.lawn,
     mouths: ground.mouths,
   };
-  registry.floors.add(slot);
-  registry.noteFloor(slot);
 }

@@ -31,6 +31,7 @@ import type { CountryPlan, Countryside, CountrysideOptions, CountrysideStats } f
 import type { Slope } from './terrain.ts';
 
 export { FEATURE_KINDS } from './countryside/types.ts';
+export { cropGrade, fieldSteepness } from './countryside/ground.ts';
 export type {
   CountryLine,
   CountryPiece,

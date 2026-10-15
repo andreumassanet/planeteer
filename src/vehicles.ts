@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { FIGURE } from './avatar.ts';
 import { BODY_SCALE } from './stature.ts';
-import { PLANET_RADIUS } from './globe.ts';
+import { PLANET_RADIUS, WORLD_SCALE } from './globe.ts';
 import { MAX_SLOPE } from './terrain.ts';
 import { createContext } from './monuments/contract.ts';
 import type { CraftKind } from './craft/contract.ts';
@@ -340,7 +340,12 @@ export const PLANE_CEILING = 3000;
  * what you are crossing; climbing is how you cover an ocean.
  */
 export const PLANE_CRUISE_LOW = 140;
-export const PLANE_CRUISE_HIGH = 1500;
+/**
+ * The cruise at the ceiling on the nominal planet. The other worlds keep it;
+ * Earth's is `WORLD_SCALE` times it, because its oceans are that much wider.
+ */
+export const PLANE_CRUISE_NOMINAL = 1500;
+export const PLANE_CRUISE_HIGH = PLANE_CRUISE_NOMINAL * WORLD_SCALE;
 /** The throttle, `W` and `S`, as a share of the cruise it opens up or closes down. */
 export const PLANE_THROTTLE_UP = 0.6;
 export const PLANE_THROTTLE_DOWN = 0.35;

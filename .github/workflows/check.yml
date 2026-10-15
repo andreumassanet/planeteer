@@ -81,6 +81,8 @@ jobs:
         run: pnpm country
       - name: seated
         run: pnpm seated
+      - name: town-steps
+        run: pnpm town-steps
       - name: craft
         run: pnpm craft
       - name: effects

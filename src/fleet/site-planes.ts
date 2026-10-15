@@ -19,7 +19,7 @@
  */
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
-import { radiusOf } from '../places.ts';
+import { BUILT_CEILING, radiusOf } from '../places.ts';
 import { STRIP_HALF, STRIP_LENGTH, stripPoint, stripsMeet } from '../craft/airstrip.ts';
 import { FLEET_MODELS } from './models.ts';
 import { FIELD_CLEAR, FIELD_STEP, PLANE_FIELD, PLANE_GRADE, PLANE_POP, PLANE_RINGS } from './site-rules.ts';
@@ -98,7 +98,7 @@ export function createPlanes(w: SiteWorld, search: FieldSearch): Planes {
    * from there. -1 is the widest square's, for a search round a town.
    */
   const stripReach = (p: number): number =>
-    (p < 0 ? 150 : radiusOf(places[p]!)) + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + Math.hypot(STRIP_LENGTH + 4, STRIP_HALF) + 1;
+    (p < 0 ? BUILT_CEILING : radiusOf(places[p]!)) + PLANE_FIELD + FIELD_CLEAR + 4 + (PLANE_RINGS - 1) * FIELD_STEP + Math.hypot(STRIP_LENGTH + 4, STRIP_HALF) + 1;
 
   /**
    * Whether town `q` outranks town `p`: the bigger, and between two of a size

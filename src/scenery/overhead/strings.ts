@@ -26,10 +26,11 @@ interface MastState {
   cell: number;
 }
 
-/** Strings bunting, lanterns, sails and the like across the streets, between walls or on masts. */
-export function stringStreets(h: Hanger): void {
+/** Strings bunting, lanterns, sails and the like across the streets, between walls or on masts; a step a street. */
+export function* stringStreetsSteps(h: Hanger): Generator<void, void, void> {
   const { site, grid, out } = h;
   for (const street of h.streets) {
+    yield;
     const rng = rngFrom(site.seed, 'overhead', street.axis, street.index);
     const kind = rng.weighted(street.main ? h.profile.mainHangs ?? h.profile.hangs : h.profile.hangs);
     const chance = (street.main ? h.profile.main : h.profile.side) * h.urban * STRING_DENSITY;

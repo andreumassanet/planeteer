@@ -6,6 +6,7 @@
 import type * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
 import { isShown, radiusOf } from '../places.ts';
+import { EDGE_RUN } from '../scenery/ground.ts';
 import { townGrid } from '../scenery/grid.ts';
 import { roadClearance, roadGeometryFor, roadIndexFor } from '../roads.ts';
 import type { RoadIndex } from '../roads.ts';
@@ -68,10 +69,14 @@ export function createKeepouts(options: VegetationOptions): Keepouts {
   const shape: (PlanShape | null)[] = [];
   /** How many entries are in use: only the shown places keep the trees out. */
   let count = 0;
+  /** The furthest any entry reaches from its centre: a disc, or a square with its edge slope. */
+  let widest = 0;
 
   const rebuild = (): void => {
     let i = 0;
+    widest = 0;
     const add = (lat: number, lon: number, r: number, h = 0, p = 0, s: PlanShape | null = null): void => {
+      widest = Math.max(widest, r, h > 0 ? (h + Math.max(EDGE_RUN, p) + 1) * Math.SQRT2 : 0);
       toUnit(lat, lon, unit, i * 3);
       radius[i] = r;
       half[i] = h;
@@ -102,7 +107,7 @@ export function createKeepouts(options: VegetationOptions): Keepouts {
   function gatherBuilt(direction: THREE.Vector3, reach: number, into: KeepoutSet): void {
     const { across, north, keepouts } = into;
     keepouts.length = 0;
-    const cos = Math.cos((reach + 120) / PLANET_RADIUS);
+    const cos = Math.cos((reach + widest) / PLANET_RADIUS);
     const { x, y, z } = direction;
     for (let i = 0; i < count; i++) {
       const dot = x * unit[i * 3]! + y * unit[i * 3 + 1]! + z * unit[i * 3 + 2]!;

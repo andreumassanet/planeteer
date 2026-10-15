@@ -53,6 +53,14 @@ export const CONE_RAGGED = 0.18;
 export const ICOSAHEDRON = new THREE.IcosahedronGeometry(1, 0).getAttribute('position').array as Float32Array;
 
 /**
+ * How far a lump's shading normal may lean from its own surface's, as the
+ * least cosine between them. A lump deep in the crown, where the crown's
+ * normal turns right round across it, would otherwise shade its faces from
+ * the far side.
+ */
+const LUMP_FACING = 0.6;
+
+/**
  * A cluster as a lump for the far crown: the icosahedron stretched to it, its
  * normals most of the way to the crown's own so the lumps shade as one mass
  * and not as twenty facets each.
@@ -61,6 +69,7 @@ export function lump(out: Soup, cluster: Cluster, crown: Crown, shrink: number):
   const p = new THREE.Vector3();
   const local = new THREE.Vector3();
   const whole = new THREE.Vector3();
+  const radial = new THREE.Vector3();
   const r = cluster.r * shrink;
   const ry = r * cluster.squat;
   // Each lump its own shade of the cluster's green, and its twelve corners
@@ -76,7 +85,10 @@ export function lump(out: Soup, cluster: Cluster, crown: Crown, shrink: number):
     p.set(cluster.c.x + x * r * k, cluster.c.y + y * ry * k, cluster.c.z + z * r * k);
     local.set(x / r, y / ry, z / r).normalize();
     crownNormal(crown, p, whole);
+    radial.copy(local);
     local.multiplyScalar(0.4).addScaledVector(whole, 0.6).normalize();
+    // Never lean further than `LUMP_FACING` from the lump's own surface.
+    for (let pull = 0; pull < 4 && local.dot(radial) < LUMP_FACING; pull++) local.add(radial).normalize();
     push(out, p, local, crownShade(crown, p, colour));
   }
 }
