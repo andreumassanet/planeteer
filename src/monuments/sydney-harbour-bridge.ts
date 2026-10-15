@@ -102,6 +102,7 @@ export const sydneyHarbourBridge: Monument = {
   lon: 151.211,
   realHeight: 134,
   tier: 'landmark',
+  surfaces: { steel: 'metal', bark: 'none' },
   footprint: 52,
 
   build(ctx) {

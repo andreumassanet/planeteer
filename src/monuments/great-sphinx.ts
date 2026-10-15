@@ -356,6 +356,7 @@ export const greatSphinx: Monument = {
   // No `realHeight`: the source list gives none. The usual 20 m is measured from
   // the quarry floor, and the quoted figure for the Sphinx is its 73 m length.
   tier: 'building',
+  surface: 'none',
   footprint: 40,
 
   build(ctx) {

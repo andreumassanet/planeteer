@@ -303,6 +303,7 @@ export const tableMountain: Monument = {
   lon: 18.403,
   realHeight: 1085,
   tier: 'landmark',
+  surface: 'none',
   footprint: 55,
 
   build(ctx) {

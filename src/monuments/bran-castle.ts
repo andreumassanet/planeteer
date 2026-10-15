@@ -34,6 +34,8 @@ export const branCastle: Monument = {
   lat: 45.5149,
   lon: 25.3672,
   tier: 'building',
+  surface: 'plaster',
+  surfaces: { brown: 'none', tan: 'none' },
   footprint: 25,
 
   build(ctx) {

@@ -78,10 +78,13 @@ export function buildFaceIndex(position: Float32Array, centre: THREE.Vector3, fo
  * of the index it meets, or null. An enclave is drawn twice (its own ring and
  * the outer ring of the country round it, by two triangulations of one
  * relief), so the two surfaces are a unit or two apart and the higher is the
- * one seen. `normal`, when given, is filled with that face's own.
+ * one seen. `normal`, when given, is filled with that face's own; `shading`,
+ * with the mesh's own normals (`normals`, three signed bytes a corner) laid
+ * between the corners, which is the normal the land is drawn with.
  */
 export function highestHit(
   position: Float32Array, index: FaceIndex, direction: THREE.Vector3, normal: THREE.Vector3 | undefined, reach: number, side: number,
+  normals?: Int8Array, shading?: THREE.Vector3,
 ): number | null {
   if (direction.dot(index.centre) < 0) return null;
   const i = Math.floor((direction.dot(index.east) * PLANET_RADIUS + reach) / BUCKET);
@@ -123,6 +126,14 @@ export function highestHit(
     if (normal !== undefined) {
       normal.set(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x).normalize();
       if (normal.dot(direction) < 0) normal.negate();
+    }
+    if (shading !== undefined && normals !== undefined) {
+      const w = 1 - u - v;
+      shading.set(
+        normals[o]! * w + normals[o + 3]! * u + normals[o + 6]! * v,
+        normals[o + 1]! * w + normals[o + 4]! * u + normals[o + 7]! * v,
+        normals[o + 2]! * w + normals[o + 5]! * u + normals[o + 8]! * v,
+      ).normalize();
     }
   }
   return best > 0 ? best : null;

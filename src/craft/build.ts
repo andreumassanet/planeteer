@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { varnish } from '../gloss.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
+import { seeThrough } from '../see-through.ts';
 import { createContext, tone } from '../monuments/contract.ts';
 import { PALETTE } from '../theme.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
@@ -49,7 +50,7 @@ export function craftMaterial(): THREE.MeshToonMaterial {
   material.name = 'craft';
   varnish(material);
   // Before `fadeTwin` clones it for the fleet (`fleetMaterials`).
-  shadeByClouds(material);
+  seeThrough(shadeByClouds(material));
   return material;
 }
 
@@ -66,7 +67,7 @@ export function cabinMaterial(): THREE.MeshToonMaterial {
   matte.userData.outlineParameters = { ...source.userData.outlineParameters, outlineNormal: true };
   matte.userData.atlasPainted = true;
   matte.name = 'craft-cabin';
-  shadeByClouds(matte);
+  seeThrough(shadeByClouds(matte));
   return matte;
 }
 
@@ -102,7 +103,7 @@ export function glassMaterial(): THREE.MeshToonMaterial {
   // The craft's own varnish, which takes this slate for glass and gives it
   // the sky at a glancing angle and the sun's highlight; and the clouds' shade.
   varnish(glass);
-  shadeByClouds(glass);
+  seeThrough(shadeByClouds(glass));
   return glass;
 }
 

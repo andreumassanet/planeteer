@@ -40,6 +40,7 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
   const flags = makeSwitch(options.flags, 'Flags and borders');
 
   const resolution = makeChoice(options.resolution, 'Resolution');
+  const graphics = options.graphics === undefined ? null : makeChoice(options.graphics, 'Graphics');
 
   /** The time of day: a slider over the hour where you stand, a button back to the real one, and the time-lapse. */
   const time = options.time;
@@ -81,6 +82,9 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
         ? null
         : row('Automatic distance', 'Turns the render distance up while frames are to spare and down when they drop. Moving the slider, or a render distance key, takes over and turns this off.', autoDetail.element),
       row('Resolution', "Auto is the screen's own sharpness, up to twice the pixels. Balanced stops at one and a half; Fast is the lightest.", resolution.element),
+      graphics === null
+        ? null
+        : row('Graphics', 'Ultra draws brick, stone, tiles and paving with their relief, rooms behind the windows, waves on the water, rock on the slopes and a soft distance. Standard is the plain look and lighter.', graphics.element),
     ),
     section(
       'In the world',
@@ -110,6 +114,7 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
       weather?.refresh();
       flags.refresh();
       resolution.refresh();
+      graphics?.refresh();
       showTime();
     },
     /** The automatic knob and the clock move while the card is up. */

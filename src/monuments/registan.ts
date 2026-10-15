@@ -79,6 +79,7 @@ export const registan: Monument = {
   lat: 39.6548,
   lon: 66.9758,
   tier: 'building',
+  surface: 'brick',
   footprint: 36.5,
 
   build(ctx: MonumentContext): Group {

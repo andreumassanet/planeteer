@@ -223,6 +223,8 @@ export const guggenheimBilbao: Monument = {
   // No `realHeight`: the source list carries none, and the museum has no single
   // height to give — the atrium is about 50 m and nothing else comes near it.
   tier: 'building',
+  surface: 'metal',
+  surfaces: { sand: 'stone', tan: 'stone', brown: 'concrete', steel: 'none' },
   footprint: 37,
 
   build(ctx) {

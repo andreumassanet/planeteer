@@ -83,6 +83,7 @@ export const thePitons: Monument = {
   lon: -61.06,
   realHeight: 771,
   tier: 'building',
+  surface: 'none',
   footprint: 38,
 
   build(ctx: MonumentContext): Group {

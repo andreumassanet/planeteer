@@ -118,6 +118,8 @@ export const spaceNeedle: Monument = {
   lon: -122.349,
   realHeight: 184,
   tier: 'tower',
+  surface: 'metal',
+  surfaces: { darkOlive: 'metal', bark: 'none' },
   footprint: 11.3,
 
   build(ctx) {

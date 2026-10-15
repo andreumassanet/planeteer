@@ -54,6 +54,7 @@ export const hallgrimskirkja: Monument = {
   lon: -21.9266,
   realHeight: 74.5,
   tier: 'tower',
+  surface: 'concrete',
   footprint: 27.6,
 
   build(ctx: MonumentContext): Group {

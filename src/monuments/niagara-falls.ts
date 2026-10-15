@@ -247,6 +247,7 @@ export const niagaraFalls: Monument = {
   // No `realHeight`: the Horseshoe and the American fall are both 57 m, only 21
   // to 34 m of the latter is free water, and the number usually quoted is a flow rate.
   tier: 'building',
+  surface: 'none',
   footprint: 52,
 
   build(ctx) {

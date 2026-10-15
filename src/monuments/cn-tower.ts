@@ -154,6 +154,8 @@ export const cnTower: Monument = {
   lon: -79.387,
   realHeight: 553,
   tier: 'landmark',
+  surface: 'concrete',
+  surfaces: { steel: 'none', tan: 'stone' },
   footprint: 4.8,
 
   build(ctx) {

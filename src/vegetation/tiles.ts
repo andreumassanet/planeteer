@@ -34,6 +34,10 @@ export interface FlatVariant {
   tilt: number;
   /** What it is to a body walking into it; absent, nothing. */
   solid?: BodyKind;
+  /** A building's `atlasSurface` bytes, one a vertex (`src/surfaces.ts`); absent, drawn as it is. */
+  surface?: Uint8Array;
+  /** Its panes' corners, two bytes a vertex, where it has glass. */
+  pane?: Uint8Array | null;
 }
 
 /** What a near tile draws of a tree: its wood as a flat variant, and its cards. */

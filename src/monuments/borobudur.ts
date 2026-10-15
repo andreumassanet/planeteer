@@ -142,6 +142,7 @@ export const borobudur: Monument = {
   lat: -7.608,
   lon: 110.204,
   tier: 'building',
+  surfaces: { steel: 'stone', slate: 'stone' },
   // The plinth's corner, at 36 x 1.414. Everything else is inside it.
   footprint: 51,
 

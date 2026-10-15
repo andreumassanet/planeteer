@@ -7,6 +7,7 @@
  */
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
+import { surfaceQuality } from '../graphics-quality.ts';
 import { setSunDirection } from '../lights.ts';
 import { beginFrameBuild, endFrameBuild, fogFar } from '../view.ts';
 import type { App } from './context.ts';
@@ -44,6 +45,8 @@ export function installMenuSky(app: App): SkyDiscs {
   let veil = 1;
   let veiledAt = performance.now();
   menu.beforeRender = (camera) => {
+    // The globe from the menu is far: none of the surfaces' detail would show, and all of it would cost.
+    surfaceQuality.value = 0;
     const distance = camera.position.length();
     const altitude = Math.max(1, distance - PLANET_RADIUS);
     fog.near = Math.sqrt(2 * PLANET_RADIUS * altitude) * 0.2;
@@ -73,7 +76,7 @@ export function installMenuSky(app: App): SkyDiscs {
     oceanLights.moon.copy(sky.moon.position).normalize();
     oceanLights.lights[0].intensity = sky.sun.intensity;
     oceanLights.lights[1].intensity = sky.moon.intensity;
-    ocean.update(camera.position, oceanLights.lights);
+    ocean.update(camera.position, oceanLights.lights, sky.mood);
   };
   return discs;
 }

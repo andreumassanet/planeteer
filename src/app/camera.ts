@@ -10,6 +10,7 @@ export function createRigAndInput(app: App): { rig: CameraRig; input: Input } {
   const { settlements, monuments, vegetation, launchPads, query } = app;
   const rig = createCameraRig({
     blocks: (point) => settlements.blocksSight(point) || monuments.blocksSight(point) || vegetation.blocksSight(point) || launchPads.blocksSight(point),
+    seesThrough: true,
   });
   // A crash shakes the camera unless turned off, or the system asks for reduced motion and nothing was chosen.
   const shakeSaved = readSetting(SHAKE_KEY);

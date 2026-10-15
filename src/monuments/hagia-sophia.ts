@@ -139,6 +139,7 @@ export const hagiaSophia: Monument = {
   lon: 28.98,
   realHeight: 55,
   tier: 'building',
+  surface: 'plaster',
   footprint: 30,
 
   build(ctx) {

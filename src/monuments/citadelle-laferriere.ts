@@ -49,6 +49,7 @@ export const citadelleLaferriere: Monument = {
   lat: 19.5744,
   lon: -72.2437,
   tier: 'building',
+  surfaces: { slate: 'none' },
   footprint: 31,
 
   build(ctx: MonumentContext): Group {

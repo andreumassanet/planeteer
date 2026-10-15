@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { poolAt } from '../../lights.ts';
+import type { ShoreLine } from '../../scenery/floor.ts';
 import type { Ground } from './job.ts';
 
 /**
@@ -46,6 +47,14 @@ export function litAround(emitters: readonly Emitter[], x: number, z: number, ra
 export interface GroundWriter {
   /** The emitters that can reach the faces being pushed now; set per cell. */
   lit: readonly Emitter[];
+  /** What a face is laid in, by the colour object its first corner is pushed with; absent is 0, left as drawn. */
+  readonly kinds: Map<THREE.Color, number>;
+  /**
+   * The coast across the cell being drawn, in the settlement's frame
+   * (`Shore`'s lines and how they join): every face pushed is cut to the land.
+   * Null draws whole.
+   */
+  cut: ShoreCut | null;
   /** One triangle of ground, wound so it faces the sky and flat-shaded. */
   pushFace(
     out: Ground,
@@ -66,6 +75,77 @@ export interface GroundWriter {
     ca: THREE.Color, cb: THREE.Color, cc: THREE.Color, cd: THREE.Color,
     outX: number, outZ: number,
   ): void;
+}
+
+/** A shore as the writer cuts with it: `Shore`'s lines carried into the settlement's frame. */
+export interface ShoreCut {
+  lines: readonly ShoreLine[];
+  union: boolean;
+}
+
+/** One corner of a face being cut: a position and the colour it was pushed with. */
+type CutCorner = { p: number[]; k: THREE.Color };
+
+/**
+ * A polygon cut to one side of a line (Sutherland and Hodgman): the positive
+ * side, or the negative one for `sign` -1. A new corner takes the colour of
+ * the kept corner it was cut from.
+ */
+function cutPolygon(corners: readonly CutCorner[], line: ShoreLine, sign: number): CutCorner[] {
+  const side = (c: CutCorner): number => sign * (line.nx * c.p[0]! + line.nz * c.p[2]! - line.d);
+  const out: CutCorner[] = [];
+  for (let k = 0; k < corners.length; k++) {
+    const a = corners[k]!;
+    const b = corners[(k + 1) % corners.length]!;
+    const sa = side(a);
+    const sb = side(b);
+    if (sa >= 0) out.push(a);
+    if ((sa >= 0) !== (sb >= 0)) {
+      const t = sa / (sa - sb);
+      out.push({
+        p: [a.p[0]! + (b.p[0]! - a.p[0]!) * t, a.p[1]! + (b.p[1]! - a.p[1]!) * t, a.p[2]! + (b.p[2]! - a.p[2]!) * t],
+        k: sa >= 0 ? a.k : b.k,
+      });
+    }
+  }
+  return out;
+}
+
+/** The pieces of a polygon on the land: inside every line, or for a bay inside the first or else the second. */
+function landPieces(corners: readonly CutCorner[], cut: ShoreCut): CutCorner[][] {
+  const [first, second] = cut.lines;
+  if (first === undefined) return [corners.slice()];
+  if (!cut.union || second === undefined) {
+    let kept: CutCorner[] = corners.slice();
+    for (const line of cut.lines) {
+      kept = cutPolygon(kept, line, 1);
+      if (kept.length < 3) return [];
+    }
+    return [kept];
+  }
+  const pieces: CutCorner[][] = [];
+  const inFirst = cutPolygon(corners, first, 1);
+  if (inFirst.length >= 3) pieces.push(inFirst);
+  const inSecond = cutPolygon(cutPolygon(corners, first, -1), second, 1);
+  if (inSecond.length >= 3) pieces.push(inSecond);
+  return pieces;
+}
+
+/** How far a point is inside the land of a cut: negative in the sea (`shoreSide`'s rule). */
+function cutSide(cut: ShoreCut, p: readonly number[]): number {
+  let side = cut.union ? -Infinity : Infinity;
+  for (const line of cut.lines) {
+    const s = line.nx * p[0]! + line.nz * p[2]! - line.d;
+    side = cut.union ? Math.max(side, s) : Math.min(side, s);
+  }
+  return side;
+}
+
+/** Whether a face lies wholly on the land of a cut: 1 dry, -1 wet, 0 to be cut. Only a bay's sea is convex, so only it says -1. */
+function sideOf(cut: ShoreCut, ...points: readonly number[][]): number {
+  let dry = 0;
+  for (const p of points) if (cutSide(cut, p) >= 0) dry++;
+  return dry === points.length ? 1 : dry === 0 && cut.union ? -1 : 0;
 }
 
 export function createGroundWriter(): GroundWriter {
@@ -102,6 +182,23 @@ export function createGroundWriter(): GroundWriter {
     cx: number, cy: number, cz: number,
     ca: THREE.Color, cb: THREE.Color, cc: THREE.Color,
   ): void {
+    const cut = writer.cut;
+    if (cut !== null) {
+      const side = sideOf(cut, [ax, ay, az], [bx, by, bz], [cx, cy, cz]);
+      if (side < 0) return;
+      if (side === 0) {
+        const pieces = landPieces([{ p: [ax, ay, az], k: ca }, { p: [bx, by, bz], k: cb }, { p: [cx, cy, cz], k: cc }], cut);
+        writer.cut = null;
+        for (const kept of pieces) {
+          for (let k = 1; k + 1 < kept.length; k++) {
+            const [p, q, r] = [kept[0]!, kept[k]!, kept[k + 1]!];
+            pushFace(out, p.p[0]!, p.p[1]!, p.p[2]!, q.p[0]!, q.p[1]!, q.p[2]!, r.p[0]!, r.p[1]!, r.p[2]!, p.k, q.k, r.k);
+          }
+        }
+        writer.cut = cut;
+        return;
+      }
+    }
     faceA.set(bx - ax, by - ay, bz - az);
     faceB.set(cx - ax, cy - ay, cz - az);
     faceNormal.crossVectors(faceA, faceB);
@@ -121,6 +218,8 @@ export function createGroundWriter(): GroundWriter {
     out.position.push(ax, ay, az, p1x, p1y, p1z, p2x, p2y, p2z);
     for (let v = 0; v < 3; v++) out.normal.push(faceNormal.x, faceNormal.y, faceNormal.z);
     out.color.push(ca.r, ca.g, ca.b, k1.r, k1.g, k1.b, k2.r, k2.g, k2.b);
+    const kind = writer.kinds.get(ca) ?? 0;
+    out.surface.push(kind, kind, kind);
     // In the order the positions went in, which the flip may have swapped.
     poolFor(out, ax, az);
     poolFor(out, p1x, p1z);
@@ -147,6 +246,22 @@ export function createGroundWriter(): GroundWriter {
     ka: THREE.Color, kb: THREE.Color, kc: THREE.Color,
     outX: number, outZ: number,
   ): void {
+    const cut = writer.cut;
+    if (cut !== null) {
+      const side = sideOf(cut, a, b, c);
+      if (side < 0) return;
+      if (side === 0) {
+        const pieces = landPieces([{ p: a, k: ka }, { p: b, k: kb }, { p: c, k: kc }], cut);
+        writer.cut = null;
+        for (const kept of pieces) {
+          for (let k = 1; k + 1 < kept.length; k++) {
+            wallFace(out, kept[0]!.p, kept[k]!.p, kept[k + 1]!.p, kept[0]!.k, kept[k]!.k, kept[k + 1]!.k, outX, outZ);
+          }
+        }
+        writer.cut = cut;
+        return;
+      }
+    }
     faceA.set(b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!);
     faceB.set(c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!);
     faceNormal.crossVectors(faceA, faceB);
@@ -163,6 +278,8 @@ export function createGroundWriter(): GroundWriter {
     out.position.push(a[0]!, a[1]!, a[2]!, p[0]!, p[1]!, p[2]!, q[0]!, q[1]!, q[2]!);
     for (let v = 0; v < 3; v++) out.normal.push(faceNormal.x, faceNormal.y, faceNormal.z);
     out.color.push(ka.r, ka.g, ka.b, kp.r, kp.g, kp.b, kq.r, kq.g, kq.b);
+    const kind = writer.kinds.get(ka) ?? 0;
+    out.surface.push(kind, kind, kind);
     poolFor(out, a[0]!, a[2]!);
     poolFor(out, p[0]!, p[2]!);
     poolFor(out, q[0]!, q[2]!);
@@ -178,6 +295,6 @@ export function createGroundWriter(): GroundWriter {
     wallFace(out, a, c, d, ca, cc, cd, outX, outZ);
   }
 
-  const writer: GroundWriter = { lit: NO_EMITTERS, pushFace, pushQuad, pushWall };
+  const writer: GroundWriter = { lit: NO_EMITTERS, kinds: new Map(), cut: null, pushFace, pushQuad, pushWall };
   return writer;
 }

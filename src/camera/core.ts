@@ -42,12 +42,15 @@ export interface CameraFields {
   held: number;
   /** How much of the lead term is in play; 1 in a vehicle, 0 on foot. */
   lead: number;
+  /** How strongly what is in the way is seen through, eased; see `see-through.ts`. */
+  sight: number;
 }
 
 export interface CameraCore {
   readonly fields: CameraFields;
   readonly camera: THREE.PerspectiveCamera;
   readonly blocks: CameraOptions['blocks'];
+  readonly seesThrough: boolean;
   readonly view: { distance: number; height: number };
   /** Set by `createCameraRig` once built; the shake reads `shakes` off it. */
   rig: CameraRig;
@@ -107,9 +110,11 @@ export function createCameraCore(options: CameraOptions): CameraCore {
       shakeClock: 0,
       held: Infinity,
       lead: 0,
+      sight: 0,
     },
     camera: new THREE.PerspectiveCamera(FOV_FOOT, 1, NEAR, FAR),
     blocks: options.blocks,
+    seesThrough: options.seesThrough === true,
     view: { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height },
     rig: undefined as unknown as CameraRig,
     heading: new THREE.Vector3(0, 0, 1),

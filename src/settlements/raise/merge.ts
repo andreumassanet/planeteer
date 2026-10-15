@@ -4,6 +4,7 @@ import type { Ground } from '../ground/build.ts';
 import { townGlass, townLeaves } from '../meshes.ts';
 import type { LeafCard } from '../meshes.ts';
 import { LAMP_HEAD } from '../rules.ts';
+import { writeSurface } from '../surfaces.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
 
 /**
@@ -19,6 +20,10 @@ interface TownBuffer {
   color: Float32Array;
   outline: Int8Array;
   glow: Uint8Array;
+  /** What each vertex is drawn as (`surfaces.ts`), one byte. */
+  surface: Uint8Array;
+  /** Where on its pane each glass vertex lies, two bytes (`paneCorners`). */
+  pane: Uint8Array;
   total: number;
   groundVertices: number;
 }
@@ -54,6 +59,8 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
   const color = new Float32Array(total * 3);
   const outline = new Int8Array(total * 3);
   const glow = new Uint8Array(total * 2);
+  const surface = new Uint8Array(total);
+  const pane = new Uint8Array(total * 2);
   let cursor = 0;
   let vertex = 0;
   for (const item of job.standing) {
@@ -86,6 +93,7 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
     }
     color.set(source.color, cursor - count);
     const written = count / 3;
+    if (item.surface !== undefined) writeSurface(surface, pane, vertex, source, item.surface);
     if (item.bay !== undefined) {
       item.bay.start = vertex;
       item.bay.count = written;
@@ -108,9 +116,10 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
   for (let i = 0; i < ground.normal.length; i++) outline[cursor + i] = Math.round(ground.normal[i]! * 127);
   // The floor is the buffer's tail, so its pools land on the vertices the floor wrote them for.
   glow.set(ground.glow, vertex * 2);
+  surface.set(ground.surface, vertex);
   for (let i = vertex * 2; i < glow.length; i += 2) if (glow[i] === 0) glow[i + 1] = 0;
   yield;
-  return { position, normal, color, outline, glow, total, groundVertices };
+  return { position, normal, color, outline, glow, surface, pane, total, groundVertices };
 }
 
 /**
@@ -129,6 +138,8 @@ export function placeTown(kit: RaiseKit, job: RaiseJob, ground: Ground, buffer: 
   geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(buffer.outline, 3, true));
   // `normalized`, so the shader reads 0..1; the name is the one `lightWindows` declares.
   geometry.setAttribute('atlasLit', new THREE.BufferAttribute(buffer.glow, 2, true));
+  geometry.setAttribute('atlasSurface', new THREE.BufferAttribute(buffer.surface, 1, false));
+  geometry.setAttribute('atlasPane', new THREE.BufferAttribute(buffer.pane, 2, true));
   geometry.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geometry, kit.material);
@@ -162,8 +173,8 @@ export function placeTown(kit: RaiseKit, job: RaiseJob, ground: Ground, buffer: 
   const glassVertices = glassMesh === null ? 0 : glassMesh.geometry.getAttribute('position').count;
   slot.triangles = (buffer.total + leafVertices + glassVertices) / 3;
   slot.parts = job.standing.length;
-  // Three float triples, two light bytes and three ink bytes: 41 bytes a vertex.
-  slot.bytes = buffer.total * (3 * 4 * 3 + 2 + 3) + leafVertices * 26 + glassVertices * 36;
+  // Three float triples, two light bytes, three ink bytes, a surface byte and two pane bytes: 44 bytes a vertex.
+  slot.bytes = buffer.total * (3 * 4 * 3 + 2 + 3 + 1 + 2) + leafVertices * 26 + glassVertices * 36;
 }
 
 /** Moves the town's people, lamps, bays, benches and racks into the world's frame, and registers the town for each. */

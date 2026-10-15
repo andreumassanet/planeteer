@@ -105,6 +105,8 @@ export const atomium: Monument = {
   lon: 4.341,
   realHeight: 102,
   tier: 'landmark',
+  surface: 'metal',
+  surfaces: { tan: 'none' },
   /** `RING + BALL` = 38.41, and every other part is built to stay inside it. */
   footprint: 39,
 

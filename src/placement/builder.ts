@@ -8,11 +8,15 @@ import type { MergePiece } from '../merge.ts';
 import { lightMonuments } from '../lights.ts';
 import { bakeNight } from '../landmark-lights.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
+import { seeThrough } from '../see-through.ts';
 import { buildSetting } from '../landmark-setting.ts';
 import { regionFor } from '../scenery/regions.ts';
+import { drawSurfaces } from '../surfaces.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
 import type { MonumentKit, Placement } from '../placement.ts';
 import type { Slot } from './slots.ts';
+import { monumentSurfaces } from './surfaces.ts';
+import type { SurfaceSpec } from './surfaces.ts';
 
 /** Merged geometries kept per monument; the oldest not standing go first. */
 const KEEP_BUILT = 24;
@@ -50,10 +54,16 @@ export function createBuilder(
   // After dark: the town's lamps, headlights and fires, the lit parts and the
   // floodlight, from the bytes `geometryOf` bakes (`landmark-lights.ts`).
   lightMonuments(material);
+  // What its faces are built of, from the `atlasSurface` bytes (`surfaces.ts`),
+  // under the floodlight, which lights the pattern with the colour.
+  drawSurfaces(material);
   // Its own key, as `lightMonuments` asks, kept in front of the `|clouds` the
-  // shade stamped on it above: one program carries both hooks.
+  // shade stamped on it above: one program carries every hook.
   const shadedKey = material.customProgramCacheKey.bind(material);
-  material.customProgramCacheKey = () => `atlas-monument:lit|${shadedKey()}`;
+  material.customProgramCacheKey = () => `atlas-monument:lit|surfaces|${shadedKey()}`;
+  // Last: what stands between the lens and the body is seen through.
+  seeThrough(material);
+  const specOf = new Map<string, SurfaceSpec>(kit.monuments.map((monument) => [monument.id, monument]));
 
   /** A plaza landmark's square, merged into the model so it costs no draw call of its own. */
   function addSquare(model: THREE.Group, placement: Placement): THREE.Group | null {
@@ -90,6 +100,7 @@ export function createBuilder(
     const merged = mergeMeshes(model, pieces);
     // Its night, in bytes beside the merge and kept with it (`landmark-lights.ts`).
     const bake = bakeNight(id, slot.placement.height, merged, pieces, square);
+    const surface = monumentSurfaces(specOf.get(id) ?? {}, merged, pieces, square);
     pieces.length = 0;
     // The vertices are copied out; the helpers' geometries are this build's.
     // Materials are the shared cache's and must not be touched.
@@ -106,6 +117,7 @@ export function createBuilder(
     geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(outline, 3, true));
     geometry.setAttribute('atlasFlood', new THREE.BufferAttribute(bake.flood, 4, true));
     geometry.setAttribute('atlasLit', new THREE.BufferAttribute(bake.lit, 2, true));
+    geometry.setAttribute('atlasSurface', new THREE.BufferAttribute(surface, 1, false));
     geometry.userData.atlasNight = bake;
     geometry.computeBoundingSphere();
     built.set(id, geometry);

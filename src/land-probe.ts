@@ -47,9 +47,10 @@ export interface LandProbe {
    * The distance from the planet's centre to the drawn land along `direction`
    * (a unit vector) — the highest face, where two are drawn — or `null` over
    * water or outside the index. `normal`, when
-   * given, is filled with the face's own.
+   * given, is filled with the face's own; `shading`, with the normal the land
+   * is drawn with there (its corners' laid between).
    */
-  radiusAt(direction: THREE.Vector3, normal?: THREE.Vector3): number | null;
+  radiusAt(direction: THREE.Vector3, normal?: THREE.Vector3, shading?: THREE.Vector3): number | null;
   /**
    * Whether the index knows the answer along `direction`: whether a `null`
    * from `radiusAt` there means water rather than "not gathered".
@@ -193,6 +194,9 @@ export function createLandProbe(land: THREE.Mesh): LandProbe {
   /** How far a vertex may stand from the centre and its face still reach `REACH`. */
   const GATHER = REACH + 300;
   const position = land.geometry.getAttribute('position').array as Float32Array;
+  /** The drawn normals, when the mesh carries them as bytes (the land does). */
+  const normalArray = land.geometry.getAttribute('normal')?.array;
+  const normals = normalArray instanceof Int8Array ? normalArray : undefined;
   const faces = position.length / 9;
   /**
    * The surface's triangles as `[from, to)` pairs: every ring's own surface,
@@ -277,9 +281,10 @@ export function createLandProbe(land: THREE.Mesh): LandProbe {
       return ready !== null && ready.centre.distanceTo(unit) * PLANET_RADIUS < REACH - MOVE;
     },
 
-    radiusAt(direction, normal) {
+    radiusAt(direction, normal, shading) {
       if (ready === null) return null;
-      return highestHit(position, ready, direction, normal, REACH, SIDE);
+      if (shading !== undefined && normals === undefined) shading.set(0, 0, 0);
+      return highestHit(position, ready, direction, normal, REACH, SIDE, normals, shading);
     },
 
     covers(direction) {

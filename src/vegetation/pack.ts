@@ -19,7 +19,8 @@ export interface Packed {
  * normal's worst error is a quarter of a degree against a four-band ramp, and
  * it halves the memory of the field. Bytes a vertex: 12 position, 3 normal, 3
  * colour, 3 ink normal, plus 4 of wind in a near tile; a card's vertex is 12, 3,
- * 3, 4 of texture coordinate and 4 of wind.
+ * 3, 4 of texture coordinate and 4 of wind. A tile with a building adds 1 of
+ * surface, and 2 of pane where one has glass.
  */
 interface Buffers {
   position: Float32Array;
@@ -27,6 +28,9 @@ interface Buffers {
   color: Uint8Array;
   outline: Int8Array;
   wind: Uint8Array | null;
+  /** A building's `atlasSurface` and `atlasPane` bytes, when the tile has a building. */
+  surface: Uint8Array | null;
+  pane: Uint8Array | null;
   leafPosition: Float32Array;
   leafNormal: Int8Array;
   leafColor: Uint8Array;
@@ -69,6 +73,9 @@ function writeWood(b: Buffers, item: Placed, inverseScale: number): number {
   for (let i = 0; i < count; i++) {
     b.color[b.cursor - count + i] = Math.round(Math.min(1, Math.max(0, source.color[i]!)) * 255);
   }
+  const first = (b.cursor - count) / 3;
+  if (b.surface !== null && source.surface !== undefined) b.surface.set(source.surface, first);
+  if (b.pane !== null && source.pane !== undefined && source.pane !== null) b.pane.set(source.pane, first * 2);
   return count;
 }
 
@@ -130,6 +137,8 @@ function geometryOf(b: Buffers, leafVertices: number): { geometry: THREE.BufferG
   geometry.setAttribute('color', new THREE.BufferAttribute(b.color, 3, true));
   geometry.setAttribute('outlineNormal', new THREE.BufferAttribute(b.outline, 3, true));
   if (b.wind !== null) geometry.setAttribute('aWind', new THREE.BufferAttribute(b.wind, 4, true));
+  if (b.surface !== null) geometry.setAttribute('atlasSurface', new THREE.BufferAttribute(b.surface, 1, false));
+  if (b.pane !== null) geometry.setAttribute('atlasPane', new THREE.BufferAttribute(b.pane, 2, true));
 
   let cardGeometry: THREE.BufferGeometry | null = null;
   if (leafVertices > 0) {
@@ -157,12 +166,17 @@ export function packTile(
   cards: boolean,
   machineWalls: Map<CountryMachine, Solid[]>,
 ): Packed {
+  const surfaced = placed.some((item) => item.flat.surface !== undefined);
+  const glazed = placed.some((item) => item.flat.pane !== undefined && item.flat.pane !== null);
   const b: Buffers = {
     position: new Float32Array(vertices * 3),
     normal: new Int8Array(vertices * 3),
     color: new Uint8Array(vertices * 3),
     outline: new Int8Array(vertices * 3),
     wind: cards ? new Uint8Array(vertices * 4) : null,
+    // Only a tile with a building pays for the bytes; without them the material reads 0, drawn as it is.
+    surface: surfaced ? new Uint8Array(vertices) : null,
+    pane: glazed ? new Uint8Array(vertices * 2) : null,
     leafPosition: new Float32Array(leafVertices * 3),
     leafNormal: new Int8Array(leafVertices * 3),
     leafColor: new Uint8Array(leafVertices * 3),

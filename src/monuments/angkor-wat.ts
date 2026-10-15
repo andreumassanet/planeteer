@@ -110,6 +110,7 @@ export const angkorWat: Monument = {
   lon: 103.867,
   realHeight: 65,
   tier: 'building',
+  surfaces: { bark: 'none' },
   // The first terrace's corner, at hypot(36, 31.5) = 47.9. Everything else is inside it.
   footprint: 48,
 

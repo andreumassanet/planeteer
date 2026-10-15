@@ -90,6 +90,7 @@ export const stonehenge: Monument = {
   lon: -1.826,
   // No `realHeight`, matching the source list: Stonehenge has no single height.
   tier: 'monument',
+  surface: 'none',
   footprint: 14,
 
   build(ctx) {

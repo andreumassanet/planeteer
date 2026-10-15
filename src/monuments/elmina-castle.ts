@@ -84,6 +84,7 @@ export const elminaCastle: Monument = {
   lat: 5.0847,
   lon: -1.3494,
   tier: 'building',
+  surface: 'plaster',
   // Set by the rock shelf's corners at 42.2. The fort alone reaches 34.
   footprint: 43,
 

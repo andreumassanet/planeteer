@@ -279,6 +279,7 @@ export const mountRushmore: Monument = {
   lat: 43.879,
   lon: -103.459,
   tier: 'landmark',
+  surface: 'none',
   footprint: 55,
 
   build(ctx) {

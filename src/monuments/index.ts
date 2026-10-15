@@ -2,12 +2,13 @@ import * as THREE from 'three';
 import { validate } from './contract.ts';
 import type { Monument, MonumentContext } from './contract.ts';
 
-export { TIERS, MAX_ASPECT, createContext, findFlaws, findUnsupported, measure, validate, paletteName } from './contract.ts';
+export { TIERS, MAX_ASPECT, createContext, findFlaws, findUnsupported, measure, validate, paletteBase, paletteName } from './contract.ts';
 export type {
   Flaw,
   Measurements,
   Monument,
   MonumentContext,
+  MonumentSurface,
   MonumentTier,
   TierSpec,
 } from './contract.ts';

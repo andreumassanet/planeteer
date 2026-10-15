@@ -73,4 +73,11 @@ export interface CameraOptions {
    * to `settlements.ts`. Without it only the ground stops the camera.
    */
   blocks?: (point: THREE.Vector3) => boolean;
+  /**
+   * Whether what stands between the lens and the body is seen through
+   * (`see-through.ts`) rather than walked in front of: a wall then pulls the
+   * lens in only when the lens itself would be inside it. The ground always
+   * pulls it in.
+   */
+  seesThrough?: boolean;
 }

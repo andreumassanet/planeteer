@@ -27,8 +27,10 @@ export interface GrassGather {
    * The ground the grass stands on at `direction`, inside the last gather: the
    * drawn land, or where a town's square or its edge slope is, what the town
    * says (`swardAt`, keeping `margin` off its streets, walls and risers).
+   * `shading`, when given, is filled with the normal the land is drawn with
+   * there, or zero where the ground is a town's.
    */
-  groundUnder(direction: THREE.Vector3, margin: number): number | null;
+  groundUnder(direction: THREE.Vector3, margin: number, shading?: THREE.Vector3): number | null;
   /** Gathers what is built within `reach` of `direction`, into lists of its own so a tile built in between is undisturbed. */
   gather(direction: THREE.Vector3, reach: number): void;
 }
@@ -43,13 +45,14 @@ export function createGrassGather(options: VegetationOptions, land: LandProbe, k
   const strips: FleetSite[] = [];
   const stripHits: FleetSite[] = [];
 
-  function groundUnder(direction: THREE.Vector3, margin: number): number | null {
-    const radius = land.radiusAt(direction);
+  function groundUnder(direction: THREE.Vector3, margin: number, shading?: THREE.Vector3): number | null {
+    const radius = land.radiusAt(direction, undefined, shading);
     if (radius === null) return null;
     for (const square of squares) {
       const offAcross = Math.abs(direction.x * square.ax + direction.y * square.ay + direction.z * square.az);
       const offNorth = Math.abs(direction.x * square.nx + direction.y * square.ny + direction.z * square.nz);
       if (offAcross >= square.outer || offNorth >= square.outer) continue;
+      shading?.set(0, 0, 0);
       return lawns === undefined ? null : lawns.swardAt(direction, radius, margin);
     }
     return radius;

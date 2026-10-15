@@ -6,7 +6,10 @@ import type { PlanShape } from '../landmark-ground.ts';
 import { radiusFor } from '../places.ts';
 import { cellCentre, cellIndex, cornerOffset, inParcel, townFrame, townGrid } from '../scenery/grid.ts';
 import type { Parcel, TownGrid, TownGround } from '../scenery/grid.ts';
+import { shoreDry } from '../scenery/floor.ts';
+import type { Shore } from '../scenery/floor.ts';
 import { cellKey } from '../scenery/ground.ts';
+import { shoreOf } from './shore.ts';
 import type { Keepout } from './types.ts';
 
 /**
@@ -57,8 +60,9 @@ export interface TownFrame {
   /** The square being built, and the elevation every terrace is quantised about. */
   grid: TownGrid;
   base: number;
-  /** One lattice corner per key, and one terrace per cell. `squareSteps` clears both. */
+  /** One lattice corner per key, and one terrace per cell. `squareSteps` clears both, and the shores. */
   readonly corners: Map<number, Corner>;
+  readonly shores: Map<number, Shore | null>;
   readonly terraces: Map<number, number | null>;
   /** The landmarks within reach, in the town's frame. */
   readonly keepouts: Keepout[];
@@ -82,6 +86,10 @@ export interface TownFrame {
   parcelUnder(x0: number, x1: number, z0: number, z1: number): boolean;
   /** Whether a point is in a parcel or inside a landmark's keepout. */
   blocked(x: number, z: number): boolean;
+  /** Where the coast crosses a cell with a corner in the sea, or null (`shoreOf`). Cached with the corners. */
+  shoreAt(col: number, row: number): Shore | null;
+  /** Whether a point of the plane is past the coast of the cell it falls in. */
+  wetAt(x: number, z: number): boolean;
   /** Rebuilds the tangent frame, the ground origin and the keepouts about `up`. */
   frameAt(): void;
 }
@@ -94,6 +102,8 @@ export function createTownFrame(world: World, monumentSites: readonly MonumentSi
   const inverse = new THREE.Matrix4();
   const origin = new THREE.Vector3();
   const corners = new Map<number, Corner>();
+  const shores = new Map<number, Shore | null>();
+  const shoreDir = new THREE.Vector3();
   const terraces = new Map<number, number | null>();
   const keepouts: Keepout[] = [];
   const parcels: Parcel[] = [];
@@ -171,6 +181,21 @@ export function createTownFrame(world: World, monumentSites: readonly MonumentSi
     },
   };
 
+  /** Whether the ground at a point of the plane is sea, as `cornerAt` decides it. */
+  const seaAt = (x: number, z: number): boolean => world.elevationAt(directionAt(x, z, shoreDir)) <= 0;
+
+  function shoreAt(col: number, row: number): Shore | null {
+    const key = cellKey(col, row);
+    const known = shores.get(key);
+    if (known !== undefined) return known;
+    const made = shoreOf(
+      [cornerAt(col, row), cornerAt(col + 1, row), cornerAt(col + 1, row + 1), cornerAt(col, row + 1)],
+      seaAt,
+    );
+    shores.set(key, made);
+    return made;
+  }
+
   const parcelCell = (col: number, row: number): boolean => parcels.some((parcel) => inParcel(parcel, col, row));
   const parcelAt = (x: number, z: number): boolean => parcelCell(cellIndex(frame.grid, x), cellIndex(frame.grid, z));
 
@@ -197,6 +222,12 @@ export function createTownFrame(world: World, monumentSites: readonly MonumentSi
   }
 
   const frame: TownFrame = {
+    shores,
+    shoreAt,
+    wetAt: (x, z) => {
+      const shore = shoreAt(cellIndex(frame.grid, x), cellIndex(frame.grid, z));
+      return shore !== null && !shoreDry(shore, x, z);
+    },
     up,
     north,
     across,

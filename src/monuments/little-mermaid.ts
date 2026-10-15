@@ -137,6 +137,8 @@ export const littleMermaid: Monument = {
   lon: 12.599,
   // No `realHeight`: see the note at the top.
   tier: 'monument',
+  surface: 'none',
+  surfaces: { green: 'metal', darkOlive: 'metal' },
   footprint: 9.5,
 
   build(ctx) {

@@ -43,6 +43,10 @@ uniform float outlineThickness;
   attribute vec3 outlineNormal;
 #endif
 
+#ifdef OUTLINE_CUT
+  varying vec3 vOutlineView;
+#endif
+
 void main() {
   #include <beginnormal_vertex>
   #ifdef OUTLINE_NORMAL
@@ -55,6 +59,10 @@ void main() {
   #include <begin_vertex>
   #include <skinning_vertex>
   #include <project_vertex>
+
+  #ifdef OUTLINE_CUT
+    vOutlineView = mvPosition.xyz;
+  #endif
 
   // The same vertex pulled *in* along its normal, taken through the identical
   // object -> clip chain as gl_Position above, instance transform and all.
@@ -123,7 +131,15 @@ uniform float outlineAlpha;
   uniform float atlasFade;
 #endif
 
+#ifdef OUTLINE_CUT
+  varying vec3 vOutlineView;
+  OUTLINE_CUT_DECLARATION
+#endif
+
 void main() {
+  #ifdef OUTLINE_CUT
+    OUTLINE_CUT_DISCARD
+  #endif
   #ifdef OUTLINE_DISSOLVE
     // The same screen door as the fill it belongs to; see fade.ts.
     ${dissolveGLSL('atlasFade')}
@@ -155,6 +171,18 @@ export interface OutlineTransform {
   uniforms: Record<string, THREE.IUniform>;
 }
 
+/**
+ * Pixels the hull drops by where they are, as its fill drops them
+ * (`see-through.ts`). `declaration` is fragment GLSL; `discard` a statement
+ * that may read `vOutlineView`, the hull's view-space position. The uniforms
+ * are held by reference.
+ */
+export interface OutlineCut {
+  declaration: string;
+  discard: string;
+  uniforms: Record<string, THREE.IUniform>;
+}
+
 /** What a material asks for in `userData.outlineParameters`. */
 export interface OutlineParameters {
   /** Screen-space width. The planet and the monuments use 0.005, the avatar 0.006. */
@@ -183,6 +211,8 @@ export interface OutlineParameters {
    * back faces show through the holes as black speckle. Read once.
    */
   dissolve?: THREE.IUniform<number>;
+  /** See `OutlineCut`. Read once. */
+  cut?: OutlineCut;
 }
 
 export interface OutlineOptions {
@@ -464,7 +494,7 @@ export class OutlineEffect {
     let outline = this.outlines.get(source);
     if (outline === undefined) {
       const parameters = source.userData.outlineParameters as OutlineParameters | undefined;
-      outline = this.createMaterial(parameters?.transform, parameters?.outlineNormal === true, parameters?.dissolve);
+      outline = this.createMaterial(parameters?.transform, parameters?.outlineNormal === true, parameters?.dissolve, parameters?.cut);
       // Copied once, not per frame: these three are baked into the compiled program.
       // `fog` is declared on the concrete materials rather than the base class,
       // hence the read through a shape.
@@ -489,10 +519,12 @@ export class OutlineEffect {
     transform?: OutlineTransform,
     outlineNormal = false,
     dissolve?: THREE.IUniform<number>,
+    cut?: OutlineCut,
   ): THREE.ShaderMaterial {
     const defines: Record<string, string> = {};
     if (outlineNormal) defines['OUTLINE_NORMAL'] = '';
     if (dissolve !== undefined) defines['OUTLINE_DISSOLVE'] = '';
+    if (cut !== undefined) defines['OUTLINE_CUT'] = '';
     return new THREE.ShaderMaterial({
       defines,
       uniforms: {
@@ -500,12 +532,17 @@ export class OutlineEffect {
         // Not cloned, unlike the fog: sharing the object is the whole mechanism.
         ...(transform?.uniforms ?? {}),
         ...(dissolve !== undefined ? { atlasFade: dissolve } : {}),
+        ...(cut?.uniforms ?? {}),
         outlineThickness: { value: this.thickness },
         outlineColor: { value: this.color.clone() },
         outlineAlpha: { value: this.alpha },
       },
       vertexShader: hullVertexShader(transform?.declaration),
-      fragmentShader,
+      fragmentShader: cut === undefined
+        ? fragmentShader
+        : fragmentShader
+          .replace('OUTLINE_CUT_DECLARATION', () => cut.declaration)
+          .replace('OUTLINE_CUT_DISCARD', () => cut.discard),
       // The hull is the *inside* of the mesh: front faces would z-fight with
       // the surface they are copying.
       side: THREE.BackSide,

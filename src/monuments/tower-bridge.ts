@@ -118,6 +118,7 @@ export const towerBridge: Monument = {
   lon: -0.075,
   realHeight: 65,
   tier: 'landmark',
+  surfaces: { skyBlue: 'metal', steel: 'metal' },
   footprint: 55,
 
   build(ctx) {

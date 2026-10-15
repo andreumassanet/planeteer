@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { shadeByClouds } from '../cloud-shade.ts';
+import { finishCloth } from '../surfaces/finish.ts';
 import { inflate } from '../pack.ts';
 import type { PartSource, Source } from './types.ts';
 import { BASE, CLIPS, CREASE, PARTS, bodyOf, partOf, type BodyKind, type ClipName, type OutfitId, type PartName, type Wardrobe, type WornPart } from './wardrobe.ts';
@@ -11,6 +12,8 @@ export function castMaterial(gradientMap: THREE.Texture, ink: { thickness: numbe
   const material = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap });
   // The hull rides smooth normals of its own (`outlineNormal`, see `assemble`).
   material.userData.outlineParameters = { ...ink, outlineNormal: true };
+  // The weave of the clothes, the strands of the hair, the skin's faint variation (`atlasRole`).
+  finishCloth(material);
   // The hero's inkless copy in a closed cab (`player.ts`) keeps the hook. The
   // traveller's card draws the cast round the origin, where the shade's shell
   // (`SHADE_BAND`) is not.

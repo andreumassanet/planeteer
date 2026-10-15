@@ -57,6 +57,41 @@ export interface FloorStats {
  * `[(col - shift - 0.5) * pitch, (col - shift + 0.5) * pitch]`; corner `(i, j)`
  * sits at `(i - shift - 0.5) * pitch`, shared by cells `(i-1..i, j-1..j)`.
  */
+/** A straight run of coast: land where `nx * x + nz * z >= d`, with `(nx, nz)` a unit normal. */
+export interface ShoreLine {
+  nx: number;
+  nz: number;
+  d: number;
+}
+
+/**
+ * Where the coast crosses a paved cell, in the town's plane: a straight line,
+ * or two that bend at a point found on the coast between them. A cell with a
+ * corner in the water is paved only up to it, with a sea wall along it,
+ * rather than standing out over the shore as a quay.
+ */
+export interface Shore {
+  /** One line, or the two halves of a bent one, each with the land on its positive side. */
+  lines: readonly ShoreLine[];
+  /** Whether the land is on either half's side (a bay, bent towards the land) rather than on both's (a headland). */
+  union: boolean;
+  /** The coast through the cell in order: its two ends on the cell's edges, and the bend between them when there is one. */
+  points: readonly (readonly [number, number])[];
+}
+
+/** How far a point of the town's plane is inside the land of a shore: negative in the sea. */
+export function shoreSide(shore: Shore, x: number, z: number): number {
+  let side = shore.union ? -Infinity : Infinity;
+  for (const line of shore.lines) {
+    const s = line.nx * x + line.nz * z - line.d;
+    side = shore.union ? Math.max(side, s) : Math.min(side, s);
+  }
+  return side;
+}
+
+/** Whether a point of the town's plane is on the dry side of a shore. */
+export const shoreDry = (shore: Shore, x: number, z: number): boolean => shoreSide(shore, x, z) >= 0;
+
 export interface FloorField {
   pitch: number;
   /** How far the lattice is shifted, in cells: `(cells - 1) / 2` for a town's square (`townGrid`). Absent means 0. */
@@ -67,6 +102,8 @@ export interface FloorField {
   aprons?: ReadonlyMap<number, EdgeApron>;
   /** The slope's foot at every corner of it that touches no paving, by corner key, as an elevation. */
   feet?: ReadonlyMap<number, number>;
+  /** The coast across the paved cells it crosses, by cell. Absent is a floor with no shore. */
+  shores?: ReadonlyMap<number, Shore>;
   /** The ramps and flights, by the cell each stands in: the lower of its two. */
   flights?: ReadonlyMap<number, readonly Flight[]>;
   /** The same, by every cell each covers: a ramp's higher cell as well as its lower one. */
@@ -153,6 +190,8 @@ export function floorLiftAt(floor: FloorField, x: number, z: number, elevation: 
   const key = cellKey(col, row);
   const here = terraces.get(key);
   if (here !== undefined) {
+    const shore = floor.shores?.get(key);
+    if (shore !== undefined && !shoreDry(shore, x, z)) return 0;
     for (const flight of (floor.touching ?? floor.flights)?.get(key) ?? []) {
       const across = flight.axis === 0 ? z : x;
       if (across < flight.from || across > flight.to) continue;

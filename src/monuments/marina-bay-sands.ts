@@ -131,6 +131,8 @@ export const marinaBaySands: Monument = {
   lat: 1.284,
   lon: 103.861,
   tier: 'building',
+  surface: 'concrete',
+  surfaces: { cream: 'metal', tan: 'none' },
   footprint: 31,
 
   build(ctx) {

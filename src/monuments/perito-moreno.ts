@@ -239,6 +239,7 @@ export const peritoMoreno: Monument = {
   lon: -73.138,
   // No `realHeight`: 70 m stands above the lake, about 170 m more below it.
   tier: 'building',
+  surface: 'none',
   footprint: 54,
 
   build(ctx) {

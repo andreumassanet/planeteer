@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
-import { flightAt, floorLiftAt } from '../scenery/floor.ts';
+import { flightAt, floorLiftAt, shoreSide } from '../scenery/floor.ts';
 import { cellCentre, cellIndex, inGrid } from '../scenery/grid.ts';
 import { cellKey } from '../scenery/ground.ts';
 import { solidAt } from '../scenery/solids.ts';
@@ -29,6 +29,9 @@ const SWARD_STEP = 0.3;
 function lawnTop(floor: SlotFloor, col: number, row: number, x: number, z: number, margin: number): number | null {
   const { grid, band, field, lawn } = floor;
   if (lawn === null || !inGrid(grid, col, row) || lawn[col * grid.cells + row] !== 1) return null;
+  // No lawn past the shore that cuts the cell, nor on the sea wall's top.
+  const shore = field.shores?.get(cellKey(col, row));
+  if (shore !== undefined && shoreSide(shore, x, z) < margin) return null;
   const u = x - (cellCentre(grid, col) - grid.pitch * 0.5);
   const v = z - (cellCentre(grid, row) - grid.pitch * 0.5);
   // The streets through the cell, as the floor cuts them: a band only where the cell across is town too.

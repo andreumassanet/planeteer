@@ -24,6 +24,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PALETTE } from './theme.ts';
+import { SURFACE, drawSurfaces } from './surfaces.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import type { Effects } from './effects.ts';
 
@@ -136,6 +137,9 @@ function paint(kit: Kit, gradientMap: THREE.Texture, color: number): THREE.MeshT
   if (material === undefined) {
     material = new THREE.MeshToonMaterial({ color, gradientMap });
     material.userData.outlineParameters = { thickness: 0.004, color: [0.11, 0.02, 0.01] };
+    // The pad's concrete and the steel's plates (`surfaceOf`).
+    drawSurfaces(material);
+    material.customProgramCacheKey = () => 'atlas-rocket|surfaces';
     kit.materials.set(color, material);
   }
   return material;
@@ -185,6 +189,8 @@ function assemble(kit: Kit, gradientMap: THREE.Texture, key: string, make: () =>
     for (const [color, list] of byColour) {
       const geometry = mergeGeometries(list)!;
       for (const one of list) one.dispose();
+      const surface = new Uint8Array(geometry.getAttribute('position').count).fill(surfaceOf(color));
+      geometry.setAttribute('atlasSurface', new THREE.BufferAttribute(surface, 1, false));
       kit.geometries.set(`${key}:${color}`, geometry);
       colours.push({ color, geometry });
     }
@@ -197,6 +203,13 @@ function assemble(kit: Kit, gradientMap: THREE.Texture, key: string, make: () =>
     g.add(mesh);
   }
   return g;
+}
+
+/** What a colour of the pad and the vehicle is made of: the deck is concrete, the paint and the steel plate; glass and lamps as drawn. */
+function surfaceOf(color: number): number {
+  if (color === PALETTE.bone) return SURFACE.concrete;
+  if (color === PALETTE.slate || color === PALETTE.gold) return SURFACE.none;
+  return SURFACE.metal;
 }
 
 /** The vehicle, its base at the origin, +y up, +z the side its porthole faces. */

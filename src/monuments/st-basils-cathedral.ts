@@ -104,6 +104,7 @@ export const stBasilsCathedral: Monument = {
   lon: 37.623,
   realHeight: 65,
   tier: 'building',
+  surface: 'brick',
   footprint: 12.3,
 
   build(ctx) {

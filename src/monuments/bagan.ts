@@ -36,6 +36,7 @@ export const bagan: Monument = {
   lat: 21.1703,
   lon: 94.8672,
   tier: 'building',
+  surface: 'brick',
   footprint: 43,
 
   build(ctx: MonumentContext): Group {

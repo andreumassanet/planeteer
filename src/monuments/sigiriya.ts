@@ -58,6 +58,7 @@ export const sigiriya: Monument = {
   lat: 7.957,
   lon: 80.7603,
   tier: 'building',
+  surface: 'none',
   footprint: 23.5,
 
   build(ctx: MonumentContext): Group {

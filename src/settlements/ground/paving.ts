@@ -1,3 +1,4 @@
+import { FLOOR, LAND_GROUND } from '../../surfaces.ts';
 import type * as THREE from 'three';
 import { flightRect } from '../../scenery/floor.ts';
 import { cellCentre } from '../../scenery/grid.ts';
@@ -76,12 +77,55 @@ function paveCell(job: GroundJob, s: PaveScratch, key: number, level: number, pa
 
   // The yard takes the land's mosaic tone, so the one made surface has the land's grain.
   colours.cell.copy(pavedCells.has(key) ? colours.walk : job.outerYard(col, row) ? colours.land : colours.yard).multiplyScalar(cellTone(slot.seed, col, row));
+  const paved = pavedCells.has(key) || (!job.outerYard(col, row) && slot.ground.yard === 'paved');
+  job.writer.kinds.set(colours.cell, paved ? FLOOR.slabs : job.outerYard(col, row) ? LAND_GROUND : 0);
   const plaza = frame.blocked(cellCentre(grid, col), cellCentre(grid, row));
   // The middle of a town with a middle cell: an unmarked crossing with a zebra across each mouth.
   const crossing = !plaza && key === job.plazaKey;
   const cut = cutCell(job, key, col, row, plaza, crossing);
+  job.writer.cut = job.cutFor(key);
   drawPieces(job, s, cut);
   for (const mouth of job.mouthsIn.get(key) ?? []) drawMouth(job, s, mouth, level + GROUND_LIFT, colours.cell);
+  job.writer.cut = null;
+  seaWall(job, s, key, top);
+}
+
+/** How far under sea level a sea wall's rubble reaches, so its foot is never seen from the shore. */
+const SEA_WALL_FOOT = 3;
+/** The sea wall's face stops this high over the water, where the rubble at its foot begins. */
+const RUBBLE_TOP = 0.6;
+/** How far out to sea the rubble at its foot runs. */
+const RUBBLE_RUN = 2.6;
+
+/**
+ * Where a cut cell meets the water: a stone face from its paving down along
+ * each run of its shore, and a slope of rubble from its foot out under the
+ * sea, the way a harbour wall stands in the water.
+ */
+function seaWall(job: GroundJob, s: PaveScratch, key: number, top: number): void {
+  const shore = job.field.shores?.get(key);
+  if (shore === undefined) return;
+  const { frame, writer, colours, out } = job;
+  for (let k = 0; k < shore.lines.length; k++) {
+    const line = shore.lines[k]!;
+    const [x0, z0] = shore.points[k]!;
+    const [x1, z1] = shore.points[k + 1]!;
+    const foot = Math.min(RUBBLE_TOP, top);
+    writer.pushWall(
+      out,
+      frame.pointIn(x0, z0, top, s.t[0]), frame.pointIn(x0, z0, foot, s.t[1]),
+      frame.pointIn(x1, z1, foot, s.t[2]), frame.pointIn(x1, z1, top, s.t[3]),
+      colours.kerbTop, colours.kerbFoot, colours.kerbFoot, colours.kerbTop, -line.nx, -line.nz,
+    );
+    const ox = -line.nx * RUBBLE_RUN;
+    const oz = -line.nz * RUBBLE_RUN;
+    writer.pushQuad(
+      out,
+      frame.pointIn(x0, z0, foot, s.m[0]), frame.pointIn(x1, z1, foot, s.m[1]),
+      frame.pointIn(x1 + ox, z1 + oz, -SEA_WALL_FOOT, s.m[2]), frame.pointIn(x0 + ox, z0 + oz, -SEA_WALL_FOOT, s.m[3]),
+      colours.kerbFoot, colours.kerbFoot, colours.kerbFoot, colours.kerbFoot,
+    );
+  }
 }
 
 /**

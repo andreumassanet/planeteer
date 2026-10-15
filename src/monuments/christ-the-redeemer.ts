@@ -174,6 +174,8 @@ export const christTheRedeemer: Monument = {
   lon: -43.2105,
   realHeight: 38,
   tier: 'landmark',
+  surface: 'none',
+  surfaces: { bone: 'concrete' },
   footprint: 48,
 
   build(ctx) {

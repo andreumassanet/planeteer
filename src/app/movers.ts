@@ -14,6 +14,7 @@ import type { Life } from '../life.ts';
 import type { Railway } from '../railway.ts';
 import type { App } from './context.ts';
 import { stage } from './boot.ts';
+import { seeThrough } from '../see-through.ts';
 
 export interface Movers {
   folk: Folk;
@@ -83,7 +84,7 @@ export async function buildMovers(app: App): Promise<Movers> {
   const { modelMaterial } = await import('../models.ts');
   const inkSource = ctx.toon(ctx.palette.ink);
   const rigMaterial = (): THREE.MeshToonMaterial =>
-    modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] });
+    seeThrough(modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }));
   const launchPads = createLaunchPads({ world, pads: padIndex, gradientMap: inkSource.gradientMap!, land });
   scene.add(launchPads.group);
   const streetPush = new THREE.Vector3();

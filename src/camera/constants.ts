@@ -104,6 +104,15 @@ export const WALL_MARGIN = 0.5;
  * nearer, it would be inside the building seeing only ink.
  */
 export const WALL_FLOOR = BODY_RADIUS;
+/**
+ * Seen through (`seesThrough`): how far past the lens a wall is looked for, so
+ * the near plane does not cut into one the lens stands just outside.
+ */
+export const LENS_ROOM = NEAR * 1.5;
+/** How fast what is in the way turns see-through, and back, per second. */
+export const SIGHT_RATE = 6;
+/** The wheel widens the see-through capsule as the square root of the zoom, up to this. */
+export const SIGHT_ZOOM_MAX = 2.2;
 /** Nearer the shoulders than this the body is hidden, as in first person. */
 export const BODY_NEAR = FIGURE.height * 0.5;
 

@@ -8,6 +8,7 @@ import { toLatLon } from '../geo.ts';
 import { PLANET_RADIUS } from '../globe.ts';
 import { dressHero, heroAppearance } from '../avatar.ts';
 import { decodeAppearance, encodeAppearance } from '../appearance.ts';
+import { surfaceQuality } from '../graphics-quality.ts';
 import { floodTuning, lightBrightness } from '../lights.ts';
 import { prominenceRadius, setProminenceRadius } from '../places.ts';
 import { unitAt } from '../sphere.ts';
@@ -47,6 +48,8 @@ export function exposeDebug(app: App): void {
       outline: app.outline,
       /** `.exposure`, `.bloom.strength`, `.uniforms`; `.shafts.override = 0` takes the light shafts out. */
       post: app.post,
+      /** The surfaces' detail, 1 Ultra and 0 Standard; Settings writes it, and `.value` moves it live. */
+      quality: surfaceQuality,
       /** `atlas.ink(true)` draws the outlines; `atlas.ink()` reads it. */
       ink(on?: boolean) {
         if (on !== undefined) app.ink.set(on);

@@ -75,6 +75,8 @@ export const africanRenaissanceMonument: Monument = {
   lon: -17.495,
   realHeight: 49,
   tier: 'tower',
+  surface: 'none',
+  surfaces: { clay: 'metal', white: 'stone', bone: 'stone' },
   footprint: 21,
 
   build(ctx: MonumentContext): Group {

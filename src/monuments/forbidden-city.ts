@@ -193,6 +193,8 @@ export const forbiddenCity: Monument = {
   // No realHeight: the source list gives none (Taihedian 35.05 m, the gate 37.95,
   // the wall 10).
   tier: 'building',
+  surface: 'plaster',
+  surfaces: { gold: 'roof', white: 'stone', bone: 'stone', slate: 'stone' },
   // The paving's corner, at hypot(34, 33) = 47.4. Everything else is inside it.
   footprint: 48,
 

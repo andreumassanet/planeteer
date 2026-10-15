@@ -5,10 +5,14 @@ import * as THREE from 'three';
 import type { World } from '../geo.ts';
 import type { FlagLayer } from '../land-flags.ts';
 import { createToonRamp } from '../theme.ts';
+import { surfaceQuality } from '../graphics-quality.ts';
 import { bindNearLights, nearLightsChunk, nearLightsGLSL } from '../lights.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
-import { BRUSH_BROAD, BRUSH_FINE, BRUSH_LIGHT, GROUND_MARKS_GLSL, HEX_CELL, LUSH_GLSL, PATCH_FINE } from './ground-marks.ts';
-import { bindGroundWeather, groundWeatherChunk, groundWeatherGLSL } from './ground-weather.ts';
+import { GROUND_MARKS_GLSL, HEX_CELL, LUSH_GLSL } from './ground-marks.ts';
+import {
+  LAND_GROUND_GLSL, LAND_SURFACE_GLSL, LAND_SURFACE_VERTEX_PARS, followCamera, landBumpChunk, landSurfaceUniforms, landSurfaceVertex,
+} from './land-surface.ts';
+import { bindGroundWeather, groundWeatherGLSL } from './ground-weather.ts';
 
 /** Outline width: screen space, scaled by distance by `OutlineEffect`. */
 const OUTLINE_THICKNESS = 0.005;
@@ -33,7 +37,9 @@ varying vec3 vAtlasPos;
 uniform float atlasMosaic;
 uniform float atlasFlag;
 ${LUSH_GLSL}
-${GROUND_MARKS_GLSL}`;
+${GROUND_MARKS_GLSL}
+${LAND_SURFACE_GLSL}
+uniform float atlasQuality;`;
 
 /**
  * How fast the mosaic gets out of the flag's way. A flag under a hex tone is a
@@ -62,19 +68,23 @@ const MOSAIC_YIELD = 2;
  * gamma-space blend a painter expects.
  */
 function mosaic(material: THREE.MeshToonMaterial): void {
-  const uniforms = { atlasMosaic: { value: 1 }, atlasFlag: { value: 0 } };
+  const surface = landSurfaceUniforms();
+  const uniforms = { atlasMosaic: { value: 1 }, atlasFlag: { value: 0 }, ...surface };
   material.userData.uniforms = uniforms;
+  followCamera(material, surface);
   /** Flipped once, by `land-flags.ts`, when the attribute is on the geometry. */
   let flagged = false;
   material.onBeforeCompile = (shader) => {
     shader.uniforms['atlasMosaic'] = uniforms.atlasMosaic;
     shader.uniforms['atlasFlag'] = uniforms.atlasFlag;
+    Object.assign(shader.uniforms, surface);
+    shader.uniforms['atlasQuality'] = surfaceQuality;
     bindGroundWeather(shader.uniforms);
     bindNearLights(shader.uniforms);
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        `#include <common>\nvarying vec3 vAtlasPos;${
+        `#include <common>\nvarying vec3 vAtlasPos;\n${LAND_SURFACE_VERTEX_PARS}${
           flagged ? '\nattribute vec3 flag;\nvarying vec3 vAtlasFlag;' : ''
         }`,
       )
@@ -82,14 +92,14 @@ function mosaic(material: THREE.MeshToonMaterial): void {
       // and is one multiply a vertex if it ever stops being.
       .replace(
         '#include <begin_vertex>',
-        `#include <begin_vertex>\n  vAtlasPos = (modelMatrix * vec4(transformed, 1.0)).xyz;${
+        `#include <begin_vertex>\n  vAtlasPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  ${landSurfaceVertex('vAtlasPos')}${
           flagged ? '\n  vAtlasFlag = flag;' : ''
         }`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        `#include <common>\n${MOSAIC_GLSL}\n${groundWeatherGLSL()}\n${nearLightsGLSL()}${flagged ? '\nvarying vec3 vAtlasFlag;' : ''}`,
+        `#include <common>\n${MOSAIC_GLSL}\n${groundWeatherGLSL()}\n${LAND_GROUND_GLSL}\n${nearLightsGLSL()}${flagged ? '\nvarying vec3 vAtlasFlag;' : ''}`,
       )
       // The street lamps' pools past the paving's edge, and the headlights off
       // the carriageway, on the land itself: see `nearLightsChunk`.
@@ -97,8 +107,6 @@ function mosaic(material: THREE.MeshToonMaterial): void {
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
-  diffuseColor.rgb = atlasLush(diffuseColor.rgb);
-  ${groundWeatherChunk('vAtlasPos')}
   vec2 atlasPlane = atlasPlaneOf(vAtlasPos);
   // A cell smaller than a pixel is noise, especially when its normal changes
   // the cel band. Fade both tone and tilt before that happens, even with B off.
@@ -106,28 +114,18 @@ function mosaic(material: THREE.MeshToonMaterial): void {
   float atlasYield = 1.0 - min(1.0, atlasFlag * ${MOSAIC_YIELD.toFixed(1)});
   float atlasQuiet = atlasYield
     * (1.0 - smoothstep(${(HEX_CELL * 0.4).toFixed(1)}, ${(HEX_CELL * 1.2).toFixed(1)}, atlasFootprint));
-  // Each mark is asked only where it is mixed in at all: from the air, and
-  // past the first few hundred units on foot, a pixel covers several cells
-  // and both weights are zero, which is most of the land on the screen. The
-  // derivatives above stay outside the branches, where they are defined.
   vec2 atlasCell = vec2(0.0);
   // The hex cells are the cel look's grain, and they are off: under a
   // continuous light a tone a cell reads as tiling, not as ground.
   float atlasMark = 0.0 * atlasMosaic * atlasQuiet;
-  // The patches go the same way when a pixel covers a good share of the finer blot.
-  float atlasPatchShare = atlasMosaic * atlasYield
-    * (1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasFootprint));
   float atlasTone = atlasMark > 0.0 ? atlasCellTone(atlasPlane, atlasCell) : 1.0;
-  if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, vAtlasPos), atlasPatchShare);
-  // The brush: the ground's lightness broken at the scale of a stroke, a few
-  // bodies across and a stride across, so a field up close is paint and not a
-  // fill. Gone where a pixel covers a stroke.
-  float atlasBrushShare = atlasYield * (1.0 - smoothstep(${(BRUSH_BROAD * 0.15).toFixed(2)}, ${(BRUSH_BROAD * 0.6).toFixed(2)}, atlasFootprint));
-  if (atlasBrushShare > 0.0) {
-    float atlasStroke = atlasNoise(vAtlasPos * ${(1 / BRUSH_BROAD).toFixed(6)}) * 0.6
-      + atlasNoise(vAtlasPos * ${(1 / BRUSH_FINE).toFixed(6)} + 7.3) * 0.4;
-    diffuseColor.rgb *= 1.0 + (atlasStroke - 0.5) * ${(BRUSH_LIGHT * 2).toFixed(3)} * atlasBrushShare;
-  }
+  // The ground itself (\`atlasLandGround\`, \`land-surface.ts\`): every stage
+  // gives way to the flag, the surface's layers to the plain quality too. The
+  // footprint is taken here, outside any branch, where it is defined.
+  float atlasLocalFoot = max(length(dFdx(vAtlasLocal)), length(dFdy(vAtlasLocal)));
+  float atlasBump = 0.0;
+  diffuseColor.rgb = atlasLandGround(diffuseColor.rgb, vAtlasPos, vAtlasLocal, vNormal, atlasLocalFoot,
+    atlasMosaic * atlasYield, atlasYield, atlasYield * atlasQuality, atlasBump);
   if (atlasMark > 0.0) diffuseColor.rgb *= mix(1.0, atlasTone, atlasMark);${
     flagged
       ? /* glsl */ `
@@ -159,7 +157,9 @@ function mosaic(material: THREE.MeshToonMaterial): void {
       normal = normalize(mix(normal, atlasSphere, atlasFlag * atlasFlag));
     }
     if (atlasMark > 0.0) normal = atlasLeanOf(normal, atlasCell, atlasMark);
-  }`,
+  }
+  // The near ground's relief, lit: rock beds, cracks, pebbles, ripples.
+  ${landBumpChunk('atlasBump', '1.0')}`,
       );
   };
   // Two materials that compile to different programs must not share a cache

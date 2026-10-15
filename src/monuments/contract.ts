@@ -456,6 +456,9 @@ export function createContext(): MonumentContext {
 // The monument
 // ---------------------------------------------------------------------------
 
+/** The materials a monument's faces can be drawn as; see `Monument.surface`. */
+export type MonumentSurface = 'stone' | 'brick' | 'plaster' | 'concrete' | 'metal' | 'timber' | 'none';
+
 export interface Monument {
   /** Kebab-case, unique, and the file is named after it: `eiffel-tower.ts`. */
   id: string;
@@ -475,6 +478,17 @@ export interface Monument {
    */
   realHeight?: number;
   tier: MonumentTier;
+  /**
+   * What its big faces are built of, drawn as a pattern over their colour
+   * (`placement/surfaces.ts`). Left out, it is `stone`. `none` keeps every
+   * face flat: a mountain, a waterfall, a rock cut in one piece.
+   */
+  surface?: MonumentSurface;
+  /**
+   * A palette colour built of something else: `{ green: 'metal' }` for a
+   * copper skin, `{ gold: 'roof' }` for glazed tiles on its slopes.
+   */
+  surfaces?: Partial<Record<keyof typeof PALETTE, MonumentSurface | 'roof'>>;
   /** Radius of the base circle the model must stay inside, in world units. */
   footprint: number;
   /**
@@ -972,4 +986,9 @@ export function paletteName(color: number): string {
   const base = TONE_BASE.get(color);
   if (base !== undefined) return `${paletteName(base)}×${TONE_FACTOR.get(color)}`;
   return PALETTE_NAMES.get(color) ?? `0x${color.toString(16)}`;
+}
+
+/** The palette entry a colour is, or is a tone of; undefined for a colour off the palette. */
+export function paletteBase(color: number): keyof typeof PALETTE | undefined {
+  return PALETTE_NAMES.get(baseOf(color)) as keyof typeof PALETTE | undefined;
 }

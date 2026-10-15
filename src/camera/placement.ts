@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {
   CLEARANCE,
   COLLISION_STEPS,
+  LENS_ROOM,
   MAX_ELEVATION,
   MAX_ELEVATION_RIDING,
   MIN_DISTANCE,
@@ -71,8 +72,13 @@ export function createPlacement(core: CameraCore) {
     // The ground only ever pulls the lens in to `MIN_DISTANCE`, so a lens
     // already nearer than that has nothing to fear from it. From a wall it has.
     const ground = distance > MIN_DISTANCE;
-    const wall = walls && distance > WALL_FLOOR ? blocks : undefined;
-    if (!ground && wall === undefined) return lift;
+    const reachable = walls && distance > WALL_FLOOR ? blocks : undefined;
+    // Seen through, a wall in between is dissolved rather than stepped in front of.
+    const wall = core.seesThrough ? undefined : reachable;
+    if (!ground && wall === undefined) {
+      if (reachable !== undefined && core.seesThrough) outOfWalls(point, reachable);
+      return lift;
+    }
     offset.divideScalar(distance);
     let allowed = distance;
     let least = MIN_DISTANCE;
@@ -93,7 +99,38 @@ export function createPlacement(core: CameraCore) {
       }
     }
     if (allowed < distance) point.copy(pivot).addScaledVector(offset, Math.max(least, allowed));
+    if (reachable !== undefined && core.seesThrough && point.distanceTo(pivot) > WALL_FLOOR) outOfWalls(point, reachable);
     return lift;
+  }
+
+  /**
+   * Seen through: brings the lens back towards the pivot only while the lens
+   * itself, or the room just past it for the near plane, is inside a wall,
+   * to the near side of that wall. What lies between is left to `see-through.ts`.
+   */
+  function outOfWalls(point: THREE.Vector3, wall: (point: THREE.Vector3) => boolean): void {
+    offset.copy(point).sub(pivot);
+    const distance = offset.length();
+    if (distance < 1e-6) return;
+    offset.divideScalar(distance);
+    const far = distance + LENS_ROOM;
+    sample.copy(pivot).addScaledVector(offset, far);
+    if (!wall(sample) && !wall(point)) return;
+    // Walk in from the lens to the first clear sample; the wall's face lies between it and the last blocked one.
+    let clear = 0;
+    let blocked = far;
+    for (let i = COLLISION_STEPS - 1; i >= 0; i--) {
+      const d = (i / COLLISION_STEPS) * far;
+      sample.copy(pivot).addScaledVector(offset, d);
+      if (!wall(sample)) {
+        clear = d;
+        break;
+      }
+      blocked = d;
+    }
+    const face = wallAt(clear, blocked, wall);
+    const allowed = Math.max(WALL_FLOOR, face - LENS_ROOM - WALL_MARGIN);
+    if (allowed < distance) point.copy(pivot).addScaledVector(offset, allowed);
   }
 
   /**

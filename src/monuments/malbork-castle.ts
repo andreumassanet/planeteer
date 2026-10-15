@@ -41,6 +41,8 @@ export const malborkCastle: Monument = {
   lat: 54.0397,
   lon: 19.0281,
   tier: 'building',
+  surface: 'brick',
+  surfaces: { white: 'plaster' },
   footprint: 41,
 
   build(ctx) {

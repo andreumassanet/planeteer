@@ -97,6 +97,7 @@ export const lalibela: Monument = {
   lat: 12.032,
   lon: 39.043,
   tier: 'building',
+  surface: 'none',
   footprint: 46.7,
 
   build(ctx) {

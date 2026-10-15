@@ -118,6 +118,8 @@ export const petronasTowers: Monument = {
   lon: 101.712,
   realHeight: 452,
   tier: 'tower',
+  surface: 'metal',
+  surfaces: { tan: 'concrete' },
   footprint: 15.2,
 
   build(ctx) {

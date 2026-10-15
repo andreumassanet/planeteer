@@ -27,4 +27,14 @@ export {
 } from './globe/ground-weather.ts';
 export { landFlagProxy, landFlags } from './globe/materials.ts';
 export { buildLand } from './globe/land-mesh.ts';
+export {
+  LAND_GROUND_GLSL,
+  LAND_SURFACE_GLSL,
+  LAND_SURFACE_VERTEX_PARS,
+  landBumpChunk,
+  landSurfaceUniforms,
+  landSurfaceVertex,
+  madeLandChunk,
+  rockAt,
+} from './globe/land-surface.ts';
 export { coastEdges, groundRadius } from './globe/coast.ts';

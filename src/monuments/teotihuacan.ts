@@ -148,6 +148,7 @@ export const teotihuacan: Monument = {
   lon: -98.844,
   // No realHeight: a city has no height.
   tier: 'building',
+  surfaces: { clay: 'stone' },
   footprint: 54.5,
 
   build(ctx: MonumentContext): Group {

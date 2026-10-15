@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { weldedNormals } from './source.ts';
+import { roleOf, type Role } from './roles.ts';
 import { YOUNG_HEAD, type Person, type Source, type Template } from './types.ts';
 import { BODY_HEIGHT, PACK_FIT, bodyOf, type ClipName, type OutfitId, type Paint, type WornPart } from './wardrobe.ts';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -45,6 +46,9 @@ export function assemble(
   const slot = Uint8Array.from(vertexSlots);
   merged.setAttribute('outlineNormal', weldedNormals(merged));
   merged.setAttribute('color', new THREE.BufferAttribute(new Float32Array(slot.length * 3), 3));
+  // What each vertex is, for the finish the material gives it (`finishCloth`).
+  const roles = slots.map(({ material: name, worn }) => FINISH_OF[roleOf(worn, name) ?? 'keep']);
+  merged.setAttribute('atlasRole', new THREE.BufferAttribute(Uint8Array.from(slot, (index) => roles[index]!), 1));
 
   // The rig of the first part's outfit, bound afresh: every outfit of a body
   // has the same joints in the same order with the same inverse bind
@@ -74,6 +78,28 @@ export function assemble(
   mesh.frustumCulled = false;
   return { scene, mesh, slot, slots, height: BODY_HEIGHT[body], live: 0, mixed };
 }
+
+/** A role's finish (`surfaces/finish.ts`): 0 none, 1 skin, 2 hair, 3 cloth, 4 shoes, 5 a pack. */
+const FINISH_OF: Readonly<Record<Role, number>> = {
+  skin: 1,
+  stubble: 1,
+  beard: 2,
+  hair: 2,
+  'hair-dark': 2,
+  eye: 0,
+  top: 3,
+  'top-light': 3,
+  'top-dark': 3,
+  bottom: 3,
+  'bottom-dark': 3,
+  shoes: 4,
+  'shoes-light': 4,
+  'shoes-dark': 4,
+  pack: 5,
+  'pack-light': 5,
+  'pack-dark': 5,
+  keep: 3,
+};
 
 export const colour = new THREE.Color();
 
@@ -112,7 +138,7 @@ export function spawnPerson(
   // Shared positions, normals and weights; a colour attribute of its own.
   const shared = template.mesh.geometry;
   const geometry = new THREE.BufferGeometry();
-  for (const name of ['position', 'normal', 'outlineNormal', 'skinIndex', 'skinWeight']) {
+  for (const name of ['position', 'normal', 'outlineNormal', 'skinIndex', 'skinWeight', 'atlasRole']) {
     geometry.setAttribute(name, shared.getAttribute(name));
   }
   const colors = new Float32Array(template.slot.length * 3);

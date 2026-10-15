@@ -141,6 +141,8 @@ export const kinderdijk: Monument = {
   lon: 4.64,
   // No `realHeight`: nineteen mills stand here and no height belongs to all.
   tier: 'building',
+  surface: 'brick',
+  surfaces: { steel: 'none', brown: 'timber', tan: 'none' },
   footprint: 55,
 
   build(ctx) {

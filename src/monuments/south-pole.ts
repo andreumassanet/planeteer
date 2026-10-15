@@ -171,6 +171,7 @@ export const southPole: Monument = {
   lon: 0.0,
   // No `realHeight`: the ceremonial pole is chest-high and the marker a stake.
   tier: 'monument',
+  surface: 'none',
   footprint: 14,
 
   build(ctx) {

@@ -15,6 +15,11 @@ void main() {
  * a violet vignette and animated grain (which also dithers 8-bit banding).
  * Every number is a uniform, tunable from `atlas.post.uniforms`.
  */
+/** The far blur's widest spread, as a share of the frame's height. */
+const DOF_RADIUS = 0.0045;
+/** Taps in the far blur's disc. */
+const DOF_TAPS = 20;
+
 export const GRADE_FRAGMENT = /* glsl */ `
 uniform sampler2D tScene;
 uniform vec2 resolution;
@@ -34,6 +39,8 @@ uniform float uFrame;
 uniform sampler2D tAO;
 uniform float uAO;
 uniform vec3 uAOColor;
+uniform float uDof;
+uniform float uFocus;
 ${SHAFT_GRADE_PARS}
 varying vec2 vUv;
 
@@ -87,8 +94,35 @@ float grainHash(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
+// How many pixels across a point at 'distance' is spread: nothing near the
+// subject, opening to the whole radius far past it. Only the far field blurs.
+float dofSpread(float distance) {
+  return smoothstep(uFocus * 4.0, uFocus * 24.0, distance) * uDof * resolution.y * ${DOF_RADIUS};
+}
+// The far field gathered over a golden-angle disc; a tap counts only where
+// its own spread reaches back this far, so a sharp near edge does not bleed
+// into the blur behind it.
+vec3 dofScene(vec2 uv) {
+  vec3 here = texture2D(tScene, uv).rgb;
+  if (uDof <= 0.0) return here;
+  float spread = dofSpread(shaftDistance(texture2D(tDepth, uv).r));
+  if (spread < 0.75) return here;
+  vec3 sum = here;
+  float weight = 1.0;
+  for (int i = 0; i < ${DOF_TAPS}; i++) {
+    float r = sqrt((float(i) + 0.5) / ${DOF_TAPS}.0) * spread;
+    float a = float(i) * 2.39996;
+    vec2 at = uv + vec2(cos(a), sin(a)) * r / resolution;
+    float reach = dofSpread(shaftDistance(texture2D(tDepth, at).r));
+    float w = smoothstep(r * 0.6, r, reach + 0.5);
+    sum += texture2D(tScene, at).rgb * w;
+    weight += w;
+  }
+  return sum / weight;
+}
+
 void main() {
-  vec3 scene = max(texture2D(tScene, vUv).rgb, 0.0);
+  vec3 scene = max(dofScene(vUv), 0.0);
   if (uAO > 0.0) {
     // The AO at half resolution, blurred as it is read: a cross of five taps
     // two of its texels apart is enough to hide the spiral's pattern.

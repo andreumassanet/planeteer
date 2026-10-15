@@ -151,6 +151,7 @@ export const sydneyOperaHouse: Monument = {
   lon: 151.215,
   // No `realHeight`: the source list carries none for this one.
   tier: 'building',
+  surfaces: { white: 'concrete' },
   footprint: 45,
 
   build(ctx) {

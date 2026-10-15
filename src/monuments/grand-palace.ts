@@ -60,6 +60,7 @@ export const grandPalace: Monument = {
   lat: 13.75,
   lon: 100.4913,
   tier: 'building',
+  surface: 'plaster',
   footprint: 46.5,
 
   build(ctx: MonumentContext): Group {

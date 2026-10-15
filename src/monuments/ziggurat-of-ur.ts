@@ -62,6 +62,8 @@ export const zigguratOfUr: Monument = {
   lat: 30.9626,
   lon: 46.1031,
   tier: 'building',
+  surface: 'brick',
+  surfaces: { clay: 'brick' },
   footprint: 38,
 
   build(ctx: MonumentContext): Group {

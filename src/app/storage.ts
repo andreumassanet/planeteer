@@ -7,6 +7,7 @@ export const SENSITIVITY_KEY = 'atlas.sensitivity.v1';
 export const PERFORMANCE_KEY = 'atlas.performance.v1';
 export const HINTS_KEY = 'atlas.hints.v1';
 export const RESOLUTION_KEY = 'atlas.resolution.v1';
+export const GRAPHICS_KEY = 'atlas.graphics.v1';
 /** `{ volume, on }` for the sound effects. */
 export const SOUND_KEY = 'atlas.sound.v1';
 /** `{ volume, on }` for the music. */

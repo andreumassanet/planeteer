@@ -243,6 +243,7 @@ export const gyeongbokgung: Monument = {
   // No realHeight: the source list gives none (Geunjeongjeon about 25.8 m,
   // Geunjeongmun about 14).
   tier: 'building',
+  surface: 'plaster',
   // The paving's corner, at hypot(30, 29) = 41.72. Everything else is inside it.
   footprint: 42,
 

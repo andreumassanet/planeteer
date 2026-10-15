@@ -47,6 +47,7 @@ export const genghisKhanStatue: Monument = {
   lon: 107.5306,
   realHeight: 40,
   tier: 'tower',
+  surfaces: { bone: 'metal', slate: 'metal' },
   footprint: 20,
 
   build(ctx: MonumentContext): Group {

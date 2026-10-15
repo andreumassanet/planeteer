@@ -139,6 +139,7 @@ export const himejiCastle: Monument = {
   // No realHeight: the source list gives none (the keep is 31.5 m, on its stone base
   // 46.4 m).
   tier: 'tower',
+  surface: 'plaster',
   // Set by the larger small keep's skirt corner, at hypot(23.4, 14.2) = 27.4.
   // The great keep and its base reach only 22.5 on their own.
   footprint: 28,

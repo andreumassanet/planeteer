@@ -14,12 +14,18 @@ export function publish(field: Field): void {
   field.window.set(field.i0, field.j0, field.texel, field.valid ? field.size : 0);
 }
 
-/** The job this field needs next, if any, for a camera at `at` in its layer's plane. */
+/**
+ * The job this field needs next, if any, for a camera at `at` in its layer's
+ * plane. A window that still overlaps where it is wanted is moved a line at a
+ * time and stays on the screen meanwhile (where the camera has run past its
+ * edge the shader reads the coarser field); only one left wholly behind is
+ * filled again, which takes it off the screen until it is whole.
+ */
 export function jobFor(layer: Layer, field: Field, at: THREE.Vector3, urgentOnly: boolean): Job | null {
   const [ti, tj] = targetOf(field, at);
   const n = field.size;
   const make = (kind: Job['kind'], i0: number, i1: number, j0: number, j1: number): Job => ({ layer, field, i0, i1, j0, j1, done: 0, kind, gathered: -1 });
-  if (!field.valid || Math.abs(ti - field.i0) >= n / 2 || Math.abs(tj - field.j0) >= n / 2) {
+  if (!field.valid || Math.abs(ti - field.i0) >= n || Math.abs(tj - field.j0) >= n) {
     field.valid = false;
     field.dirty.length = 0;
     field.i0 = ti;

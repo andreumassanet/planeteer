@@ -193,6 +193,8 @@ export const greatWall: Monument = {
   lat: 40.356,
   lon: 116.008,
   tier: 'landmark',
+  surface: 'brick',
+  surfaces: { bone: 'stone', clay: 'none', brown: 'none' },
   footprint: 52,
 
   build(ctx) {

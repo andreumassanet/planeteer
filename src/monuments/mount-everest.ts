@@ -184,6 +184,7 @@ export const mountEverest: Monument = {
   lon: 86.925,
   realHeight: 8849,
   tier: 'landmark',
+  surface: 'none',
   footprint: 55,
 
   build(ctx) {

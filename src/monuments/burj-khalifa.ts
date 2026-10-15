@@ -102,6 +102,8 @@ export const burjKhalifa: Monument = {
   lon: 55.274,
   realHeight: 828,
   tier: 'landmark',
+  surface: 'metal',
+  surfaces: { sand: 'stone', tan: 'stone' },
   footprint: 14.5,
 
   build(ctx) {

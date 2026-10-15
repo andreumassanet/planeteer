@@ -186,9 +186,13 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
     else eyeBack.copy(eyeFront);
   }
 
-  /** A layer is drawn once its fine field stands; one laid round a new anchor takes over once both of its do. */
+  /**
+   * A layer is drawn once either of its fields stands (the shader reads the
+   * coarse one wherever the fine one has nothing); one laid round a new anchor
+   * takes over once both of its do.
+   */
   function showAndSwap(): void {
-    if (!layers.front.shown && layers.front.fine.valid) {
+    if (!layers.front.shown && (layers.front.fine.valid || layers.front.coarse.valid)) {
       layers.front.shown = true;
       layers.front.group.visible = true;
     }

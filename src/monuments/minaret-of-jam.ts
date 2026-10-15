@@ -75,6 +75,7 @@ export const minaretOfJam: Monument = {
   lon: 64.516,
   realHeight: 65,
   tier: 'tower',
+  surface: 'brick',
   /** The left spur's outer corner, 23.5 from the axis. */
   footprint: 24,
 

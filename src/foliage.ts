@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GROUND_MARKS_GLSL, LUSH_GLSL, bindGroundWeather, groundWeatherChunk, groundWeatherGLSL } from './globe.ts';
 import { bindNearLights, nearLightsChunk, nearLightsGLSL } from './lights.ts';
 import { shadeByClouds } from './cloud-shade.ts';
+import { seeThrough } from './see-through.ts';
 import { rngFrom } from './scenery/random.ts';
 import type { Rng } from './scenery/random.ts';
 import { LEAF_ATLAS } from './scenery/tree-forms.ts';
@@ -409,7 +410,7 @@ export function leafMaterial(): THREE.MeshToonMaterial {
   material.customProgramCacheKey = () => 'atlas-leaves';
   // The leaves' own `RE_Direct` (`LEAF_LIGHTS`) is fed the sun the shade has
   // already dimmed, its light through the leaf with it.
-  return shadeByClouds(material);
+  return seeThrough(shadeByClouds(material));
 }
 
 /**

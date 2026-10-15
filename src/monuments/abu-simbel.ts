@@ -128,6 +128,7 @@ export const abuSimbel: Monument = {
   lat: 22.337,
   lon: 31.626,
   tier: 'landmark',
+  surface: 'none',
   footprint: 54,
 
   build(ctx) {

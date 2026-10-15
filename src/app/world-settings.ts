@@ -6,10 +6,12 @@
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, detail, setAutoDetail, setDetail } from '../view.ts';
 import type { Settings } from '../settings.ts';
 import type { App } from './context.ts';
+import { QUALITIES, chosenQuality } from '../graphics-quality.ts';
+import type { Quality } from '../graphics-quality.ts';
 import { RESOLUTIONS } from './graphics.ts';
 import { renderDistanceWords } from './render-distance.ts';
 import {
-  EFFECTS_KEY, HINTS_KEY, PERFORMANCE_KEY, RESOLUTION_KEY, SENSITIVITY_KEY, SHAKE_KEY, WEATHER_KEY,
+  EFFECTS_KEY, GRAPHICS_KEY, HINTS_KEY, PERFORMANCE_KEY, RESOLUTION_KEY, SENSITIVITY_KEY, SHAKE_KEY, WEATHER_KEY,
   readSetting, writeSetting,
 } from './storage.ts';
 
@@ -21,6 +23,12 @@ export async function createWorldSettings(app: App): Promise<Settings> {
   hud.setPerformance(app.performanceOn);
   hud.setHints(readSetting(HINTS_KEY) !== '0');
   input.sensitivity = Number(readSetting(SENSITIVITY_KEY) ?? '1') || 1;
+  let quality: Quality = readSetting(GRAPHICS_KEY) === 'standard' ? 'standard' : 'ultra';
+  const applyQuality = (): void => {
+    chosenQuality.value = quality === 'ultra' ? 1 : 0;
+    app.post.dof = quality === 'ultra' ? 1 : 0;
+  };
+  applyQuality();
   const { createSettings } = await app.deferred.settings;
   const settings = createSettings({
     detail: { get: detail, set: setDetail, min: DETAIL_MIN, max: DETAIL_MAX },
@@ -91,6 +99,16 @@ export async function createWorldSettings(app: App): Promise<Settings> {
         return app.resolution;
       },
       options: RESOLUTIONS,
+    },
+    graphics: {
+      get: () => quality,
+      set: (value) => {
+        quality = QUALITIES.find(([option]) => option === value)?.[0] ?? 'ultra';
+        writeSetting(GRAPHICS_KEY, quality);
+        applyQuality();
+        return quality;
+      },
+      options: QUALITIES,
     },
     time: app.timeOfDay,
     sound: app.sound.soundRows,

@@ -261,6 +261,7 @@ export const alhambra: Monument = {
   lon: -3.588,
   // No `realHeight`: the source list gives none (the towers differ, 45 m and 27 m).
   tier: 'building',
+  surface: 'plaster',
   footprint: 48,
 
   build(ctx) {

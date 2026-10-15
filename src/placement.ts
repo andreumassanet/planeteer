@@ -21,6 +21,7 @@ import { createBuilder } from './placement/builder.ts';
 import { LANDMARK_RANGE, MIN_APPARENT_PIXELS, PIXELS_PER_RADIAN, RAISES_PER_FRAME, WIDEST_FOOTPRINT, keepAllWithin, rangeFor } from './placement/reach.ts';
 import { createSeating } from './placement/seating.ts';
 import { createSlots } from './placement/slots.ts';
+import type { SurfaceSpec } from './placement/surfaces.ts';
 import type { Slot } from './placement/slots.ts';
 import { SOLID_REACH, createWalls } from './placement/walls.ts';
 
@@ -88,8 +89,8 @@ export async function loadPlacements(url = `${DATA_URL}monuments.json`): Promise
  * only what it uses.
  */
 export interface MonumentKit {
-  /** `MONUMENTS`. Only the ids are read here. */
-  readonly monuments: readonly { readonly id: string }[];
+  /** `MONUMENTS`. The ids, and what each is built of (`placement/surfaces.ts`). */
+  readonly monuments: readonly ({ readonly id: string } & SurfaceSpec)[];
   /** `buildMonument`: builds one, or throws if it breaks the contract. */
   build(id: string, ctx: MonumentContext): THREE.Group;
 }

@@ -122,6 +122,8 @@ export const taipei101: Monument = {
   lon: 121.565,
   realHeight: 508,
   tier: 'tower',
+  surface: 'metal',
+  surfaces: { green: 'metal', darkOlive: 'metal', tan: 'stone', sand: 'stone', bark: 'none' },
   footprint: 14.5,
 
   build(ctx) {

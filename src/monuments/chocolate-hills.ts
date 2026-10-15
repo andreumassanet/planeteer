@@ -107,6 +107,7 @@ export const chocolateHills: Monument = {
   lat: 9.8297,
   lon: 124.1397,
   tier: 'building',
+  surface: 'none',
   footprint: 27.5,
 
   build(ctx: MonumentContext): Group {

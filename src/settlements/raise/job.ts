@@ -12,6 +12,7 @@ import type { GroundBuilder } from '../ground/build.ts';
 import type { MapPlans } from '../map-plans.ts';
 import type { Registry } from '../registry.ts';
 import type { Bay, FlatVariant, LitPlot, Slot } from '../types.ts';
+import type { Surface } from '../../surfaces.ts';
 import type { Variants } from '../variants.ts';
 
 /** The state one town's raise shares between its phases, and what it is raised with. */
@@ -26,6 +27,8 @@ export interface Standing {
   glow: number;
   /** An offset on the variant's window bedtimes, in encoded steps; only a building has one. */
   bed?: number;
+  /** What a building's walls are made of (`surfaces.ts`); absent on anything else. */
+  surface?: Surface;
 }
 
 /** The raise's state, filled phase by phase. */

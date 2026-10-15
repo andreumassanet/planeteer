@@ -63,6 +63,7 @@ export const chateauFrontenac: Monument = {
   lon: -71.205,
   realHeight: 79,
   tier: 'building',
+  surface: 'brick',
   // Set by the big corner turret's cone at 30.2. The terrace corner reaches
   // 29.5 and the riverfront's own corners only 27.6.
   footprint: 32,

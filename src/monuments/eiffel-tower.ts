@@ -101,6 +101,8 @@ export const eiffelTower: Monument = {
   lon: 2.2945,
   realHeight: 330,
   tier: 'landmark',
+  surface: 'metal',
+  surfaces: { tan: 'stone' },
   footprint: 35,
 
   build(ctx) {

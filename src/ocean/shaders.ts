@@ -15,6 +15,7 @@ import {
   FOAM_WAVELENGTH_2,
 } from './constants.ts';
 import { FOAM_COLOR } from './water-colour.ts';
+import { WAVES_NORMAL_GLSL, WAVES_PARS_GLSL, WAVES_SKY_GLSL, waveUniforms, wavesFieldGLSL } from './waves.ts';
 
 /** The surf's clock, shared by the ribbon and the water laid over the sea floor near the player. */
 export const seaClock: THREE.IUniform<number> = { value: 0 };
@@ -115,6 +116,12 @@ uniform float uSeaBand;${mode === 'hide' ? '\nuniform vec3 uHull[4];\nuniform ve
  * the horizon at dusk.
  */
 const GLITTER_SLOPE = 0.20;
+/** The lobe's slope where the drawn waves already carry most of it. */
+const RESOLVED_SLOPE = 0.11;
+/** The highlight on a resolved wave face: the cosine it starts and is full at, and its brightness against a speck. */
+const SHEEN_FROM = 0.9975;
+const SHEEN_TO = 0.9992;
+const SHEEN_STRENGTH = 0.7;
 
 /**
  * The light's path on the water, drawn by the water's own shader: a Gaussian
@@ -163,12 +170,18 @@ export function paintSea(material: THREE.MeshToonMaterial): void {
   material.customProgramCacheKey = () => `${key}|sea`;
 }
 
-/** Adds the sun's (or moon's) path on the water to a material. */
+/**
+ * Adds the light on the water to a material: the waves (`waves.ts`) tilting its
+ * normal, the sky it mirrors by the fresnel, and the sun's (or moon's) path,
+ * all read off the one wave normal. The field is settled at `color_fragment`,
+ * so a material's own surf, chained before this, can read `atlasWaveN`,
+ * `atlasWaveCrest` and `atlasWaveFar` and writes `atlasSeaFoam`.
+ */
 export function addGlint(material: THREE.MeshToonMaterial): void {
   const previous = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     previous.call(material, shader, renderer);
-    Object.assign(shader.uniforms, glintUniforms);
+    Object.assign(shader.uniforms, glintUniforms, waveUniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vGlintWorld;')
       .replace('#include <project_vertex>', '#include <project_vertex>\n  vGlintWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -181,6 +194,7 @@ uniform vec3 uGlintDir;
 uniform vec3 uGlintTint;
 uniform float uGlintStrength;
 uniform float uGlintTime;
+${WAVES_PARS_GLSL}
 vec3 atlasGlintHash3(vec3 p) {
   p = fract(p * vec3(0.1031, 0.1030, 0.0973));
   p += dot(p, p.yxz + 33.33);
@@ -199,16 +213,26 @@ float atlasGlintSpeck(vec3 world, float octave, vec3 drift, float lobe) {
   return 1.0 - smoothstep(r * 0.7, r, length(p - centre));
 }`,
       )
+      .replace('#include <color_fragment>', `#include <color_fragment>${wavesFieldGLSL('vGlintWorld')}`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${WAVES_NORMAL_GLSL}`)
       .replace(
         '#include <emissivemap_fragment>',
-        `#include <emissivemap_fragment>
+        `#include <emissivemap_fragment>${WAVES_SKY_GLSL}
   if (uGlintStrength > 0.001) {
-    vec3 gUp = normalize(vGlintWorld);
+    // The waves the eye resolves near the surface carry their own slope, so
+    // the lobe narrows to what is left unresolved; from the air and past them
+    // it is the whole sea's.
+    vec3 gUp = gl_FrontFacing ? atlasWaveN : atlasWaveUp;
     vec3 gView = normalize(cameraPosition - vGlintWorld);
     vec3 gHalf = normalize(gView + uGlintDir);
-    float gTheta = acos(clamp(dot(gHalf, gUp), 0.0, 1.0));
-    float gLobe = exp(-gTheta * gTheta / ${(2 * GLITTER_SLOPE * GLITTER_SLOPE).toFixed(5)});
-    if (gLobe > 0.01) {
+    float gCos = clamp(dot(gHalf, gUp), 0.0, 1.0);
+    float gTheta = acos(gCos);
+    float gSlope = mix(${RESOLVED_SLOPE.toFixed(3)}, ${GLITTER_SLOPE.toFixed(3)}, max(atlasWaveFar, 1.0 - atlasWaveNear));
+    float gLobe = exp(-gTheta * gTheta / (2.0 * gSlope * gSlope));
+    // The sun's own image on a wave face the eye resolves: a hard-edged
+    // highlight that rides the waves, a cel band rather than a gradient.
+    float gSheen = smoothstep(${SHEEN_FROM.toFixed(5)}, ${SHEEN_TO.toFixed(5)}, gCos) * (1.0 - atlasWaveFar) * (1.0 - atlasSeaFoam) * atlasWaveNear * atlasWaveNear;
+    if (gLobe > 0.01 || gSheen > 0.0) {
       float gDist = length(cameraPosition - vGlintWorld);
       // Round specks, one at a random place in each cell of a lattice fixed
       // to the sea, the cells growing with distance in octaves so a speck
@@ -226,7 +250,7 @@ float atlasGlintSpeck(vec3 world, float octave, vec3 drift, float lobe) {
         gSpecks = mix(atlasGlintSpeck(vGlintWorld, gOctave, gDrift, gLobe),
           atlasGlintSpeck(vGlintWorld, gOctave * 2.0, gDrift, gLobe), gBlend);
       }
-      float gGlint = mix(gSpecks, gLobe * gLobe * 0.4, gFar);
+      float gGlint = max(mix(gSpecks, gLobe * gLobe * 0.4, gFar), gSheen * ${SHEEN_STRENGTH.toFixed(2)});
       #ifdef ATLAS_CLOUD_SHADE
       // The glitter is the sun's own image, and under a bank it goes with the
       // sun: the deck's shade along the glitter's light (cloud-shade.ts), on

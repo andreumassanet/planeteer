@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { PLANET_RADIUS } from '../../globe.ts';
 import { seaHull } from '../../ocean.ts';
 import { SUB_DRY } from '../../craft/submarine.ts';
+import { clearSight } from '../../see-through.ts';
 import type { App } from '../context.ts';
 import type { Tick } from './tick.ts';
 
@@ -16,10 +17,14 @@ const PROBE_CEILING = 1500;
 export function createMovement(app: App): (tick: Tick) => void {
   const { rig, input, player, launchPads, talk, fleet, landProbe, groundAt, sea, conversation, gestures, rockets } = app;
   const { audio } = app.sound;
-  /** The ground the camera is kept over: the sea floor while under the surface. */
+  /**
+   * The ground the camera is kept over: the sea floor while under the surface,
+   * and a town's floor where it stands over the land, which the see-through
+   * town material would otherwise open onto the land under it.
+   */
   const cameraGroundAt = (point: THREE.Vector3): number => {
     const ground = groundAt(point);
-    if (player.depth <= 0.3 || ground > PLANET_RADIUS + 0.5) return ground;
+    if (player.depth <= 0.3 || ground > PLANET_RADIUS + 0.5) return Math.max(ground, app.settlements.madeHeightAt(point));
     return sea.floorAt(point);
   };
 
@@ -67,7 +72,10 @@ export function createMovement(app: App): (tick: Tick) => void {
       });
       sealHull();
       rig.follow(dt, player, cameraGroundAt);
-    } else launchPads.frame(rig.camera, dt);
+    } else {
+      launchPads.frame(rig.camera, dt);
+      clearSight();
+    }
     input.endFrame();
   };
 }

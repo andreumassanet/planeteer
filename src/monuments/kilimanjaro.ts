@@ -259,6 +259,7 @@ export const kilimanjaro: Monument = {
   lon: 37.355,
   realHeight: 5895,
   tier: 'landmark',
+  surface: 'none',
   footprint: 55,
 
   build(ctx) {

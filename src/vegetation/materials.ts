@@ -2,7 +2,9 @@
 import * as THREE from 'three';
 import { LUSH_GLSL } from '../globe.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
+import { seeThrough } from '../see-through.ts';
 import { createToonRamp } from '../theme.ts';
+import { drawSurfaces } from '../surfaces.ts';
 import { MACHINE_BED } from '../craft/parked.ts';
 import { VARNISH_GLSL } from '../gloss.ts';
 
@@ -21,9 +23,11 @@ export function foliageMaterial(): THREE.MeshToonMaterial {
       .replace('#include <common>', `#include <common>\n${LUSH_GLSL}`)
       .replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = atlasLush(diffuseColor.rgb);');
   };
-  material.customProgramCacheKey = () => 'atlas-foliage';
+  // A building out in the country (a farmhouse, a barn, a chapel) is drawn as a town's: its walls' materials and the rooms behind its panes.
+  drawSurfaces(material, { panes: true });
+  material.customProgramCacheKey = () => 'atlas-foliage|surfaces';
   // Applied before `woodMaterial` and `machineWood` chain it, and `fadeTwin` clones it.
-  return shadeByClouds(material);
+  return seeThrough(shadeByClouds(material));
 }
 
 /**

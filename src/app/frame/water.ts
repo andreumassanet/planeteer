@@ -33,7 +33,7 @@ export function createWater(app: App): (tick: Tick) => void {
     oceanLights.lights[0].intensity = sky.sun.intensity;
     oceanLights.lights[1].color = sky.moon.color;
     oceanLights.lights[1].intensity = sky.moon.intensity;
-    guard('ocean', () => ocean.update(rig.camera.position, oceanLights.lights));
+    guard('ocean', () => ocean.update(rig.camera.position, oceanLights.lights, sky.mood));
     // After the fog, which it takes over under the surface, and the ocean, whose window it opens.
     guard('sea', () => {
       seaFrame.player = player.position;

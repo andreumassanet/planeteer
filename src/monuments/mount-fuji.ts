@@ -128,6 +128,7 @@ export const mountFuji: Monument = {
   lon: 138.728,
   realHeight: 3776,
   tier: 'landmark',
+  surface: 'none',
   footprint: 55,
 
   build(ctx) {

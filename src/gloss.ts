@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import { finishPaint } from './surfaces/finish.ts';
 
 /** How glossy paint is against glass's 1. */
 const GLOSS_PAINT = 0.55;
@@ -67,7 +68,7 @@ export const VARNISH_GLSL = /* glsl */ `
 
 /**
  * Varnishes a vertex-coloured toon material, chaining whatever it already
- * does in `onBeforeCompile`. Call once, before the material is cloned (the
+ * does in `onBeforeCompile`, and gives its paint a finish (`finishPaint`). Call once, before the material is cloned (the
  * streamers' dissolve clones chain the source's hook and key).
  */
 export function varnish(material: THREE.MeshToonMaterial): THREE.MeshToonMaterial {
@@ -81,5 +82,7 @@ export function varnish(material: THREE.MeshToonMaterial): THREE.MeshToonMateria
     );
   };
   material.customProgramCacheKey = () => `${key}|varnish`;
+  // And the paint under it: flake, peel, dust and the clear coat's highlight.
+  finishPaint(material);
   return material;
 }

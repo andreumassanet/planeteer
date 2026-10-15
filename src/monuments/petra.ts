@@ -83,6 +83,7 @@ export const petra: Monument = {
   lat: 30.329,
   lon: 35.444,
   tier: 'landmark',
+  surface: 'none',
   footprint: 48,
 
   build(ctx) {

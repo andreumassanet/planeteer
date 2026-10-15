@@ -165,6 +165,7 @@ export const terracottaArmy: Monument = {
   lon: 109.278,
   // No `realHeight`: the site has no single height.
   tier: 'building',
+  surface: 'none',
   footprint: 34,
 
   build(ctx) {

@@ -228,6 +228,7 @@ export const uluru: Monument = {
   lon: 131.036,
   realHeight: 348,
   tier: 'building',
+  surface: 'none',
   footprint: 55,
 
   build(ctx) {

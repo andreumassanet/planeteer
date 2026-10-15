@@ -4,7 +4,8 @@
 //   temperature, the depth ramp and the basins. Smooth, coarse and cheap.
 // - The shallows are a ribbon laid along every coastline at the resolution the
 //   outlines have, carrying the shelf, the shoals and the surf.
-// - The glint is the sun's path on the water, a term in both materials' shaders.
+// - The waves, the sky the water mirrors and the sun's path on it are terms in
+//   every sea material's shader (`addGlint`), read off one wave normal.
 //
 // The sea is a mechanic, not scenery: `isWater` is a predicate on ground height,
 // and the land never comes below `SHORE_LIP`, so nothing here may displace the
@@ -27,6 +28,8 @@ import {
 import { glintUniforms, seaClock } from './ocean/shaders.ts';
 import { buildShallows, shelfReach } from './ocean/shallows.ts';
 import { buildWater } from './ocean/water-sphere.ts';
+import { updateWaves, waveKnobs, waveUniforms } from './ocean/waves.ts';
+import type { SeaSky } from './ocean/waves.ts';
 
 export { depthMix, waterProfile } from './ocean/water-colour.ts';
 export {
@@ -41,6 +44,7 @@ export {
   seaWindowGLSL,
 } from './ocean/shaders.ts';
 export { ribbonColour, surfaceLift } from './ocean/shallows.ts';
+export type { SeaSky } from './ocean/waves.ts';
 
 /**
  * The numbers `pnpm check` holds the sea to, so the assertions are made against
@@ -104,13 +108,20 @@ export interface Ocean {
     buildMs: number;
   };
   /**
-   * The surf's clock and the glitter's light.
+   * The surf's clock, the waves, the glitter's light and the sky the water
+   * mirrors (the mood's dome colours; left as they were when omitted).
    *
    * The clock is `performance.now()` and deliberately *not* the sky's: a swell
    * is a fact about water and `atlas.sky.setRate(600)` is for watching a dawn,
    * not for putting the sea in a blender.
    */
-  update(camera: THREE.Vector3, lights: readonly OceanLight[]): void;
+  update(camera: THREE.Vector3, lights: readonly OceanLight[], sky?: SeaSky): void;
+  /**
+   * The surface's knobs, on `atlas.ocean.waves`: `uniforms.uWaveSlope`,
+   * `uWaveShade`, `uWhitecaps` and the rest live, `knobs.reflect` the fresnel's
+   * gain (read each frame). See `ocean/waves.ts`.
+   */
+  waves: { uniforms: typeof waveUniforms; knobs: typeof waveKnobs };
 }
 
 
@@ -163,9 +174,10 @@ export function createOcean(world: World): Ocean {
     buildMs: Math.round(performance.now() - began),
   };
 
-  const update = (_camera: THREE.Vector3, lights: readonly OceanLight[]): void => {
+  const update = (camera: THREE.Vector3, lights: readonly OceanLight[], sky?: SeaSky): void => {
     const seconds = performance.now() / 1000;
     seaClock.value = seconds % FOAM_CYCLE;
+    updateWaves(seconds, camera.length() - PLANET_RADIUS, sky);
     // One path, from whichever body is doing the lighting: the moon's path is
     // only worth drawing when the sun's is not.
     let best: OceanLight | null = null;
@@ -184,5 +196,5 @@ export function createOcean(world: World): Ocean {
     glintUniforms.uGlintStrength.value = Math.min(1, best.intensity * 0.55);
   };
 
-  return { group, stats, update };
+  return { group, stats, update, waves: { uniforms: waveUniforms, knobs: waveKnobs } };
 }

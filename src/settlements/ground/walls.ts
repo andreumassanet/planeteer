@@ -107,10 +107,12 @@ export function* wallSteps(job: GroundJob): Generator<void, void, void> {
       // A quay: a corner in the water is on the water (`cornerAt`), so its face runs under sea level.
       pen.wall(p, q, top, top, p.elevation - KERB_DROP, q.elevation - KERB_DROP, dc, dr);
     };
+    job.writer.cut = job.cutFor(key);
     edge(a, d, -1, 0);
     edge(b, c, 1, 0);
     edge(a, b, 0, -1);
     edge(d, c, 0, 1);
+    job.writer.cut = null;
   }
 }
 

@@ -185,6 +185,7 @@ export const mountYasur: Monument = {
   lon: 169.447,
   realHeight: 361,
   tier: 'building',
+  surface: 'none',
   // 25.8 of it is used, by the corner of the ash plain. Tanna's baked ring is 72
   // by 91 units, so a wider plain would run into the sea on both coasts.
   footprint: 26,

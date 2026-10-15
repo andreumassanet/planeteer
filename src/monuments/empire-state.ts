@@ -106,6 +106,7 @@ export const empireState: Monument = {
   lon: -73.986,
   realHeight: 443,
   tier: 'tower',
+  surfaces: { steel: 'metal' },
   footprint: 18,
 
   build(ctx) {

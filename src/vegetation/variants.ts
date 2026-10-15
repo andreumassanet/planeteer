@@ -1,6 +1,10 @@
 /** Scenic parts built once and flattened, and the flora a biome offers at a level. */
 import * as THREE from 'three';
 import { mergeMeshes } from '../merge.ts';
+import type { MergePiece } from '../merge.ts';
+import { rngFrom } from '../scenery/random.ts';
+import { wallSurfaceOf } from '../settlements/surfaces.ts';
+import { glassOf, surfaceBytes } from '../surfaces.ts';
 import { BIOMES } from '../biome.ts';
 import type { BiomeId } from '../biome.ts';
 import { nearArrays } from '../scenery/tree-forms.ts';
@@ -80,7 +84,8 @@ export function createVariants(ctx: SceneryContext): Variants {
       return null;
     }
     const measured = measure(built);
-    const merged = mergeMeshes(built);
+    const pieces: MergePiece[] = [];
+    const merged = mergeMeshes(built, pieces);
     const value: FlatVariant = {
       ...merged,
       height: measured.height,
@@ -88,6 +93,14 @@ export function createVariants(ctx: SceneryContext): Variants {
       tilt: TILT_OF[entry.kind],
       solid: bodyOf(entry),
     };
+    // A building out in the country is built as a town's is: its walls of the region's materials, its panes rooms.
+    if (entry.kind === 'dwelling' || entry.kind === 'block' || entry.kind === 'civic') {
+      const wall = wallSurfaceOf(style.id, partId, entry.kind, rngFrom(key, 'walls'));
+      const bytes = surfaceBytes(merged.position, merged.normal, merged.color, glassOf(pieces, merged.position.length / 3), wall);
+      value.surface = bytes.surface;
+      value.pane = bytes.pane;
+    }
+    pieces.length = 0;
     built.traverse((object) => {
       const mesh = object as THREE.Mesh;
       // The vertices are copied out; the materials are the shared cache's and stay.

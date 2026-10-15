@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { mergeMeshes } from '../merge.ts';
 import { createToonRamp } from '../theme.ts';
+import { seeThrough } from '../see-through.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
 import type { SceneryContext } from '../scenery/contract.ts';
 import { ROTOR_SPEED, buildRotor } from '../countryside-kit.ts';
@@ -55,6 +56,7 @@ export function createRotors(ctx: Pick<SceneryContext, 'THREE' | 'box' | 'column
   geometry.setDrawRange(0, 0);
   const material = shadeByClouds(new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: createToonRamp(4) }));
   material.userData.outlineParameters = { thickness: 0.005, color: [0.11, 0.02, 0.01], outlineNormal: true };
+  seeThrough(material);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'country-rotors';
   // Rewritten every frame round the camera: no bounding sphere would be true for long.

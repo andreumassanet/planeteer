@@ -59,6 +59,7 @@ export const avenueOfTheBaobabs: Monument = {
   lat: -20.2506,
   lon: 44.4181,
   tier: 'building',
+  surface: 'none',
   footprint: 34,
 
   build(ctx: MonumentContext): Group {

@@ -80,6 +80,8 @@ export const tokyoTower: Monument = {
   lon: 139.746,
   realHeight: 333,
   tier: 'landmark',
+  surface: 'metal',
+  surfaces: { bark: 'none' },
   footprint: 26,
 
   build(ctx) {

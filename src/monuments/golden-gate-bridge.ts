@@ -146,6 +146,7 @@ export const goldenGateBridge: Monument = {
   lon: -122.478,
   realHeight: 227,
   tier: 'landmark',
+  surfaces: { red: 'metal', bone: 'concrete', steel: 'none', brown: 'none', tan: 'none' },
   footprint: 55,
 
   build(ctx) {

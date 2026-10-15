@@ -15,8 +15,8 @@ export const DEG = Math.PI / 180;
  * Nothing displaces the surface: waves would be spent out of the same margin,
  * and in a four-band toon ramp a wave only shows where the normal turns, which
  * on any affordable sphere needs an amplitude taller than the coastal lip. The
- * motion is the surf (`FOAM_REACH`) and the glint, both drawn rather than
- * displaced.
+ * motion is the surf (`FOAM_REACH`), the waves (`waves.ts`, a normal per
+ * pixel) and the glint, all drawn rather than displaced.
  */
 export const OCEAN_SAG = 0.4;
 export const OCEAN_DETAIL = Math.ceil(63.4349 / (angleForSag(OCEAN_SAG) / DEG)) - 1;

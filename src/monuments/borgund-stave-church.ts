@@ -40,6 +40,7 @@ export const borgundStaveChurch: Monument = {
   lat: 61.0472,
   lon: 7.8125,
   tier: 'building',
+  surface: 'timber',
   footprint: 24,
 
   build(ctx: MonumentContext): Group {

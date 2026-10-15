@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import type { World } from '../geo.ts';
-import { PLANET_RADIUS, groundColorAt } from '../globe.ts';
+import { PLANET_RADIUS, groundColorAt, rockAt } from '../globe.ts';
 import type { LandProbe } from '../land-probe.ts';
 import { reliefAt } from '../terrain.ts';
 import { BIOMES, biomeAt, biomeSample } from '../biome.ts';
@@ -50,6 +50,8 @@ const DRY_OF: Readonly<Record<BiomeId, number>> = {
   tropical: 0,
   rock: 0.3,
 };
+/** How far either way the made ground is stepped for its slope, units: well inside one face of an edge slope. */
+const MADE_STEP = 0.8;
 /** A field of straw's grass: the crop's colour, most of the way to dry. */
 const STRAW_DRY = 0.75;
 /**
@@ -132,6 +134,38 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
   /** A field of straw's colour, for the grass that grows as its crop. */
   const strawTint = new THREE.Color();
   const grassProbe = new THREE.Vector3();
+  /** The drawn normal under a site, and the site itself in world units, for `rockAt`. */
+  const shading = new THREE.Vector3();
+  const sitePoint = new THREE.Vector3();
+  const slopeA = new THREE.Vector3();
+  const slopeB = new THREE.Vector3();
+  const slopeN = new THREE.Vector3();
+
+  /**
+   * The made ground's normal at `direction` (a town's edge slope, an outer
+   * yard), from the surface a step either way along the gather's two axes:
+   * its faces are flat, so this is the face's own. False where a step leaves it.
+   */
+  function madeNormal(direction: THREE.Vector3, out: THREE.Vector3): boolean {
+    const step = MADE_STEP / PLANET_RADIUS;
+    const ends = [slopeA, slopeB];
+    let k = 0;
+    for (const along of [grassSet.across, grassSet.north]) {
+      grassProbe.copy(direction).addScaledVector(along, step).normalize();
+      const ahead = groundUnder(grassProbe, 0);
+      if (ahead === null) return false;
+      const end = ends[k++]!.copy(grassProbe).multiplyScalar(ahead);
+      grassProbe.copy(direction).addScaledVector(along, -step).normalize();
+      const behind = groundUnder(grassProbe, 0);
+      if (behind === null) return false;
+      end.sub(slopeN.copy(grassProbe).multiplyScalar(behind));
+    }
+    out.crossVectors(slopeA, slopeB);
+    if (out.lengthSq() === 0) return false;
+    out.normalize();
+    if (out.dot(direction) < 0) out.negate();
+    return true;
+  }
 
   /** Whether a landmark or a carriageway of the last gather takes the point (x, z) in its frame. */
   function keptBare(x: number, z: number, spread: number): boolean {
@@ -234,12 +268,18 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
         if (height <= 0) bare = true;
       }
     }
-    let radius = groundUnder(direction, LAWN_MARGIN + spread);
+    let radius = groundUnder(direction, LAWN_MARGIN + spread, shading);
     if (radius === null) return null;
+    // Thinned across the band where the land draws its faces as rock, and
+    // gone where it is all rock: no blade stands on a cliff.
+    // A town's ground answers no drawn normal; where it is the land's own (an
+    // edge slope) the town draws it as the land, so it is asked the same.
+    if (shading.lengthSq() === 0 && !bare) madeNormal(direction, shading);
+    const rock = shading.lengthSq() > 0 ? rockAt(shading, sitePoint.copy(direction).multiplyScalar(radius)) : 0;
     if (spread > 0) radius = lowered(direction, radius, spread);
 
     out.radius = radius + (lane >= 0 ? STRIP_LIFT : 0);
-    out.density = bare ? 0 : ground.density * (1 - worn * WORN_THIN);
+    out.density = bare ? 0 : ground.density * (1 - worn * WORN_THIN) * (1 - rock);
     // Kept where it is bare too: the height is laid between texels, and a mown blade by the track is mown.
     out.height = height;
     if (lane > 0) {

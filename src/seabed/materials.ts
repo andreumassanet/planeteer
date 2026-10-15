@@ -11,17 +11,24 @@ export const floorUniforms = {
   uCaustic: { value: 0 },
   uAbove: { value: 1 },
   uDeepTint: { value: new THREE.Color(OCEAN_COLOR).multiplyScalar(0.7) },
+  /** What a unit of water keeps of each channel seen from above, as an absorption per unit: red goes first. */
+  uAbsorb: { value: new THREE.Vector3(0.11, 0.035, 0.02) },
 };
+
+/** The caustics' brightness, and the depth over which they fade (units). */
+const CAUSTIC_GAIN = 0.3;
+const CAUSTIC_DEPTH = 9;
 
 /**
  * The floor's and the decor's material: toon, flat, unlinked from the pen, with
  * the light moving on it and the blue of the water over it.
  *
- * - The caustics are three sines in world space, crossed and run at different
- *   rates, their troughs kept as bright lines: the light a swell focuses onto the
- *   sand, strongest in the shallows. By day only (`uCaustic`).
- * - The blue is the water's own tint over what is deep, applied only while the
- *   camera is above the surface; under it, the haze does it.
+ * - The caustics are two layers of warped sines in world space, run at
+ *   different rates, their zeros kept as bright lines: the light a swell
+ *   focuses onto the sand, strongest in the shallows. By day only (`uCaustic`).
+ * - The water over it takes the red first (`uAbsorb`) and then goes to its own
+ *   blue over what is deep, applied only while the camera is above the
+ *   surface; under it, the haze does it.
  * - The sway is the decor's: each vertex moves by its own `aSway` units across
  *   the current, so a kelp stalk's holdfast stays put and its crown swings.
  */
@@ -31,7 +38,6 @@ export function floorMaterial(decor: boolean): THREE.MeshToonMaterial {
     gradientMap: createToonRamp(4),
     side: decor ? THREE.DoubleSide : THREE.FrontSide,
   });
-  // Faceted, as the land is: the toon ramp steps across facets, and a smooth
   // Faceted, as the land is: the toon ramp steps across facets. Three's toon
   // material reads the flag though its type does not list it.
   (material as { flatShading?: boolean }).flatShading = true;
@@ -75,30 +81,46 @@ uniform float uFloorTime;
 uniform float uCaustic;
 uniform float uAbove;
 uniform vec3 uDeepTint;
+uniform vec3 uAbsorb;
 varying float vFloorDepth;
-varying vec3 vFloorWorld;`,
+varying vec3 vFloorWorld;
+float atlasCausticLayer(vec3 q, float t) {
+  vec3 w = q + 0.7 * vec3(sin(q.z * 1.3 + t * 0.6), sin(q.x * 1.1 - t * 0.5), sin(q.y * 1.2 + t * 0.7));
+  float s = sin(w.x + t * 0.9) + sin(w.y + t * 0.7) + sin(w.z - t * 0.8);
+  return pow(clamp(1.0 - abs(s) / 0.7, 0.0, 1.0), 6.0);
+}`,
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-  diffuseColor.rgb = mix(diffuseColor.rgb, uDeepTint, (1.0 - exp(-vFloorDepth / 16.0)) * uAbove);`,
+  {
+    // Seen from above, the water takes the red first: sand two units down is
+    // turquoise-tinged, ten down is teal, and the deep goes to the sea's blue.
+    vec3 seaKept = exp(-uAbsorb * vFloorDepth);
+    vec3 underWater = mix(uDeepTint, diffuseColor.rgb * seaKept, exp(-vFloorDepth / 16.0));
+    diffuseColor.rgb = mix(diffuseColor.rgb, underWater, uAbove);
+  }`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
   if (uCaustic > 0.001) {
-    vec3 cq = vFloorWorld * 0.42;
-    float ct = uFloorTime;
-    float cw = sin(cq.x + ct * 0.9 + sin(cq.z * 1.3 + ct * 0.6))
-      + sin(cq.z + ct * 0.7 + sin(cq.y * 1.1 - ct * 0.5))
-      + sin(cq.y + cq.x * 0.5 - ct * 0.8);
-    // Thin lines, not wiggles: only the bottom of the troughs, and faint.
-    float caustic = pow(clamp(1.0 - abs(cw) / 0.8, 0.0, 1.0), 7.0);
+    // Two layers of warped sines, each kept as the thin bright line along
+    // its zero, the second finer and slower; where they cross they add, as
+    // the net of light under a swell does. Faded as a line grows thinner
+    // than a pixel, so from a height the floor is calm rather than noise.
+    float cfp = length(fwidth(vFloorWorld));
+    float caustic = 0.0;
+    float cFade = 1.0 - smoothstep(0.25, 0.9, cfp);
+    if (cFade > 0.0) {
+      caustic = (atlasCausticLayer(vFloorWorld * 0.6, uFloorTime) * 0.65
+        + atlasCausticLayer(vFloorWorld * 1.03 + 3.1, uFloorTime * 0.8 + 1.7) * 0.45) * cFade;
+    }
     #ifdef ATLAS_CLOUD_SHADE
     // The sun focused by the swell, so none under a bank (cloud-shade.ts).
     caustic *= 1.0 - atlasCloudAt(vFloorWorld, atlasCloudSun).x;
     #endif
-    totalEmissiveRadiance += vec3(0.85, 0.95, 1.0) * caustic * uCaustic * exp(-vFloorDepth / 6.0) * 0.2;
+    totalEmissiveRadiance += vec3(0.85, 0.95, 1.0) * caustic * uCaustic * exp(-vFloorDepth / ${CAUSTIC_DEPTH.toFixed(1)}) * ${CAUSTIC_GAIN.toFixed(2)};
   }`,
       );
   };
@@ -171,9 +193,12 @@ ${FOAM_GLSL}`,
         '#include <color_fragment>',
         `#include <color_fragment>
   {
-    float foam = atlasFoam(vWaterShore.x, vWaterShore.y);
+    float foam = atlasLace(atlasFoam(vWaterShore.x, vWaterShore.y), atlasWaveChop, atlasWaveFar);
+    atlasSeaFoam = foam;
     vec3 toEye = normalize(cameraPosition - vWaterWorld);
-    float steep = abs(dot(toEye, normalize(vWaterWorld)));
+    // Through the wave normal, so the floor seen through the surface swims
+    // as the waves pass, and the window seen from under it ripples.
+    float steep = abs(dot(toEye, atlasWaveN));
     if (gl_FrontFacing) {
       float path = vWaterDepth / max(0.18, steep);
       float nearby = 1.0 - smoothstep(uClearFrom, uClearTo, length(vWaterWorld - uSeaCentre));

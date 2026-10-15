@@ -94,6 +94,7 @@ export const neuschwanstein: Monument = {
   lat: 47.558,
   lon: 10.75,
   tier: 'building',
+  surfaces: { clay: 'brick' },
   footprint: 40,
 
   build(ctx) {

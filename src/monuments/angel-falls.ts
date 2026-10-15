@@ -59,6 +59,7 @@ export const angelFalls: Monument = {
   lon: -62.5362,
   realHeight: 979,
   tier: 'landmark',
+  surface: 'none',
   footprint: 47,
 
   build(ctx: MonumentContext): Group {

@@ -1,6 +1,9 @@
 /** The countryside's parts flattened once: the kit's pieces, the fleet's tractor, near trees and rotors. */
 import type * as THREE from 'three';
 import { mergeMeshes } from '../merge.ts';
+import type { MergePiece } from '../merge.ts';
+import { SURFACE, glassOf, surfaceBytes } from '../surfaces.ts';
+import type { SurfaceName } from '../surfaces.ts';
 import { measure } from '../scenery/contract.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
 import { nearArrays } from '../scenery/tree-forms.ts';
@@ -10,6 +13,35 @@ import type { RotorKind } from '../countryside-kit.ts';
 import { parkedArrays, parkedModel } from '../craft/parked.ts';
 import type { CountryPiece } from '../countryside.ts';
 import type { CountryFlat } from './types.ts';
+
+/**
+ * What each built piece's walls are made of (`src/surfaces.ts`): its roof and
+ * its panes are found on it as a town's are. A piece not named here (a tent,
+ * a hay bale, a standing stone, a cairn of drawn stones) is left as drawn.
+ */
+const WALLS_OF: Readonly<Record<string, SurfaceName>> = {
+  barn: 'timber',
+  silo: 'metal',
+  windpump: 'metal',
+  windmill: 'stone',
+  turbine: 'metal',
+  lighthouse: 'plaster',
+  'wayside-cross': 'stone',
+  chapel: 'plaster',
+  torii: 'timber',
+  'road-shrine': 'stone',
+  chorten: 'plaster',
+  'spirit-house': 'timber',
+  marabout: 'plaster',
+  'hindu-shrine': 'stone',
+  'ruin-column': 'stone',
+  'ruin-wall': 'stone',
+  'fishing-hut': 'timber',
+  jetty: 'timber',
+  rowboat: 'timber',
+  bench: 'timber',
+  signpost: 'timber',
+};
 
 export interface NearFlat {
   flat: CountryFlat;
@@ -49,13 +81,21 @@ export function createFlats(
     if (spec !== undefined) {
       try {
         const group = spec.build(ctx, pieceRng(spec.id, style.id, piece.variant), style);
+        const pieces: MergePiece[] = [];
+        const merged = mergeMeshes(group, pieces);
         made = {
-          ...mergeMeshes(group),
+          ...merged,
           height: measure(group).height,
           footprint: spec.footprint,
           tilt: 0,
           solid: spec.afloat === true ? undefined : spec.body ?? 'walls',
         };
+        const walls = WALLS_OF[spec.id];
+        if (walls !== undefined) {
+          const bytes = surfaceBytes(merged.position, merged.normal, merged.color, glassOf(pieces, merged.position.length / 3), SURFACE[walls]);
+          made.surface = bytes.surface;
+          made.pane = bytes.pane;
+        }
         group.traverse((object) => {
           const mesh = object as THREE.Mesh;
           if (mesh.isMesh) mesh.geometry.dispose();

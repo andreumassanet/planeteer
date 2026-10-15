@@ -146,6 +146,7 @@ export const moaiRapaNui: Monument = {
   lon: -109.277,
   // No `realHeight`: no height belongs to all the moai.
   tier: 'building',
+  surface: 'none',
   footprint: 29,
 
   build(ctx) {

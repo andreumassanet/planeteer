@@ -255,6 +255,7 @@ export const moerakiBoulders: Monument = {
   lon: 170.826,
   // No `realHeight`: no height belongs to the group.
   tier: 'building',
+  surface: 'none',
   footprint: 28,
 
   build(ctx) {

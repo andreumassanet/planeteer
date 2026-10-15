@@ -46,6 +46,7 @@ export function* squareSteps(
   }
   frame.base = Math.max(0, world.elevationAt(up));
   frame.corners.clear();
+  frame.shores.clear();
   terraces.clear();
   // Every cell's terrace: `townTerraces` is the one definition, which the roads ask through `gateLevel`.
   for (const [key, level] of townTerraces(grid, frame.ground, heldGates(slot.place))) terraces.set(key, level);

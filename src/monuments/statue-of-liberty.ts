@@ -86,6 +86,7 @@ export const statueOfLiberty: Monument = {
   lon: -74.045,
   realHeight: 93,
   tier: 'tower',
+  surfaces: { green: 'metal' },
   footprint: 24,
 
   build(ctx) {

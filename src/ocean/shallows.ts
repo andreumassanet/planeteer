@@ -146,7 +146,10 @@ ${FOAM_GLSL}`,
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-  diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, atlasFoam(vShore.x - ${SHORE_BIAS}.0, vShore.y));`,
+  {
+    atlasSeaFoam = atlasLace(atlasFoam(vShore.x - ${SHORE_BIAS}.0, vShore.y), atlasWaveChop, atlasWaveFar);
+    diffuseColor.rgb = mix(diffuseColor.rgb, uFoam, atlasSeaFoam);
+  }`,
       );
   };
   // Two materials that compile to different programs must not share a cache

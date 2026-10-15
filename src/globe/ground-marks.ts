@@ -25,6 +25,19 @@ const PATCH_BROAD = 260;
 export const PATCH_FINE = 75;
 const PATCH_LIGHT = 0.22;
 
+/**
+ * The lie of the land: green ground a field's width or more across going to
+ * straw where the blot is low and to a deeper green where it is high, at two
+ * scales (units). It outlasts the patches into the distance, so a plain seen
+ * from a hill is a quilt of greens and golds rather than one green.
+ */
+export const MACRO_BROAD = 1400;
+const MACRO_FINE = 520;
+const MACRO_DRY = 0.6;
+const MACRO_LUSH = 0.45;
+const MACRO_STRAW: [number, number, number] = [1.22, 1.06, 0.66];
+const MACRO_DEEP: [number, number, number] = [0.82, 0.97, 0.88];
+
 /** The brush: value noise at two scales (units) under the patches, so close-up ground is paint rather than a flat fill. */
 export const BRUSH_BROAD = 16;
 export const BRUSH_FINE = 4.5;
@@ -74,7 +87,7 @@ function hash13(x: number, y: number, z: number): number {
 }
 
 /** `atlasNoise`'s twin: value noise on the integer lattice, smoothed. */
-function noise3(x: number, y: number, z: number): number {
+export function noise3(x: number, y: number, z: number): number {
   const ix = Math.floor(x);
   const iy = Math.floor(y);
   const iz = Math.floor(z);
@@ -92,12 +105,39 @@ function noise3(x: number, y: number, z: number): number {
   );
 }
 
+const step = (e0: number, e1: number, t: number): number => {
+  const k = Math.min(1, Math.max(0, (t - e0) / (e1 - e0)));
+  return k * k * (3 - 2 * k);
+};
+
+/** `atlasMacro`'s JS twin. Linear channels, in place. */
+export function macroOf(colour: THREE.Color, x: number, y: number, z: number): THREE.Color {
+  let lie = noise3(x / MACRO_BROAD, y / MACRO_BROAD, z / MACRO_BROAD) * 0.7
+    + noise3(x / MACRO_FINE + 3.7, y / MACRO_FINE + 3.7, z / MACRO_FINE + 3.7) * 0.3;
+  lie = Math.min(1, Math.max(0, (lie - 0.5) * 2.2 + 0.5));
+  const { r, g, b } = colour;
+  const green = Math.min(1, Math.max(0, ((g - Math.max(r, b)) / Math.max(g, 1e-3)) * 4));
+  if (green <= 0) return colour;
+  const dry = step(0.45, 0.05, lie) * green * MACRO_DRY;
+  const lush = step(0.55, 0.95, lie) * green * MACRO_LUSH;
+  const [sr, sg, sb] = MACRO_STRAW;
+  const [dr, dg, db] = MACRO_DEEP;
+  let tr = r + (r * sr - r) * dry;
+  let tg = g + (g * sg - g) * dry;
+  let tb = b + (b * sb - b) * dry;
+  tr += (tr * dr - tr) * lush;
+  tg += (tg * dg - tg) * lush;
+  tb += (tb * db - tb) * lush;
+  return colour.setRGB(tr, tg, tb);
+}
+
 /**
  * `atlasPatches`' JS twin: the blots a shade lusher or drier than the biome,
  * at a world-space point (units). For the map's tiles, which ask it on their
  * colour lattice, so a field on the map is the blot it is on the ground.
  */
 export function patchesOf(colour: THREE.Color, x: number, y: number, z: number): THREE.Color {
+  macroOf(colour, x, y, z);
   let blot = noise3(x / PATCH_BROAD, y / PATCH_BROAD, z / PATCH_BROAD) * 0.65
     + noise3(x / PATCH_FINE + 17, y / PATCH_FINE + 17, z / PATCH_FINE + 17) * 0.35;
   blot = Math.min(1, Math.max(0, (blot - 0.5) * 2.4 + 0.5));
@@ -107,10 +147,6 @@ export function patchesOf(colour: THREE.Color, x: number, y: number, z: number):
   let tr = r * light;
   let tg = g * light;
   let tb = b * light;
-  const step = (e0: number, e1: number, t: number): number => {
-    const k = Math.min(1, Math.max(0, (t - e0) / (e1 - e0)));
-    return k * k * (3 - 2 * k);
-  };
   const dry = step(0.5, 0.1, blot) * green;
   tr += (tr * 0.8 - tr) * dry;
   tg += (tg * 0.95 - tg) * dry;
@@ -181,7 +217,19 @@ float atlasNoise(vec3 p) {
         mix(atlasHash13(i + vec3(0, 1, 1)), atlasHash13(i + vec3(1, 1, 1)), f.x), f.y),
     f.z);
 }
-vec3 atlasPatches(vec3 colour, vec3 pos) {
+vec3 atlasMacro(vec3 colour, vec3 pos) {
+  // Only green ground moves, so the noise is not paid for anywhere else.
+  float green = clamp((colour.g - max(colour.r, colour.b)) / max(colour.g, 1e-3) * 4.0, 0.0, 1.0);
+  if (green <= 0.0) return colour;
+  float lie = atlasNoise(pos * ${(1 / MACRO_BROAD).toFixed(8)}) * 0.7
+    + atlasNoise(pos * ${(1 / MACRO_FINE).toFixed(8)} + 3.7) * 0.3;
+  lie = clamp((lie - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+  // Reversed as one minus the rising step: GLSL leaves a falling pair undefined.
+  colour = mix(colour, colour * vec3(${MACRO_STRAW.map((v) => v.toFixed(2)).join(', ')}), (1.0 - smoothstep(0.05, 0.45, lie)) * green * ${MACRO_DRY.toFixed(2)});
+  return mix(colour, colour * vec3(${MACRO_DEEP.map((v) => v.toFixed(2)).join(', ')}), smoothstep(0.55, 0.95, lie) * green * ${MACRO_LUSH.toFixed(2)});
+}
+// The blots alone, over a colour the lie of the land has already moved.
+vec3 atlasBlots(vec3 colour, vec3 pos) {
   float blot = atlasNoise(pos * ${(1 / PATCH_BROAD).toFixed(8)}) * 0.65
     + atlasNoise(pos * ${(1 / PATCH_FINE).toFixed(8)} + 17.0) * 0.35;
   // A sum of smoothed lattice values huddles round a half; spread it back out.
@@ -190,13 +238,16 @@ vec3 atlasPatches(vec3 colour, vec3 pos) {
   vec3 tinted = colour * (1.0 + (blot - 0.5) * ${(PATCH_LIGHT * 2).toFixed(3)});
   tinted = mix(tinted, tinted * vec3(0.8, 0.95, 0.78), smoothstep(0.5, 0.1, blot) * green);
   return mix(tinted, tinted * vec3(1.18, 1.08, 0.72), smoothstep(0.5, 0.9, blot) * green);
+}
+vec3 atlasPatches(vec3 colour, vec3 pos) {
+  return atlasBlots(atlasMacro(colour, pos), pos);
 }`;
 
 /**
  * The patches alone, for a material that draws some ground but is not the
  * land's: `diffuseColor` at the world position `pos` (a GLSL expression) run
- * through `atlasPatches`, faded out where a pixel covers a good share of the
- * finer blot. Needs `GROUND_MARKS_GLSL` in the fragment shader.
+ * through `atlasPatches` — the lie of the land, then the blots — each faded
+ * out where a pixel covers a good share of its finer octave. Needs `GROUND_MARKS_GLSL` in the fragment shader.
  */
 export function groundPatchesChunk(pos: string): string {
   return /* glsl */ `{
@@ -204,7 +255,9 @@ export function groundPatchesChunk(pos: string): string {
     float atlasPatchFoot = max(length(dFdx(atlasPatchPlane)), length(dFdy(atlasPatchPlane)));
     // Two noises a pixel, and none at all where they would be mixed in at nothing.
     float atlasPatchShare = 1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, atlasPatchFoot);
-    if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasPatches(diffuseColor.rgb, ${pos}), atlasPatchShare);
+    float atlasMacroShare = 1.0 - smoothstep(${(MACRO_BROAD * 0.08).toFixed(1)}, ${(MACRO_BROAD * 0.3).toFixed(1)}, atlasPatchFoot);
+    if (atlasMacroShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasMacro(diffuseColor.rgb, ${pos}), atlasMacroShare);
+    if (atlasPatchShare > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, atlasBlots(diffuseColor.rgb, ${pos}), atlasPatchShare);
   }`;
 }
 

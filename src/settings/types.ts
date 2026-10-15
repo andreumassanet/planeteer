@@ -57,6 +57,8 @@ export interface SettingsOptions {
   hints: Toggle;
   /** How many pixels the world is drawn at, against the screen's own. */
   resolution: Choice;
+  /** How rich the surfaces, the water and the lens are. Omit it and the row is not built. */
+  graphics?: Choice;
   /** The sun's hour, live or chosen. Omit it and the row is not built. */
   time?: TimeOfDay;
   /** The soundscape's level and switch, and optionally whether townsfolk speak aloud and a chat line blips. Omit it and the section is not built. */

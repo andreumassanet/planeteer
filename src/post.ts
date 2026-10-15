@@ -26,6 +26,14 @@ export interface Post {
   bloom: UnrealBloomPass;
   /** How much of the ambient occlusion is laid on, 0 to 1. */
   ao: number;
+  /** How much the far field is blurred, 0 to 1; focused on `shafts.subject`. */
+  dof: number;
+  /**
+   * Whether the frame about to be drawn has a subject to focus on: the world's
+   * own frame sets it each time, and a draw spends it, so the menu, a map or
+   * another world is never blurred by a subject that is not there.
+   */
+  focused: boolean;
   /** Whether the chain runs at all; off, the scene is drawn straight to the canvas. */
   enabled: boolean;
   /**
@@ -38,6 +46,9 @@ export interface Post {
   /** What the last frame ran: `shafts` is 1 when the shaft passes drew. */
   stats: { shafts: number };
 }
+
+/** The nearest the far blur focuses, world units: a camera pulled in to the head still keeps the street sharp. */
+const DOF_NEAREST = 10;
 
 /** How wide the AO reaches, world units: about a body, the scale of a corner. */
 const AO_RADIUS = 4;
@@ -105,6 +116,8 @@ function gradeUniforms(scene: THREE.Texture, ao: THREE.Texture, shafts: THREE.Te
     tAO: { value: ao },
     uAO: { value: 1 },
     uAOColor: { value: new THREE.Vector3(0.06, 0.07, 0.14) },
+    uDof: { value: 0 },
+    uFocus: { value: 12 },
     tShafts: { value: shafts },
     tDepth: { value: depth },
     uShafts: { value: 0 },
@@ -189,6 +202,8 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     },
     bloom,
     ao: 1,
+    dof: 1,
+    focused: false,
     enabled: true,
     shafts: { direction: new THREE.Vector3(0, 1, 0), color: new THREE.Color(1, 1, 1), strength: 0, subject: 0 },
     stats: { shafts: 0 },
@@ -214,6 +229,13 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
         renderer.render(ao.scene, quadCamera);
       }
       renderShafts(camera);
+      const lens = camera as THREE.PerspectiveCamera;
+      uniforms.uDof.value = lens.isPerspectiveCamera === true && post.focused ? post.dof : 0;
+      post.focused = false;
+      if (uniforms.uDof.value > 0) {
+        uniforms.uCamera.value.set(lens.near, lens.far);
+        uniforms.uFocus.value = Math.max(post.shafts.subject, DOF_NEAREST);
+      }
       if (bloom.enabled && bloom.strength > 0) bloom.render(renderer, scratch, target, 0, false);
       uniforms.uFrame.value = frame = (frame + 1) % 1000;
       renderer.setRenderTarget(null);

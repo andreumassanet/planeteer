@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { floorKinds } from '../surfaces.ts';
+import type { Shore, ShoreLine } from '../../scenery/floor.ts';
+import type { ShoreCut } from './writer.ts';
 import type { World } from '../../geo.ts';
 import { PLANET_RADIUS, groundColorAt } from '../../globe.ts';
 import type { LandProbe } from '../../land-probe.ts';
@@ -29,6 +32,8 @@ export interface Ground {
   color: number[];
   /** Two bytes a vertex, as a part carries: how lit this patch of floor is, and the hour it goes out. */
   glow: number[];
+  /** One byte a vertex: what the floor is laid in (`surfaces.ts`). */
+  surface: number[];
   /** Where a street lamp stands, as triples in the settlement's frame. */
   lamps: number[];
   /** Each lamp's yaw: its arm (over local -z) turned to the street it stands at. */
@@ -141,6 +146,8 @@ export interface GroundJob {
   pavingAt(x: number, z: number, level: number, into: number[]): void;
   /** Whether a person may stand at `x, z` on the terrace `level`: `spotAt`'s test, and the same level. */
   standable(x: number, z: number, level: number): boolean;
+  /** The coast across a paved cell as the writer cuts with it (`GroundWriter.cut`), in the settlement's frame; null for a dry cell. */
+  cutFor(key: number): ShoreCut | null;
 }
 
 /** The scratch a floor build reuses. */
@@ -170,7 +177,7 @@ export function* openGround(
   band: number,
 ): Generator<void, { job: GroundJob | null; out: Ground }, void> {
   const out: Ground = {
-    position: [], normal: [], color: [], glow: [], lamps: [], lampYaws: [], signals: [], benches: [], folk: [], kerbs: [], paved: 0, lawn: null, mouths: [],
+    position: [], normal: [], color: [], glow: [], surface: [], lamps: [], lampYaws: [], signals: [], benches: [], folk: [], kerbs: [], paved: 0, lawn: null, mouths: [],
     terraces: new Map(),
     field: { pitch: grid.pitch, shift: grid.shift, terraces: new Map() },
   };
@@ -189,6 +196,7 @@ export function* openGround(
   else colours.yard.copy(colours.land);
   colours.kerbTop.copy(colours.walk).lerp(KERB_INK, 0.16);
   colours.kerbFoot.copy(colours.walk).lerp(KERB_INK, 0.42);
+  floorKinds(colours, scratch.writer.kinds);
 
   const levels = new Map<number, number>();
   for (let col = 0; col < cells; col++) {
@@ -229,7 +237,49 @@ export function* openGround(
     },
     open: (col, row) => !frame.blocked(cellCentre(grid, col), cellCentre(grid, row)),
   });
+  // The coast across every paved cell it crosses, which the foot (`floorLiftAt`) and the paving both cut with.
+  const shores = new Map<number, Shore>();
+  for (const key of levels.keys()) {
+    const shore = frame.shoreAt(Math.floor(key / 1024) - 512, (key % 1024) - 512);
+    if (shore !== null) shores.set(key, shore);
+  }
+  if (shores.size > 0) field.shores = shores;
   out.field = field;
+  const cuts = new Map<number, ShoreCut>();
+  const lineEnd: number[] = [0, 0, 0];
+  const lineEnd2: number[] = [0, 0, 0];
+  const landSide: number[] = [0, 0, 0];
+  /** The shore carried into the settlement's frame, where the writer's positions are: each line through its ends, turned to the land. */
+  const cutFor = (key: number): ShoreCut | null => {
+    const shore = shores.get(key);
+    if (shore === undefined) return null;
+    const known = cuts.get(key);
+    if (known !== undefined) return known;
+    const level = levels.get(key)!;
+    const lines: ShoreLine[] = [];
+    for (let k = 0; k < shore.lines.length; k++) {
+      const line = shore.lines[k]!;
+      const [x0, z0] = shore.points[k]!;
+      const [x1, z1] = shore.points[k + 1]!;
+      frame.pointIn(x0, z0, level, lineEnd);
+      frame.pointIn(x1, z1, level, lineEnd2);
+      frame.pointIn((x0 + x1) / 2 + line.nx, (z0 + z1) / 2 + line.nz, level, landSide);
+      const length = Math.hypot(lineEnd2[0]! - lineEnd[0]!, lineEnd2[2]! - lineEnd[2]!);
+      if (length < 1e-6) continue;
+      let nx = -(lineEnd2[2]! - lineEnd[2]!) / length;
+      let nz = (lineEnd2[0]! - lineEnd[0]!) / length;
+      let d = nx * lineEnd[0]! + nz * lineEnd[2]!;
+      if (nx * landSide[0]! + nz * landSide[2]! < d) {
+        nx = -nx;
+        nz = -nz;
+        d = -d;
+      }
+      lines.push({ nx, nz, d });
+    }
+    const made = { lines, union: shore.union };
+    cuts.set(key, made);
+    return made;
+  };
 
   const pavingAt = (x: number, z: number, level: number, into: number[]): void => {
     frame.directionAt(x, z, scratch.dir);
@@ -263,8 +313,9 @@ export function* openGround(
     writer: scratch.writer,
     outerYard: (col, row) =>
       style.yard !== 'earth' && (cells < OUTSKIRT_MIN_CELLS || outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING),
+    cutFor,
     spotAt(x, z, into, yaw, clearance = 0) {
-      if (frame.blocked(x, z)) return false;
+      if (frame.blocked(x, z) || frame.wetAt(x, z)) return false;
       const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
       if (level === undefined) return false;
       if (flightAt(field, x, z, clearance) !== null) return false;
@@ -275,6 +326,7 @@ export function* openGround(
     pavingAt,
     standable: (x, z, level) =>
       !frame.blocked(x, z) &&
+      !frame.wetAt(x, z) &&
       levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z))) === level &&
       flightAt(field, x, z, CLEAR_FOLK) === null,
   };

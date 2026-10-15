@@ -157,6 +157,8 @@ export const potalaPalace: Monument = {
   lat: 29.658,
   lon: 91.117,
   tier: 'building',
+  surface: 'plaster',
+  surfaces: { bark: 'none' },
   footprint: 52,
 
   build(ctx) {

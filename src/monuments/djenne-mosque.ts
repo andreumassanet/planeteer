@@ -180,6 +180,7 @@ export const djenneMosque: Monument = {
   lat: 13.905,
   lon: -4.555,
   tier: 'building',
+  surface: 'plaster',
   footprint: 41,
 
   build(ctx) {

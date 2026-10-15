@@ -9,6 +9,8 @@ import { MAX_SLOPE, gradeAt, reliefAt } from '../../terrain.ts';
 import { INSTANCE_BED, INSTANCE_DIM } from '../flatten.ts';
 import { pavedUnder, solidOf } from '../plots.ts';
 import { KIND_OF, footprintOf } from '../rules.ts';
+import { standsDry } from '../shore.ts';
+import { wallSurfaceOf } from '../surfaces.ts';
 import type { FlatVariant } from '../types.ts';
 import { compose } from './job.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
@@ -84,6 +86,12 @@ function standPlot(kit: RaiseKit, job: RaiseJob, entry: Placed, flat: FlatVarian
     level = seated;
   } else {
     level = frame.terraceAt(entry.plot.col, entry.plot.row);
+    // On a cell the coast crosses, only what stands wholly on the dry side of it.
+    const shore = frame.shoreAt(entry.plot.col, entry.plot.row);
+    if (level !== null && shore !== null && !standsDry(shore, entry.plot.x, entry.plot.z, footprint)) {
+      job.drowned++;
+      return;
+    }
   }
   if (level === null) {
     job.buried++;
@@ -104,7 +112,8 @@ function standPlot(kit: RaiseKit, job: RaiseJob, entry: Placed, flat: FlatVarian
   const lit = rngFrom(slot.seed, 'lit', entry.plot.col, entry.plot.row);
   const shine = flat.emits ? lit.range(INSTANCE_DIM, 1) : 0;
   const bedShift = flat.emits ? Math.round(lit.jitter() * INSTANCE_BED) : 0;
-  job.standing.push({ flat, matrix: scratch.transform.clone(), glow: shine, bed: bedShift });
+  const surface = standsOnFloor ? wallSurfaceOf(slot.style.id, entry.partId, kind, rngFrom(slot.seed, 'surface', entry.plot.col, entry.plot.row)) : undefined;
+  job.standing.push({ flat, matrix: scratch.transform.clone(), glow: shine, bed: bedShift, surface });
   job.vertices += flat.position.length / 3;
   if (kind === 'tree') job.treesAt.push(entry.plot.x, entry.plot.z, footprint);
   if (shine > 0) {

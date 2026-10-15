@@ -14,6 +14,7 @@ import { PLAN_BUILD_MS, drain } from './budget.ts';
 import type { TownFrame } from './frame.ts';
 import { pavedUnder, solidOf } from './plots.ts';
 import { KIND_OF, footprintOf } from './rules.ts';
+import { standsDry } from './shore.ts';
 import type { FlatVariant, Slot, TownPlan } from './types.ts';
 import type { Variants } from './variants.ts';
 
@@ -215,6 +216,8 @@ function* planSteps(deps: PlanDeps, slot: Slot): Generator<void, TownPlan | null
     if (world.elevationAt(scratch) <= 0) continue;
     const country = inTheCountry.has(entry);
     if (!country && frame.terraceAt(entry.plot.col, entry.plot.row) === null) continue;
+    const shore = country ? null : frame.shoreAt(entry.plot.col, entry.plot.row);
+    if (shore !== null && !standsDry(shore, entry.plot.x, entry.plot.z, footprintOf(entry.partId) * entry.scale)) continue;
     const kind = KIND_OF.get(entry.partId);
     if (kind === 'tree') {
       trees.push(entry.plot.x, entry.plot.z, footprintOf(entry.partId) * entry.scale);

@@ -108,6 +108,8 @@ export const bayterekTower: Monument = {
   lon: 71.4305,
   realHeight: 105,
   tier: 'tower',
+  surface: 'metal',
+  surfaces: { tan: 'stone', gold: 'none' },
   /** The terrace's corners reach 14.27 (`TERRACE_R` across the flats, 16 sides). */
   footprint: 14.5,
 

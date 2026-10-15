@@ -219,6 +219,7 @@ export const victoriaFalls: Monument = {
   lon: 25.858,
   // No `realHeight`: the falls have no single height (108 m at Rainbow Falls, 70 at Devil's Cataract).
   tier: 'building',
+  surface: 'none',
   footprint: 54,
 
   build(ctx) {
