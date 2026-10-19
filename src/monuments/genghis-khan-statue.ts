@@ -36,8 +36,8 @@ const COLONNADE = 18.0;
 const DECK = 21.0;
 
 /** Where the horse's belly and back are. Everything about the animal hangs off these. */
-const BELLY = 33.5;
-const BACK = 42.5;
+const BELLY = 31.5;
+const BACK = 40.5;
 
 export const genghisKhanStatue: Monument = {
   id: 'genghis-khan-statue',
@@ -113,75 +113,54 @@ export const genghisKhanStatue: Monument = {
     // 2. The horse, along X and facing +X. Legs first, because everything else
     //    hangs from where the belly ends up.
     // -----------------------------------------------------------------------
-    for (const [x, z, thickness] of [
-      [7.2, 2.0, 1.15],
-      [7.2, -2.0, 1.15],
-      [-6.6, 2.1, 1.25],
-      [-6.6, -2.1, 1.25],
+    const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    // Each leg is two struts and a hoof: a thick forearm or gaskin over a thin
+    // cannon, with the knee or hock a little forward or back of the hoof.
+    for (const [x, z, knee, thickness] of [
+      [7.4, 2.1, 0.6, 1.25],
+      [7.4, -2.1, 0.3, 1.25],
+      [-6.8, 2.2, -0.9, 1.35],
+      [-6.8, -2.2, -0.6, 1.35],
     ] as const) {
-      // The shank stops `PROUD` inside the gaskin and the hoof stands `PROUD` over
-      // the deck, so no tops share a plane with a face of another colour.
-      const leg = taper(thickness, thickness * 0.72, BELLY - DECK - 1.0 - PROUD, under, 6);
-      leg.position.set(x, DECK, z);
-      group.add(leg);
-      // The gaskin or forearm: a thicker section on the top half, which is what
-      // makes a leg read as a leg rather than as a pipe.
-      const upper = taper(thickness * 1.45, thickness * 1.05, 4.6, steel, 6);
-      upper.position.set(x, BELLY - 5.6, z);
-      group.add(upper);
-      const hoof = column(thickness * 1.15, 0.9, under, 6);
-      hoof.position.set(x, DECK - 0.9 + PROUD, z);
+      const joint = BELLY - 5.4;
+      group.add(strut(v(x, BELLY + 1.4, z), v(x + knee, joint, z), thickness * 1.7, steel));
+      group.add(strut(v(x + knee, joint + 0.4, z), v(x, DECK + 1.0, z), thickness, under));
+      const hoof = column(thickness * 0.85, 1.0, steel, 6);
+      hoof.position.set(x, DECK + PROUD, z);
       group.add(hoof);
     }
 
     // The barrel. Three masses, not one: a deep chest at the front, the barrel
     // proper, and the croup rising behind. One box is a crate.
-    block(2.0, 9.6, BELLY - 1.2, BACK, -3.3, 3.3, steel);
-    block(-5.4, 2.0, BELLY, BACK - 0.6, -3.6, 3.6, steel);
-    block(-9.4, -5.4, BELLY + 1.6, BACK + 0.4, -3.2, 3.2, steel);
+    block(2.0, 9.4, BELLY - 0.8, BACK, -3.3, 3.3, steel);
+    block(-5.4, 2.0, BELLY, BACK - 0.5, -3.6, 3.6, steel);
+    block(-10.2, -5.4, BELLY + 0.8, BACK + 0.5, -3.3, 3.3, steel);
     // The belly, in the shade colour, so the underside of the animal is not the
     // same value as its back.
-    block(-6.0, 8.4, BELLY - 1.6, BELLY + 1.0, -2.9, 2.9, under);
+    block(-6.0, 8.0, BELLY - 1.2, BELLY + 1.0, -2.9, 2.9, under);
 
-    // The neck, one strut from the withers up and forward, with a mane laid on
-    // it. `strut` is placed by its endpoints, so a diagonal needs no rotation.
-    group.add(
-      strut(
-        new THREE.Vector3(8.0, BACK - 2.4, 0),
-        new THREE.Vector3(13.4, BACK + 6.4, 0),
-        3.6,
-        steel,
-      ),
-    );
-    group.add(
-      strut(
-        new THREE.Vector3(7.4, BACK - 1.0, 0),
-        new THREE.Vector3(12.6, BACK + 7.4, 0),
-        1.5,
-        under,
-      ),
-    );
+    // The neck: a thick base off the chest and a thinner crest arching to the
+    // poll, with the mane laid along its top.
+    group.add(strut(v(7.4, BACK - 3.0, 0), v(12.2, BACK + 3.6, 0), 4.6, steel));
+    group.add(strut(v(11.0, BACK + 2.0, 0), v(14.0, BACK + 7.6, 0), 3.2, steel));
+    group.add(strut(v(6.4, BACK + 0.4, 0), v(12.6, BACK + 8.2, 0), 1.3, under));
 
-    // The head: a jowl, a muzzle thrown forward and down, and two ears.
-    block(12.2, 15.6, BACK + 5.2, BACK + 9.0, -1.5, 1.5, steel);
-    block(14.6, 18.2, BACK + 4.6, BACK + 7.2, -1.2, 1.2, steel);
-    block(17.2, 18.4, BACK + 4.9, BACK + 6.4, -1.0, 1.0, under);
+    // The head: one long wedge from the poll down to the muzzle, ears up.
+    group.add(strut(v(13.6, BACK + 8.0, 0), v(18.0, BACK + 3.4, 0), 2.7, steel));
+    block(16.6, 19.0, BACK + 2.2, BACK + 4.4, -1.15, 1.15, steel);
+    block(18.4, 19.2, BACK + 2.4, BACK + 3.6, -0.9, 0.9, under);
     for (const side of [-1, 1]) {
-      const ear = taper(0.5, 0.12, 1.7, steel, 4);
-      ear.position.set(13.0, BACK + 9.0, side * 0.85);
+      const ear = taper(0.55, 0.12, 1.8, steel, 4);
+      ear.position.set(13.4, BACK + 8.6, side * 0.8);
       group.add(ear);
-    }
-    for (const side of [-1, 1]) {
-      const eye = box(0.5, 0.5, 0.35, dark);
-      eye.position.set(14.4, BACK + 7.2, side * 1.5);
+      const eye = box(0.5, 0.5, 0.3, dark);
+      eye.position.set(15.0, BACK + 6.2, side * 1.35);
       group.add(eye);
     }
 
-    // The tail, hanging off the croup.
-    const tail = taper(1.35, 0.55, 9.6, under, 5);
-    tail.rotation.x = Math.PI;
-    tail.position.set(-9.8, BACK + 1.4, 0);
-    group.add(tail);
+    // The tail, lifted off the croup and falling.
+    group.add(strut(v(-10.0, BACK - 0.4, 0), v(-12.6, BELLY - 0.6, 0), 1.7, under));
+    group.add(strut(v(-12.6, BELLY - 0.2, 0), v(-12.9, BELLY - 6.0, 0), 1.4, under));
 
     // -----------------------------------------------------------------------
     // 3. The rider. A Mongol deel flares over the saddle, so the figure is a taper

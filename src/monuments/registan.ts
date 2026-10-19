@@ -1,76 +1,45 @@
-import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import type { Group, Monument, MonumentContext, Object3D } from './contract.ts';
 import { PROUD } from './contract.ts';
 
 /**
  * The Registan, Samarkand.
  *
- * The square is three madrasas around a plaza about 100 m across, which at the
- * `building` tier would make each 30 units wide and 8 tall. So the crop is one
- * madrasa, the Sher-Dor, at full height: a giant rectangular portal screen, a
- * minaret at each of its outer corners, and a ribbed turquoise dome over each
- * wing. Five masses, the same five in the other two madrasas in a different
- * order. Nothing is stretched (portal 35.0 units on a 64-wide facade, minarets
- * to 39.8; half-diagonal 35.9 on 39.8 is 0.90); the wings stop at the corner
- * domes instead of running to the back of the courtyard.
+ * Three madrasas facing each other round a paved square, and the square is the
+ * monument: Ulugh Beg on the west, Sher-Dor on the east, Tilya-Kori across the
+ * north side between them, the open south side towards the viewer. What names
+ * it, in order: three giant portal screens (pishtaq) with deep pointed iwans,
+ * each framed in turquoise; the minarets at the side madrasas' corners; the
+ * ribbed turquoise domes (two over Sher-Dor's wings, one big one over
+ * Tilya-Kori's mosque); and the two-storey arcades of niches either side of
+ * every portal.
  *
- * Turquoise is `skyBlue`, the sky dome's zenith colour and within a few percent
- * of Samarkand tile. Nothing else may compete: the body is `sand`, the plinth
- * and drums `tan`, and the blue is spent on the two melon domes, the frame band
- * round the iwan, the parapet course and the minaret galleries. The minarets
- * finish 4.8 above the portal, or they read as buttresses. Two `gold` discs in
- * the spandrels are the lion-and-sun that gives Sher-Dor its name.
- *
- * The arch is a stair on purpose: a four-centred Timurid arch has no helper, and
- * a `column` on its side is the wheel trap `contract.ts` warns about. The head is
- * six horizontal courses of decreasing width, each inked, like a tiled surface
- * laid in courses. The recess behind it is `brown`, since an iwan is in shade
- * all day and a neutral would read as a hole.
+ * The real square is about 100 m across under 35 m portals; here it is 30
+ * units under 21-unit portals and 26-unit minarets, a vertical stretch of about
+ * 2.3x so each madrasa keeps the proportions of its own photograph rather
+ * than of the plan. Turquoise is `skyBlue`; the brick is `sand`; the niches are
+ * `brown`, warm enough to stay a recess in shade. Sher-Dor's tigers are two
+ * `orange` suns in its spandrels.
  */
 
-/** Half-width of the great portal screen, and the springing of its arch. */
-const PORTAL = 13;
-const PORTAL_TOP = 35.0;
-/** Half-width of the iwan void the screen frames. */
-const VOID = 7.5;
-/** Front and back of the screen. The wings stand 2 units behind it. */
-const FRONT = 13;
-const SCREEN_BACK = 4;
-const WING_FRONT = 11;
-const WING_BACK = -11;
+const DEG = Math.PI / 180;
 
-/** The wings: from the portal's edge out to here. */
-const WING_OUT = 32;
-const WING_TOP = 20;
-const PARAPET = 2;
+/** The square: half-width of the paving, which is where the façades stand. */
+const SQUARE = 15;
+/** The wings: height and depth behind the façade. */
+const WING = 9.5;
+const DEPTH = 6;
+/** The portal screen. */
+const PORTAL = { width: 11, height: 21, depth: 3.4 };
+const MINARET = { radius: 1.35, height: 26 };
 
-/** Minaret centres, tucked against the outer corners of the screen. */
-const MINARET_X = 14.9;
-const MINARET_Z = 8.4;
-
-/**
- * The arch head: [half-width, height of the course]. Read the first column down
- * for the profile, a four-centred arch in six courses of tile.
- */
-const ARCH: [half: number, rise: number][] = [
-  [7.5, 1.65],
-  [7.1, 1.65],
-  [6.4, 1.65],
-  [5.3, 1.65],
-  [3.7, 1.65],
-  [1.6, 1.6],
-];
-const ARCH_SPRING = 19.6;
-/** Where the arch head finishes and the header band over it begins. */
-const ARCH_TOP = 29.45;
-
-/** The melon dome, as five drums of a lathe that does not exist. */
-const DOME: [bottom: number, top: number, rise: number][] = [
-  [5.75, 5.95, 2.1],
-  [5.95, 5.7, 2.3],
-  [5.7, 4.8, 2.1],
-  [4.8, 3.2, 1.8],
-  [3.2, 1.1, 1.5],
-];
+interface Madrasa {
+  /** Length of the façade. */
+  length: number;
+  /** Domes behind the wings, as [x along the façade, radius]. */
+  domes: [x: number, r: number][];
+  minarets: boolean;
+  suns: boolean;
+}
 
 export const registan: Monument = {
   id: 'registan',
@@ -80,152 +49,167 @@ export const registan: Monument = {
   lon: 66.9758,
   tier: 'building',
   surface: 'brick',
-  footprint: 36.5,
+  surfaces: { skyBlue: 'roof' },
+  footprint: 30,
 
   build(ctx: MonumentContext): Group {
-    const { THREE, palette, box, column, taper, ringWall } = ctx;
+    const { THREE, palette, tone, box, column, taper } = ctx;
+    const draft = new THREE.Group();
+    const brick = palette.sand;
+    const tile = palette.skyBlue;
+    const deepTile = tone(palette.skyBlue, 0.78);
+    const niche = palette.brown;
+    const iwan = tone(palette.brown, 0.75);
 
-    const body = palette.sand; // the brick facade, sunlit all day
-    const base = palette.tan; // plinth, drums, the shaded lower courses
-    const tile = palette.skyBlue; // Samarkand
-    const recess = palette.brown; // the iwan, in shade from dawn to dusk
-    const dark = palette.bark; // doorways and the deepest niches
-    const sun = palette.gold; // the two lion-and-sun discs, and the finials
-
-    const group = new THREE.Group();
-
-    /** A block named by its two opposite corners; half of this file is walls that must meet. */
-    const block = (
-      x0: number,
-      x1: number,
-      y0: number,
-      y1: number,
-      z0: number,
-      z1: number,
-      color: number,
-    ): Mesh => {
-      const mesh = box(Math.abs(x1 - x0), y1 - y0, Math.abs(z1 - z0), color);
-      mesh.position.set((x0 + x1) / 2, y0, (z0 + z1) / 2);
-      group.add(mesh);
-      return mesh;
+    /** A pointed arch head: a triangle with its base on y = 0, squashed by its parent. */
+    const pointed = (width: number, rise: number, depth: number, color: number): Object3D => {
+      const squash = new THREE.Group();
+      squash.scale.set(width / 1.1547, rise, depth);
+      const prism = column(1 / 3, 1, color, 3);
+      prism.rotation.x = Math.PI / 2;
+      prism.position.set(0, 1 / 3, -0.5);
+      squash.add(prism);
+      return squash;
     };
 
-    // --- 1. The plinth: one course under everything, a unit proud of the facade ---
-    block(-WING_OUT - 1, WING_OUT + 1, 0, 1.6, WING_BACK - 1, FRONT + 1, base);
-
-    // --- 2. The wings: two storeys of cells behind an arcade, capped by a blue parapet course ---
-    for (const side of [-1, 1]) {
-      const inner = side * PORTAL;
-      const outer = side * WING_OUT;
-      block(inner, outer, 1.6, WING_TOP, WING_BACK, WING_FRONT, body);
-      block(inner, outer, WING_TOP, WING_TOP + PARAPET, WING_BACK, WING_FRONT, tile);
-
-      // Three arched cell-fronts per wing, sunk into the face: a dark panel with a two-course head.
-      for (let i = 0; i < 3; i++) {
-        const x = side * (PORTAL + 3.6 + i * 5.9);
-        block(x - 1.7, x + 1.7, 3.2, 13.4, WING_FRONT - 0.7, WING_FRONT + 0.05, recess);
-        block(x - 1.7, x + 1.7, 13.4, 14.6, WING_FRONT - 0.7, WING_FRONT + 0.05, recess);
-        block(x - 1.1, x + 1.1, 14.6, 15.6, WING_FRONT - 0.7, WING_FRONT + 0.05, recess);
-        // A tile spandrel over each, so the arcade reads in colour as well as shadow.
-        block(x - 2.1, x + 2.1, 16.4, 17.6, WING_FRONT - 0.35, WING_FRONT + 0.15, tile);
+    /** A ribbed melon dome on its drum, standing on y = 0. */
+    const dome = (r: number): Object3D => {
+      const g = new THREE.Group();
+      const drum = column(r * 0.82, r * 0.7, tone(palette.sand, 0.92), 10);
+      g.add(drum);
+      const band = column(r * 0.82 + PROUD, r * 0.18, tile, 10);
+      band.position.y = r * 0.52;
+      g.add(band);
+      const profile: [y: number, r: number][] = [[0, 0.86], [0.45, 1.0], [0.95, 0.88], [1.35, 0.55], [1.6, 0.12]];
+      for (let i = 1; i < profile.length; i++) {
+        const [ya, ra] = profile[i - 1]!;
+        const [yb, rb] = profile[i]!;
+        const course = taper(ra * r, rb * r, (yb - ya) * r, tile, 10);
+        course.position.y = r * 0.7 + ya * r;
+        g.add(course);
       }
-    }
+      const finial = column(0.14, r * 0.5, palette.gold, 4);
+      finial.position.y = r * 0.7 + 1.6 * r;
+      g.add(finial);
+      return g;
+    };
 
-    // --- 3. The domes: a drum, five courses of melon and a gold finial. They
-    // stand on the wings, where Sher-Dor's are and where a 13-degree camera sees
-    // them (anything behind a 22-unit parapet is under a ray already past the tier ceiling). ---
-    for (const side of [-1, 1]) {
-      const x = side * 22.4;
-      const z = -3;
-      const drum = column(5.6, 6.5, base, 12);
-      drum.position.set(x, WING_TOP + PARAPET, z);
-      group.add(drum);
-
-      let y = WING_TOP + PARAPET + 6.5;
-      for (const [bottom, top, rise] of DOME) {
-        const course = taper(bottom, top, rise, tile, 12);
-        course.position.set(x, y, z);
-        group.add(course);
-        y += rise;
+    /** A minaret with turquoise bands and a gallery, standing on y = 0. */
+    const minaret = (): Object3D => {
+      const g = new THREE.Group();
+      const shaft = taper(MINARET.radius, MINARET.radius * 0.82, MINARET.height, brick, 8);
+      g.add(shaft);
+      for (let k = 1; k <= 3; k++) {
+        const y = (MINARET.height * k) / 4;
+        const r = MINARET.radius - (MINARET.radius * 0.18 * y) / MINARET.height;
+        const band = column(r + PROUD, 1.0, k % 2 ? tile : deepTile, 8);
+        band.position.y = y;
+        g.add(band);
       }
-      const finial = column(0.55, 1.5, sun, 6);
-      finial.position.set(x, y, z);
-      group.add(finial);
-    }
+      const gallery = taper(MINARET.radius * 0.95, MINARET.radius * 1.35, 1.2, tile, 8);
+      gallery.position.y = MINARET.height;
+      g.add(gallery);
+      const cap = taper(MINARET.radius * 1.2, MINARET.radius * 1.1, 0.5, brick, 8);
+      cap.position.y = MINARET.height + 1.2;
+      g.add(cap);
+      return g;
+    };
 
-    // --- 4. The portal screen: two jambs, a header, and between them a void with a stepped arch ---
-    for (const side of [-1, 1]) {
-      block(side * VOID, side * PORTAL, 1.6, PORTAL_TOP, SCREEN_BACK, FRONT, body);
-      // The tile frame runs up the inner edge of each jamb and across the head as
-      // one band. It wraps `PROUD` round the jamb's inner edge, stops `PROUD`
-      // under the screen's top and starts `PROUD` into the plinth.
-      block(side * (VOID - PROUD), side * (VOID + 1.5), 1.6 - PROUD, PORTAL_TOP - PROUD, FRONT - 0.5, FRONT + 0.25, tile);
-    }
-    block(-PORTAL, PORTAL, ARCH_TOP + 1.5, PORTAL_TOP, SCREEN_BACK, FRONT, body);
-    // The head's band stops `PROUD` inside the jambs' outer faces, for the same reason.
-    block(-PORTAL + PROUD, PORTAL - PROUD, ARCH_TOP, ARCH_TOP + 1.5, FRONT - 0.5, FRONT + 0.25, tile);
-
-    // The back of the iwan, and the door in it, `brown` because this face never sees the sun.
-    block(-VOID, VOID, 1.6, ARCH_TOP, SCREEN_BACK - 0.5, SCREEN_BACK, dark);
-    block(-3.4, 3.4, 1.6, 9.2, SCREEN_BACK - 1.1, SCREEN_BACK - 0.45, recess);
-
-    // The arch head: six courses, each shallower than the void so every ink line crosses the opening.
-    let y = ARCH_SPRING;
-    for (const [half, rise] of ARCH) {
-      block(-half, half, y, y + rise, SCREEN_BACK, FRONT - 1.4, body);
-      y += rise;
-    }
-
-    // The lion-and-sun, one over each haunch of the arch: discs laid flat against the jamb face.
-    for (const side of [-1, 1]) {
-      const disc = column(2.05, 0.5, sun, 8);
-      disc.rotation.x = Math.PI / 2;
-      // `PROUD` forward of the tile frame.
-      disc.position.set(side * 10.25, 25.4, FRONT - 0.25 + PROUD);
-      group.add(disc);
-    }
-
-    // --- 5. The minarets: at the outer corners of the screen, leaning very
-    // slightly outward (1.4 degrees, the thing every guide points at). The tilt
-    // is on a pivot group with no scale of its own (`T * R * S` puts scale first). ---
-    for (const side of [-1, 1]) {
-      // The foot stands square and the lean starts above it; tilting from y = 0 sinks an octagon corner below the ground.
-      const foot = column(3.0, 3.4, base, 8);
-      foot.position.set(side * MINARET_X, 0, MINARET_Z);
-      group.add(foot);
-
-      const pivot = new THREE.Group();
-      pivot.position.set(side * MINARET_X, 3.4, MINARET_Z);
-      pivot.rotation.z = -side * 0.024;
-      group.add(pivot);
-
-      const shaft = taper(2.85, 2.15, 29.6, body, 8);
-      pivot.add(shaft);
-
-      // Two tile bands up the shaft; without them a 29-unit prism is a chimney.
-      for (const at of [13, 25]) {
-        const band = ringWall(2.6, 2.85, 1.3, tile, 8);
-        band.position.y = at - 3.4;
-        pivot.add(band);
+    /** One madrasa in its own frame: façade on z = 0 facing +Z, centred on x = 0. */
+    const madrasa = ({ length, domes, minarets, suns }: Madrasa): Object3D => {
+      const g = new THREE.Group();
+      const body = box(length, WING, DEPTH, brick);
+      body.position.z = -DEPTH / 2;
+      g.add(body);
+      const parapet = box(length + 0.2, 0.9, 0.4, tile);
+      parapet.position.set(0, WING - 1.4, PROUD + 0.2);
+      g.add(parapet);
+      // Two storeys of niches either side of the portal.
+      const run = (length - PORTAL.width) / 2;
+      const per = Math.max(2, Math.round(run / 3.4));
+      for (const side of [-1, 1]) {
+        for (let k = 0; k < per; k++) {
+          const x = side * (PORTAL.width / 2 + (run * (k + 0.5)) / per);
+          for (const [y, h] of [[1.2, 3.2], [5.0, 2.8]] as const) {
+            const n = box((run / per) * 0.62, h, 0.3, niche);
+            n.position.set(x, y, 0.15);
+            g.add(n);
+            const head = pointed((run / per) * 0.62, 0.9, 0.3, niche);
+            head.position.set(x, y + h, 0.15);
+            g.add(head);
+          }
+        }
       }
+      // The portal screen: brick, a turquoise frame, the iwan cut into it.
+      const screen = box(PORTAL.width, PORTAL.height, PORTAL.depth, brick);
+      screen.position.z = -PORTAL.depth / 2 + 1.4;
+      g.add(screen);
+      const front = 1.4 + PROUD;
+      const frame = box(PORTAL.width - 1.2, PORTAL.height - 2.2, 0.2, tile);
+      frame.position.set(0, 1.0, front);
+      g.add(frame);
+      const field = box(PORTAL.width - 2.6, PORTAL.height - 4.4, 0.2, brick);
+      field.position.set(0, 1.0, front + PROUD);
+      g.add(field);
+      const archW = PORTAL.width - 4.6;
+      const springY = PORTAL.height * 0.52;
+      const opening = box(archW, springY, 0.2, iwan);
+      opening.position.set(0, 0, front + PROUD * 2);
+      g.add(opening);
+      const archHead = pointed(archW, PORTAL.height * 0.2, 0.2, iwan);
+      archHead.position.set(0, springY, front + PROUD * 2 + 0.1);
+      g.add(archHead);
+      const door = box(archW * 0.45, springY * 0.45, 0.2, tone(palette.bark, 1.1));
+      door.position.set(0, 0, front + PROUD * 3);
+      g.add(door);
+      const cornice = box(PORTAL.width + 0.3, 0.8, PORTAL.depth + 0.3, deepTile);
+      cornice.position.set(0, PORTAL.height, -PORTAL.depth / 2 + 1.4);
+      g.add(cornice);
+      if (suns) {
+        for (const side of [-1, 1]) {
+          const sun = column(1.1, 0.2, palette.orange, 10);
+          sun.rotation.x = Math.PI / 2;
+          sun.position.set(side * (archW / 2 + 0.25), springY + PORTAL.height * 0.12, front + PROUD);
+          g.add(sun);
+        }
+      }
+      // Corner minarets, standing proud of the façade's ends.
+      if (minarets) {
+        for (const side of [-1, 1]) {
+          const m = minaret();
+          m.position.set(side * (length / 2 + 0.4), 0, 0);
+          g.add(m);
+        }
+      }
+      for (const [x, r] of domes) {
+        const d = dome(r);
+        d.position.set(x, WING, -DEPTH / 2 - 0.5);
+        g.add(d);
+      }
+      return g;
+    };
 
-      // The gallery, its lantern, and a blue cap.
-      const gallery = ringWall(2.05, 3.05, 1.7, tile, 8);
-      gallery.position.y = 33.0 - 3.4;
-      pivot.add(gallery);
+    // The paving.
+    const paving = box(SQUARE * 2, 0.3, SQUARE * 2, tone(palette.sand, 0.86));
+    draft.add(paving);
 
-      const lantern = column(1.85, 3.1, body, 8);
-      lantern.position.y = 34.7 - 3.4;
-      pivot.add(lantern);
+    // Ulugh Beg on the west (-X), facing east across the square.
+    const ulughBeg = madrasa({ length: 27, domes: [], minarets: true, suns: false });
+    ulughBeg.rotation.y = 90 * DEG;
+    ulughBeg.position.set(-SQUARE, 0, -1.5);
+    draft.add(ulughBeg);
 
-      const cap = taper(2.1, 0.45, 2.0, tile, 8);
-      cap.position.y = 37.8 - 3.4;
-      pivot.add(cap);
-    }
+    // Sher-Dor on the east (+X), its mirror, with its domes and its suns.
+    const sherDor = madrasa({ length: 27, domes: [[-9.5, 3.2], [9.5, 3.2]], minarets: true, suns: true });
+    sherDor.rotation.y = -90 * DEG;
+    sherDor.position.set(SQUARE, 0, -1.5);
+    draft.add(sherDor);
 
-    // --- 6. The floor of the square: one thin plate, to say the building stands across an open pavement ---
-    block(-26, 26, 0, 0.5, FRONT + 1, FRONT + 7, base);
+    // Tilya-Kori across the north side, with the mosque's big dome on its left.
+    const tilyaKori = madrasa({ length: 23, domes: [[-7.5, 4.4]], minarets: false, suns: false });
+    tilyaKori.position.set(0, 0, -SQUARE - 1);
+    draft.add(tilyaKori);
 
-    return group;
+    return ctx.merge(draft);
   },
 };

@@ -15,9 +15,9 @@ import { PROUD } from './contract.ts';
  * - The colour split: gold on white on dark water.
  *
  * Still water, with no transparency or reflection, is stated:
- * 1. `steel` (0x575a5e), not `skyBlue`: the tank supplies the dark that gold and
- *    marble are bright against (about a third of the marble's value). `ink` would
- *    read as a hole.
+ * 1. `skyBlue` toned down to 0.62: dark enough to be the field that gold and
+ *    marble are bright against, and still blue, so it reads as water rather than
+ *    a grey slab. `ink` would read as a hole.
  * 2. The sky tints it: a horizontal face is the most sky-lit surface, so the tank
  *    comes out cool against the warm vertical marble; that split across an ink
  *    line says water.
@@ -27,12 +27,12 @@ import { PROUD } from './contract.ts';
  * 4. Things go into it: three ghat steps from the near walkway (the last 0.3
  *    above the surface), and the causeway on a `bone` deck between two white
  *    parapets.
- * The three darks never swap: `steel` is water, `slate` shadow inside marble,
+ * The three darks never swap: the toned blue is water, `slate` shadow inside marble,
  * `bark` shadow inside gold (doorways, upper gallery).
  *
  * Distortions:
- * - The pavilion is about 4.3x too big for its tank (12.4 across a 35-unit tank,
- *   0.35, against 0.08): at true ratio it would be a 2.9-unit speck. The aspect
+ * - The pavilion is about 6x too big for its tank (18 across a 35-unit tank,
+ *   0.51, against 0.08; built at 12.4 and grown by `PAVILION_SCALE`): at true ratio it would be a 2.9-unit speck. The aspect
  *   cap forces a 39-unit footprint to stand 19.5 tall; the pavilion has to be
  *   the tallest thing; a 20-unit pavilion much narrower is a lighthouse. It is
  *   still an island, 10.3 units from the platform edge to the kerb.
@@ -125,7 +125,13 @@ const DOME = [
 ];
 
 /** The causeway, crossing the tank to +X. */
-const BRIDGE = { half: 1.8, top: WALK_TOP - 0.1, inner: 7.4, outer: TANK + 0.3 };
+/**
+ * The pavilion is built at the numbers above and grown by this about its foot,
+ * so it stands well over the perimeter and reads as gold from across the town.
+ */
+const PAVILION_SCALE = 1.45;
+
+const BRIDGE = { half: 1.8, top: WALK_TOP - 0.1, inner: 7.4 * PAVILION_SCALE, outer: TANK + 0.3 };
 
 export const goldenTemple: Monument = {
   id: 'golden-temple',
@@ -141,7 +147,7 @@ export const goldenTemple: Monument = {
     const marble = palette.white;
     const trim = palette.bone;
     const gilt = palette.gold;
-    const water = palette.steel; //  the tank. See the note at the top of the file.
+    const water = ctx.tone(palette.skyBlue, 0.62); //  the tank. See the note at the top of the file.
     const shade = palette.slate; //  shadow inside marble: cool
     const recess = palette.bark; //  shadow inside gold: warm
 
@@ -194,12 +200,16 @@ export const goldenTemple: Monument = {
     }
 
     // --- the pavilion ---------------------------------------------------------
+    // Built at its own numbers and grown by `PAVILION_SCALE` about its foot.
+    const pavilion = new THREE.Group();
+    pavilion.scale.setScalar(PAVILION_SCALE);
+    group.add(pavilion);
 
     let y = ISLAND_BASE;
     for (const storey of STOREYS) {
       const course = box(storey.half * 2, storey.height, storey.half * 2, coats[storey.coat]);
       course.position.y = y;
-      group.add(course);
+      pavilion.add(course);
       y += storey.height;
     }
 
@@ -210,7 +220,7 @@ export const goldenTemple: Monument = {
       door.position.set(0, 3.6, GROUND.half + 0.2);
       return door;
     });
-    group.add(doors);
+    pavilion.add(doors);
 
     // The upper storey's gallery, same trick, so it is not a blank gold box.
     const gallery = around(4, () => {
@@ -218,7 +228,7 @@ export const goldenTemple: Monument = {
       band.position.set(0, 10.6, UPPER.half + 0.15);
       return band;
     });
-    group.add(gallery);
+    pavilion.add(gallery);
 
     // --- the four corner kiosks -----------------------------------------------
 
@@ -241,13 +251,13 @@ export const goldenTemple: Monument = {
       return kiosk;
     });
     kiosks.rotation.y = Math.PI / 4;
-    group.add(kiosks);
+    pavilion.add(kiosks);
 
     // --- drum, dome, finial ---------------------------------------------------
 
     const drum = column(DRUM.radius, DRUM.height, gilt, 12);
     drum.position.y = y;
-    group.add(drum);
+    pavilion.add(drum);
     y += DRUM.height;
 
     for (let i = 0; i + 1 < DOME.length; i++) {
@@ -255,7 +265,7 @@ export const goldenTemple: Monument = {
       const b = DOME[i + 1]!;
       const course = taper(a.r, b.r, b.y - a.y, gilt, 12);
       course.position.y = y + a.y;
-      group.add(course);
+      pavilion.add(course);
     }
     y += DOME[DOME.length - 1]!.y;
 
@@ -268,7 +278,7 @@ export const goldenTemple: Monument = {
     for (const [bottom, head, height, color, sides] of finial) {
       const piece = taper(bottom, head, height, color, sides);
       piece.position.y = y;
-      group.add(piece);
+      pavilion.add(piece);
       y += height;
     }
 

@@ -4,8 +4,9 @@ import type { Monument } from './contract.ts';
  * Space Needle.
  *
  * Four parts carry it: the saucer (wide, shallow, double-edged, on a sharply
- * flared underside), three curved legs splayed at the ground and closing fast
- * as they rise, a thin dark core running up between them, and the needle out of
+ * flared underside), three curved legs splayed at the ground, pinched to a
+ * waist two-fifths of the way up and opening again to meet the saucer (the
+ * hourglass), a thin dark core running up between them, and the needle out of
  * the saucer's centre.
  *
  * Tier `tower`: the aspect is 0.32 against a cap of 4 and the saucer is 40% of
@@ -33,8 +34,8 @@ import type { Monument } from './contract.ts';
  * disc. Two levels of schematic ties join the legs to the core. The lattice
  * under the saucer, the elevator cars and the restaurant mullions are left out.
  *
- * Budget (`tower`: 70 tall, 1,800 triangles, 80 meshes): 69.9 tall, 776
- * triangles, 39 meshes, 21 of them leg segments.
+ * Budget (`tower`: 70 tall, 1,800 triangles, 80 meshes): 69.9 tall, 956
+ * triangles, merged into one mesh a colour.
  */
 
 // --- elevation, in tier units. Every level is absolute above y = 0. ---
@@ -74,41 +75,34 @@ const DISC_SIDES = 16;
 const LEGS = 3;
 
 /**
- * How many beams a leg is made of. The chord error is small even at six
- * (0.063 units); what the count buys is ink. Each mesh gets its own hull, so
- * every joint is a black line across the leg, and at twelve the front legs come
- * out as ladders. Seven is the fewest that still puts three joints inside the
- * flare, where the curvature is.
+ * How many beams a leg is made of. The model is merged by colour, so a joint
+ * between two beams draws no ink line of its own and the count only buys
+ * smoothness.
  */
-const LEG_SEGMENTS = 7;
+const LEG_SEGMENTS = 12;
 
+/** Where the legs end: on the underside of the saucer's flare, not at its foot. */
+const LEG_END = 50.4;
+/** Their radius there, on the flare's surface. */
+const R_UPPER = 5.8;
 /**
- * The exponent of the leg profile,
- * `r(t) = R_WAIST + (R_BASE - R_WAIST) * (1 - t)^LEG_CURVE`, with `t` from 0 at
- * the pads to 1 where the legs meet the saucer.
- *
- * A power above 1 runs the curve inside the straight line from foot to waist:
- * the legs leave the ground leaning hard outward (16.9 degrees off vertical)
- * and arrive at the saucer almost plumb, the wine-glass profile. At 1.0 the
- * foot leans 7.2 degrees and there is no hourglass.
+ * The waist, as a fraction of the legs' run. The legs close from the pads to
+ * here and open again to the saucer: the hourglass is the Space Needle.
  */
-const LEG_CURVE = 2.4;
+const WAIST_T = 0.4;
 
-/**
- * Segment ends are placed at `(i / LEG_SEGMENTS)  LEG_BUNCH`, which crowds
- * them toward the ground where the curvature is largest.
- */
-const LEG_BUNCH = 1.3;
+/** Two levels of tie between each leg and the core, the upper one at the waist. */
+const TIE_LEVELS = [10, 21.5];
 
-/** Two levels of tie between each leg and the core. Absolute heights. */
-const TIE_LEVELS = [13, 23];
+const LEG_SPAN = LEG_END - LEG_BASE;
 
-const LEG_SPAN = LEG_TOP - LEG_BASE;
-
-const legRadius = (t: number): number => R_WAIST + (R_BASE - R_WAIST) * (1 - t) ** LEG_CURVE;
+const legRadius = (t: number): number =>
+  t < WAIST_T
+    ? R_WAIST + (R_BASE - R_WAIST) * (1 - t / WAIST_T) ** 1.7
+    : R_WAIST + (R_UPPER - R_WAIST) * ((t - WAIST_T) / (1 - WAIST_T)) ** 1.8;
 const legHeight = (t: number): number => LEG_BASE + t * LEG_SPAN;
-/** Thick at the pads, slim at the saucer — the taper the real box columns have. */
-const legThickness = (t: number): number => 1.25 - 0.5 * t;
+/** Thick at the pads, slim at the waist and the saucer. */
+const legThickness = (t: number): number => 1.3 - 0.45 * Math.min(1, t / WAIST_T);
 
 export const spaceNeedle: Monument = {
   id: 'space-needle',
@@ -148,8 +142,8 @@ export const spaceNeedle: Monument = {
       leg.add(pad);
 
       for (let i = 0; i < LEG_SEGMENTS; i++) {
-        const a = (i / LEG_SEGMENTS) ** LEG_BUNCH;
-        const b = ((i + 1) / LEG_SEGMENTS) ** LEG_BUNCH;
+        const a = i / LEG_SEGMENTS;
+        const b = (i + 1) / LEG_SEGMENTS;
         const from = at(0, legHeight(a), legRadius(a));
         const to = at(0, legHeight(b), legRadius(b));
         const thickness = legThickness((a + b) / 2);
@@ -209,6 +203,6 @@ export const spaceNeedle: Monument = {
     needle.position.y = BEACON_TOP;
     group.add(needle);
 
-    return group;
+    return ctx.merge(group);
   },
 };

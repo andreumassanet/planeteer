@@ -1,37 +1,32 @@
-import type { Group, Mesh, Monument, MonumentContext } from './contract.ts';
+import type { Group, Monument, MonumentContext, Object3D } from './contract.ts';
 import { PROUD } from './contract.ts';
 
 /**
- * Borgund Stave Church — Lærdal, Norway.
+ * Borgund Stave Church, Lærdal, Norway.
  *
- * A building made of roofs: five stages, each a wall and a steeply pitched
- * shingled roof, with dragon heads on the corners and a spired turret.
+ * A building made of roofs: a narrow, tall timber church whose every stage is
+ * a steep shingled roof over a short wall. What names it, in order: the stack
+ * itself (the gallery's lean-to, the aisle's lean-to, the nave's steep gable,
+ * the turret's three little roofs and its spire); the dragon heads rearing off
+ * the nave's gable ends; and the round apse at the east end under its own
+ * pointed cap.
  *
- *   ambulatory  1.0 -> 10.4   eave 15.9   the open gallery round the foot
- *   nave        1.0 -> 21.0   eave 12.4
- *   second     21.0 -> 28.4   eave  9.0
- *   clerestory 28.4 -> 33.2   eave  6.0
- *   turret     33.2 -> 39.6   eave  3.4
+ * The roofs are gables, not pyramids: a four-sided pyramid at every stage made
+ * a pagoda. A gable is a three-sided prism laid along the nave and squashed by
+ * a parent that carries the scale while the child carries the rotation, so the
+ * pitch is steep (about 63 degrees on the nave) without shearing.
  *
- * Roofs are four-sided `taper`s (a flat face at +Z, corners on the diagonals,
- * where the dragons go). Each big roof is two courses, split at 40% of its
- * rise, so the ink reads it as shingled; the pitch breaks by about a degree.
- *
- * The building is nearly black, so it is laddered across three warm darks:
- * `bark` shingles, `darkOlive` ambulatory roof, `brown` staves, planking and
- * dragons. The only cool colour is the `slate` stone sill. Half-diagonal 23.2
- * over height 39.9 is 0.58, unstretched. No `realHeight`: the quoted figure is
- * for the turret.
+ * Everything is tarred dark: `bark` shingles, `brown` staves toned down, the
+ * openings of the gallery a darker tone still. The front (+Z) is the west
+ * porch. No `realHeight`: the quoted figure is for the turret alone.
  */
 
-/** The stone sill the whole frame stands on. */
-const SILL = 16.4;
-const SILL_TOP = 1.0;
+const DEG = Math.PI / 180;
 
-/** The ambulatory: its wall, its posts and its lean-to roof. */
-const AMBULATORY = 14.8;
-const AMBULATORY_TOP = 4.4;
-const EAVE = 15.9;
+/** The stages, as [floor, top, half-width, half-length] of their walls. */
+const GALLERY = { top: 3.4, hx: 6.4, hz: 9.4 };
+const AISLE = { top: 9.0, hx: 4.6, hz: 7.6 };
+const NAVE = { top: 15.0, hx: 3.4, hz: 6.4 };
 
 export const borgundStaveChurch: Monument = {
   id: 'borgund-stave-church',
@@ -41,186 +36,164 @@ export const borgundStaveChurch: Monument = {
   lon: 7.8125,
   tier: 'building',
   surface: 'timber',
-  footprint: 24,
+  surfaces: { bark: 'roof' },
+  footprint: 16,
 
   build(ctx: MonumentContext): Group {
-    const { THREE, palette, box, taper, strut, around } = ctx;
+    const { THREE, palette, tone, box, taper, column, strut } = ctx;
+    const draft = new THREE.Group();
+    const add = (o: Object3D): void => void draft.add(o);
+    const shingle = tone(palette.bark, 1.45);
+    const stave = tone(palette.brown, 0.8);
+    const opening = tone(palette.bark, 0.6);
+    const sill = tone(palette.slate, 0.9);
 
-    const shingle = palette.bark; // pine tar, on every roof but one
-    const skirt = palette.darkOlive; // the ambulatory's roof, so it separates
-    const timber = palette.brown; // staves, planking, dragons
-    const stone = palette.slate; // the sill, and the only thing here that is not wood
-    const shade = palette.tan; // inside the gallery arcade: warm, because it never sees the sun
-
-    const group = new THREE.Group();
-
-    const block = (
-      x0: number,
-      x1: number,
-      y0: number,
-      y1: number,
-      z0: number,
-      z1: number,
-      color: number,
-    ): Mesh => {
-      const mesh = box(Math.abs(x1 - x0), y1 - y0, Math.abs(z1 - z0), color);
-      mesh.position.set((x0 + x1) / 2, y0, (z0 + z1) / 2);
-      group.add(mesh);
-      return mesh;
+    /** A gable roof along z: base at y, `width` across, `rise` high, `length` long. */
+    const gable = (width: number, rise: number, length: number, color: number, y: number, z = 0, alongX = false): void => {
+      const outer = new THREE.Group();
+      outer.position.set(0, y, z);
+      if (alongX) outer.rotation.y = Math.PI / 2;
+      const scale = new THREE.Group();
+      scale.scale.set(width / 1.1547, rise, length);
+      const prism = column(1 / 3, 1, color, 3);
+      prism.rotation.x = Math.PI / 2;
+      prism.position.set(0, 1 / 3, -0.5);
+      scale.add(prism);
+      outer.add(scale);
+      add(outer);
     };
 
-    /** A roof, laid in two shingle courses so the ink finds the middle of it. */
-    const roof = (
-      bottom: number,
-      top: number,
-      y0: number,
-      y1: number,
-      color: number,
-      split = 0.42,
-    ): void => {
-      const rise = y1 - y0;
-      const middle = bottom + (top - bottom) * split;
-      const lower = taper(bottom, middle, rise * split, color, 4);
-      lower.position.y = y0;
-      group.add(lower);
-      const upper = taper(middle, top, rise * (1 - split), color, 4);
-      upper.position.y = y0 + rise * split;
-      group.add(upper);
+    /** A hipped lean-to all round a stage: a four-sided frustum stretched to the plan. */
+    const leanTo = (hx: number, hz: number, inset: number, rise: number, y: number): void => {
+      const stretch = new THREE.Group();
+      stretch.position.y = y;
+      stretch.scale.set(hx, 1, hz);
+      const roof = taper(1, 1 - inset, rise, shingle, 4);
+      stretch.add(roof);
+      add(stretch);
     };
 
-    // -----------------------------------------------------------------------
-    // 1. The sill: a low stone footing, so the timber does not grow from the grass.
-    // -----------------------------------------------------------------------
-    block(-SILL, SILL, 0, SILL_TOP, -SILL, SILL, stone);
-
-    // -----------------------------------------------------------------------
-    // 2. The ambulatory: a dark walled walk with an arcade of posts standing
-    //    proud of it, open on the front and sides, closed at the back.
-    // -----------------------------------------------------------------------
-    for (const side of [-1, 1]) {
-      block(side * AMBULATORY, side * EAVE, SILL_TOP, AMBULATORY_TOP, -EAVE, EAVE, shade);
-      block(-EAVE, EAVE, SILL_TOP, AMBULATORY_TOP, side * AMBULATORY, side * EAVE, shade);
+    // 1. The sill and the gallery: a low wall of arcades round the whole church.
+    const base = box(GALLERY.hx * 2 + 0.6, 0.8, GALLERY.hz * 2 + 0.6, sill);
+    add(base);
+    const gallery = box(GALLERY.hx * 2, GALLERY.top - 0.8, GALLERY.hz * 2, stave);
+    gallery.position.y = 0.8;
+    add(gallery);
+    for (const [side, along, half, run] of [
+      ['x', 1, GALLERY.hx, GALLERY.hz],
+      ['x', -1, GALLERY.hx, GALLERY.hz],
+      ['z', 1, GALLERY.hz, GALLERY.hx],
+      ['z', -1, GALLERY.hz, GALLERY.hx],
+    ] as const) {
+      const count = Math.floor((run * 2 - 2) / 1.6);
+      for (let k = 0; k < count; k++) {
+        const t = -run + 1.4 + k * 1.6;
+        if (side === 'z' && along === 1 && Math.abs(t) < 2.4) continue; // the porch
+        const arch = box(side === 'x' ? 0.2 : 0.9, 1.5, side === 'x' ? 0.9 : 0.2, opening);
+        if (side === 'x') arch.position.set(along * (half + PROUD / 2), 1.5, t);
+        else arch.position.set(t, 1.5, along * (half + PROUD / 2));
+        add(arch);
+      }
     }
-    // The back is boarded to the eave; the other three sides are open above the
-    // waist rail, which is the whole difference between a gallery and a wall.
-    block(-EAVE, EAVE, AMBULATORY_TOP, 7.0, -EAVE, -AMBULATORY, timber);
+    leanTo(GALLERY.hx + 0.8, GALLERY.hz + 0.8, 0.3, 2.6, GALLERY.top);
 
-    // Corner posts, then three more along the front and two down each side, each
-    // `PROUD` out of the wall's face.
-    const edge = EAVE - 0.72 + PROUD;
-    const posts: [number, number][] = [
-      [-edge, -edge],
-      [edge, -edge],
-      [-edge, edge],
-      [edge, edge],
-      [-8.4, edge],
-      [0, edge],
-      [8.4, edge],
-      [-edge, -6.2],
-      [-edge, 6.2],
-      [edge, -6.2],
-      [edge, 6.2],
+    // 2. The aisle and its lean-to.
+    // Each stage's wall starts a unit down inside the one below, so its foot
+    // never shares a plane with the lean-to round it.
+    const aisle = box(AISLE.hx * 2, AISLE.top - GALLERY.top + 1, AISLE.hz * 2, stave);
+    aisle.position.y = GALLERY.top - 1;
+    add(aisle);
+    leanTo(AISLE.hx + 0.7, AISLE.hz + 0.7, 0.25, 2.2, AISLE.top);
+
+    // 3. The nave: its clerestory wall and the steep gable over it.
+    const nave = box(NAVE.hx * 2, NAVE.top - AISLE.top + 1, NAVE.hz * 2, stave);
+    nave.position.y = AISLE.top - 1;
+    add(nave);
+    for (const end of [1, -1]) {
+      const band = box(NAVE.hx * 2 - 1.4, 1.0, 0.2, opening);
+      band.position.set(0, NAVE.top - 2.4, end * (NAVE.hz + PROUD / 2));
+      add(band);
+    }
+    const RISE = 8.6;
+    gable(NAVE.hx * 2 + 1.2, RISE, NAVE.hz * 2 + 1.0, shingle, NAVE.top);
+
+    // The dragon heads: two off each gable end, rearing up and out.
+    const ridge = NAVE.top + RISE;
+    for (const end of [1, -1]) {
+      for (const side of [1, -1]) {
+        const from = new THREE.Vector3(side * 0.6, ridge - 1.6, end * (NAVE.hz + 0.5));
+        const to = new THREE.Vector3(side * 1.5, ridge + 0.9, end * (NAVE.hz + 1.7));
+        add(strut(from, to, 0.45, shingle));
+        const head = box(0.5, 0.5, 1.1, shingle);
+        head.position.copy(to);
+        head.position.y -= 0.3;
+        head.rotation.y = Math.atan2(side * 0.9, end * 1.2);
+        add(head);
+      }
+      // A cross on the ridge end.
+      const post = box(0.25, 2.0, 0.25, shingle);
+      post.position.set(0, ridge - 0.3, end * (NAVE.hz + 0.3));
+      add(post);
+      const arm = box(1.1, 0.25, 0.25, shingle);
+      arm.position.set(0, ridge + 0.9, end * (NAVE.hz + 0.3));
+      add(arm);
+    }
+
+    // 4. The turret on the ridge: three stacked little roofs and a spire.
+    let y = ridge - 2.2;
+    const tower = box(2.6, 3.6, 2.6, stave);
+    tower.position.y = y;
+    add(tower);
+    y += 3.6;
+    const tiers: [bottom: number, top: number, rise: number, wall: number][] = [
+      [2.4, 1.3, 1.8, 1.4],
+      [1.9, 1.0, 1.6, 1.2],
     ];
-    for (const [x, z] of posts) {
-      block(x - 0.72, x + 0.72, SILL_TOP, 7.0, z - 0.72, z + 0.72, timber);
+    for (const [bottom, top, rise, wall] of tiers) {
+      const roof = taper(bottom, top, rise, shingle, 4);
+      roof.position.y = y;
+      add(roof);
+      y += rise;
+      const drum = box(top * 1.6, wall, top * 1.6, stave);
+      drum.position.y = y;
+      add(drum);
+      y += wall;
     }
+    const spire = taper(1.4, 0.05, 6.5, shingle, 4);
+    spire.position.y = y;
+    add(spire);
 
-    // The lean-to roof over the gallery. It is the widest thing in the model and
-    // the only roof that is not `bark`.
-    roof(EAVE, 11.8, 7.0, 10.4, skirt, 0.4);
+    // 5. The chancel and the round apse at the east end (-Z).
+    const chancel = box(5.2, AISLE.top - 0.8 + 1.5, 4, stave);
+    chancel.position.set(0, 0.8, -AISLE.hz - 1.6);
+    add(chancel);
+    gable(6.0, 5.0, 4.6, shingle, AISLE.top + 1.5, -AISLE.hz - 1.6);
+    const apse = column(2.4, 7.0, stave, 8);
+    apse.position.set(0, 0.8, -AISLE.hz - 4.6);
+    add(apse);
+    const cap = taper(2.8, 0.2, 3.4, shingle, 8);
+    cap.position.set(0, 7.8, -AISLE.hz - 4.6);
+    add(cap);
+    const lantern = column(0.6, 1.2, stave, 6);
+    lantern.position.set(0, 10.6, -AISLE.hz - 4.6);
+    add(lantern);
+    const needle = taper(0.7, 0.05, 2.6, shingle, 6);
+    needle.position.set(0, 11.8, -AISLE.hz - 4.6);
+    add(needle);
 
-    // -----------------------------------------------------------------------
-    // 3. The nave. Its wall shows only between the gallery's eave and its own
-    //    roof (the skirt hides everything under about 5.6 from 13.4 degrees).
-    // -----------------------------------------------------------------------
-    block(-11.0, 11.0, SILL_TOP, 14.6, -11.0, 11.0, timber);
-    // Vertical staves standing proud of the wall: this is the construction the
-    // building is named for, and four to a face is enough for the ink to say so.
-    for (const at of [-7.2, -2.4, 2.4, 7.2]) {
-      block(at - 0.6, at + 0.6, 9.6, 14.6, 11.0, 11.55, shingle);
-      block(at - 0.6, at + 0.6, 9.6, 14.6, -11.55, -11.0, shingle);
-      block(11.0, 11.55, 9.6, 14.6, at - 0.6, at + 0.6, shingle);
-      block(-11.55, -11.0, 9.6, 14.6, at - 0.6, at + 0.6, shingle);
-    }
-    roof(12.4, 8.6, 14.6, 21.0, shingle);
+    // 6. The west porch: a little gable over a dark door.
+    const porch = box(4.0, GALLERY.top + 0.4, 2.6, stave);
+    porch.position.set(0, 0, GALLERY.hz + 1.2);
+    add(porch);
+    gable(4.8, 3.6, 3.2, shingle, GALLERY.top + 0.4, GALLERY.hz + 1.2);
+    const door = box(1.8, 2.8, 0.2, opening);
+    door.position.set(0, 0.8, GALLERY.hz + 2.5 + PROUD / 2);
+    add(door);
+    const cross = box(0.2, 1.4, 0.2, shingle);
+    cross.position.set(0, GALLERY.top + 3.8, GALLERY.hz + 2.6);
+    add(cross);
+    void DEG;
 
-    // -----------------------------------------------------------------------
-    // 4. Second stage, clerestory, turret: a short wall and a steeper roof each,
-    //    so the pile accelerates upward.
-    // -----------------------------------------------------------------------
-    block(-8.0, 8.0, 21.0, 23.6, -8.0, 8.0, timber);
-    roof(9.0, 5.8, 23.6, 28.4, shingle);
-
-    block(-5.2, 5.2, 28.4, 30.6, -5.2, 5.2, timber);
-    // The clerestory openings: small dark quatrefoil lights, one to a face.
-    for (const side of [-1, 1]) {
-      block(-1.5, 1.5, 29.0, 30.2, side * 5.2, side * 5.55, shade);
-      block(side * 5.2, side * 5.55, 29.0, 30.2, -1.5, 1.5, shade);
-    }
-    roof(6.0, 3.4, 30.6, 33.2, shingle);
-
-    block(-2.9, 2.9, 33.2, 35.0, -2.9, 2.9, timber);
-    for (const side of [-1, 1]) {
-      block(-1.0, 1.0, 33.5, 34.7, side * 2.9, side * 3.2, shade);
-      block(side * 2.9, side * 3.2, 33.5, 34.7, -1.0, 1.0, shade);
-    }
-
-    // The spire is one taper (a second course on a 4-unit cone reads as a fault),
-    // 4.6 tall on a 6.8 base: a blunt cap reads as a hat.
-    const spire = taper(3.4, 0.28, 4.6, shingle, 4);
-    spire.position.y = 35.0;
-    group.add(spire);
-    const finial = box(0.34, 1.8, 0.34, timber);
-    finial.position.y = 38.1;
-    group.add(finial);
-    const arm = box(1.5, 0.34, 0.34, timber);
-    arm.position.set(0, 38.7, 0);
-    group.add(arm);
-
-    // -----------------------------------------------------------------------
-    // 5. The dragons: eight, on the diagonals, sweeping up and out from the ridge
-    //    ends of the nave and second-stage roofs. The pivot carries a rotation
-    //    and no scale (T * R * S puts scale first).
-    // -----------------------------------------------------------------------
-    const dragons = new THREE.Group();
-    dragons.rotation.y = Math.PI / 4;
-    group.add(dragons);
-
-    /** One beast: a neck off the corner, a head, and a jaw under it. */
-    const dragon = (base: number, y0: number, reach: number, rise: number, size: number): Group => {
-      const beast = new THREE.Group();
-      const from = new THREE.Vector3(0, y0, base);
-      const to = new THREE.Vector3(0, y0 + rise, base + reach);
-      beast.add(strut(from, to, size * 0.62, timber));
-
-      const head = box(size * 0.9, size * 0.8, size * 1.5, timber);
-      head.position.set(0, to.y - size * 0.1, to.z + size * 0.5);
-      beast.add(head);
-
-      // The jaw, dropped and thrown forward. It is what stops a head reading as
-      // the end of a stick.
-      const jaw = box(size * 0.55, size * 0.42, size * 1.1, timber);
-      jaw.position.set(0, to.y - size * 0.5, to.z + size * 0.95);
-      beast.add(jaw);
-      return beast;
-    };
-
-    // The four big ones, off the nave roof's corners.
-    dragons.add(around(4, () => dragon(11.4, 15.4, 4.6, 5.4, 1.5)));
-    // The four small ones, off the second stage.
-    dragons.add(around(4, () => dragon(8.2, 24.2, 3.2, 3.8, 1.05)));
-
-    // -----------------------------------------------------------------------
-    // 6. The west door: a tall dark opening with a heavy frame under the gallery
-    //    roof. The leaf stands `PROUD` clear of the front posts, which stand
-    //    `PROUD` clear of the wall.
-    // -----------------------------------------------------------------------
-    block(-1.9, 1.9, SILL_TOP, 6.2, EAVE - 0.4, EAVE + 2 * PROUD, palette.bark);
-    for (const side of [-1, 1]) {
-      block(side * 1.9, side * 2.8, SILL_TOP, 7.0, EAVE - 0.2, EAVE + 0.45, timber);
-    }
-    block(-2.8, 2.8, 6.2, 7.0, EAVE - 0.2, EAVE + 0.45, timber);
-
-    return group;
+    return ctx.merge(draft);
   },
 };

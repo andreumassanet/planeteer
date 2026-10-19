@@ -101,7 +101,25 @@
     { "id": "moeraki-boulders",     "name": "Moeraki Boulders",        "iso": "NZL", "lat": -45.346, "lon": 170.826 },
     { "id": "nan-madol",            "name": "Nan Madol",               "iso": "FSM", "lat": 6.8419,  "lon": 158.3344,                   "year": 1200 },
     { "id": "mount-yasur",          "name": "Mount Yasur",             "iso": "VUT", "lat": -19.53,  "lon": 169.447,    "height": 361 },
-    { "id": "south-pole",           "name": "The South Pole",          "iso": "ATA", "lat": -89.999, "lon": 0.0 }
+    { "id": "south-pole",           "name": "The South Pole",          "iso": "ATA", "lat": -89.999, "lon": 0.0 },
+    { "id": "kuwait-towers",           "name": "Kuwait Towers",            "iso": "KWT", "lat": 29.3896, "lon": 48.0031, "height": 187, "year": 1979 },
+    { "id": "faisal-mosque",           "name": "Faisal Mosque",            "iso": "PAK", "lat": 33.7295, "lon": 73.0372, "height": 90, "year": 1986 },
+    { "id": "motherland-monument",     "name": "Motherland Monument",      "iso": "UKR", "lat": 50.4266, "lon": 30.5631, "height": 102, "year": 1981 },
+    { "id": "stari-most",              "name": "Stari Most",               "iso": "BIH", "lat": 43.3373, "lon": 17.815, "height": 24, "year": 1566 },
+    { "id": "buzludzha-monument",      "name": "Buzludzha Monument",       "iso": "BGR", "lat": 42.7356, "lon": 25.3936, "height": 70, "year": 1981 },
+    { "id": "flame-towers",            "name": "Flame Towers",             "iso": "AZE", "lat": 40.3594, "lon": 49.8264, "height": 182, "year": 2012 },
+    { "id": "shibam",                  "name": "Shibam",                   "iso": "YEM", "lat": 15.9269, "lon": 48.6267 },
+    { "id": "darvaza-gas-crater",      "name": "Darvaza Gas Crater",       "iso": "TKM", "lat": 40.2525, "lon": 58.4397 },
+    { "id": "burana-tower",            "name": "Burana Tower",             "iso": "KGZ", "lat": 42.7466, "lon": 75.2499, "height": 24 },
+    { "id": "mitad-del-mundo",         "name": "Mitad del Mundo",          "iso": "ECU", "lat": -0.0022, "lon": -78.4558, "height": 30, "year": 1982 },
+    { "id": "kenyatta-centre",         "name": "Kenyatta International Convention Centre", "iso": "KEN", "lat": -1.2889, "lon": 36.8233, "height": 105, "year": 1973 },
+    { "id": "zuma-rock",               "name": "Zuma Rock",                "iso": "NGA", "lat": 9.1257, "lon": 7.2271, "height": 300 },
+    { "id": "maqam-echahid",           "name": "Maqam Echahid",            "iso": "DZA", "lat": 36.7456, "lon": 3.0697, "height": 92, "year": 1982 },
+    { "id": "pha-that-luang",          "name": "Pha That Luang",           "iso": "LAO", "lat": 17.9762, "lon": 102.6336, "height": 45, "year": 1566 },
+    { "id": "golden-bridge",           "name": "Golden Bridge",            "iso": "VNM", "lat": 15.9952, "lon": 107.9965, "year": 2018 },
+    { "id": "deadvlei",                "name": "Deadvlei",                 "iso": "NAM", "lat": -24.7593, "lon": 15.2924, "height": 325 },
+    { "id": "haamonga-a-maui",         "name": "Ha'amonga 'a Maui",        "iso": "TON", "lat": -21.1336, "lon": -175.0436, "height": 5 },
+    { "id": "bled-island",             "name": "Bled Island",              "iso": "SVN", "lat": 46.3626, "lon": 14.0901, "height": 52 }
   ],
   "shore": [
     "mont-saint-michel",
@@ -154,7 +172,14 @@
     "bayterek-tower",
     "el-jem-amphitheatre",
     "grand-palace",
-    "hungarian-parliament"
+    "hungarian-parliament",
+    "kuwait-towers",
+    "motherland-monument",
+    "flame-towers",
+    "kenyatta-centre",
+    "maqam-echahid",
+    "pha-that-luang",
+    "faisal-mosque"
   ],
   "notes": {
     "eiffel-tower": "Built as the entrance arch of the 1889 World's Fair and meant to last twenty years; it was the tallest structure on Earth until 1930.",
@@ -257,6 +282,24 @@
     "mount-yasur": "One of the most accessible active volcanoes in the world, erupting several times an hour for at least 800 years.",
     "south-pole": "The bottom of the world, on ice 2,700 metres thick; Amundsen's party reached it first, on 14 December 1911.",
     "malbork-castle": "Seat of the Teutonic Order's grand masters from 1309, it is the largest castle in the world by area, and it is built almost entirely of brick.",
-    "bran-castle": "Built by the Saxons of Brașov in 1377-1388 to guard a pass into Transylvania; it is sold to visitors as Dracula's castle, though Vlad III's link to it is slight."
+    "bran-castle": "Built by the Saxons of Brașov in 1377-1388 to guard a pass into Transylvania; it is sold to visitors as Dracula's castle, though Vlad III's link to it is slight.",
+    "kuwait-towers": "Opened in 1979 on a point of the Gulf shore; the great sphere holds a water tank and a restaurant, and the upper one turns once every half hour.",
+    "faisal-mosque": "Vedat Dalokay drew it as a desert tent of folded concrete with no dome; it was the largest mosque in the world from 1986 until 1993.",
+    "motherland-monument": "Unveiled over the Dnieper in 1981, 62 m of stainless steel on the roof of the war museum; in 2023 the Soviet emblem on her shield gave way to Ukraine's trident.",
+    "stari-most": "Built by the Ottoman architect Mimar Hayruddin in 1566, destroyed by shelling in 1993 and rebuilt from the river's own stone in 2004; divers still leap from it into the Neretva.",
+    "buzludzha-monument": "The Bulgarian Communist Party's house-monument, opened on a Balkan summit in 1981 and abandoned after 1989; a red glass star is set in each face of its tower.",
+    "flame-towers": "Finished in 2012 over a city called the land of fire; after dark the LEDs on their glass show them burning.",
+    "shibam": "A walled city of mud-brick tower houses up to eleven storeys, most rebuilt since the 16th century; it has been called the Manhattan of the desert.",
+    "darvaza-gas-crater": "A collapsed gas field in the Karakum desert, set alight to burn the gas off and burning ever since; it is known as the Door to Hell.",
+    "burana-tower": "The minaret of the 11th-century Karakhanid city of Balasagun; earthquakes brought it down from about 45 m, and balbals, stone grave figures, stand in rows below it.",
+    "mitad-del-mundo": "It marks the Equator where the French Geodesic Mission put it in the 1730s; satellites later found the true line about 240 m to the north.",
+    "kenyatta-centre": "Opened in 1973 and long Nairobi's tallest building; its amphitheatre is roofed like a traditional hut, and the tower is crowned with a helipad.",
+    "zuma-rock": "A granite monolith rising some 300 m above the plain at the gateway to Abuja; it is pictured on the 100-naira note.",
+    "maqam-echahid": "Unveiled in 1982 for twenty years of independence: three concrete palm leaves shelter an eternal flame, with a soldier at the foot of each.",
+    "pha-that-luang": "The golden stupa on the national seal of Laos, rebuilt by King Setthathirath in 1566 over older foundations; it is said to hold a relic of the Buddha.",
+    "golden-bridge": "A gilded footbridge opened in 2018 on the Ba Na Hills above Da Nang, held out over the drop by two giant hands of moss-covered stone.",
+    "deadvlei": "A white clay pan cut off by dunes; its camelthorn trees died some 700 years ago and have not rotted in the dry air. Big Daddy, beside it, rises about 325 m.",
+    "haamonga-a-maui": "A trilithon of coral limestone raised in the 13th century by the Tu'i Tonga; the lintel sits in notches cut into the tops of the two uprights.",
+    "bled-island": "Slovenia's only natural island; ninety-nine stone steps climb from the landing to the Church of the Assumption, and by custom a groom carries his bride up them."
   }
 }

@@ -17,62 +17,58 @@ import type { Group, Monument, MonumentContext, Object3D } from './contract.ts';
  * and this model 73 across, so the world's own ocean comes up to their feet,
  * and they stand on whatever `biome.ts` gives (the shore band's pale sand).
  *
- * Every section of both peaks is a seven-sided `taper`: few joints read as
- * natural, and seven gives the sunlit half two cel bands with the ridges
- * between facets reading as spurs. The sections are the only regular
- * subdivision on the slopes. Both cones are one `green` from foot to summit and
- * the cel ramp does the shading, because colour banding by height produced a
- * dark skirt that hid the dark trees at the feet. Every dark and grey in the
- * model is a feature big enough to see: three andesite cliffs (20 units tall)
- * and ten clumps of forest.
+ * Every section of both peaks is a seven-sided `taper`, each turned a little
+ * against the one under it so the facets break into spurs and gullies; Petit's
+ * profile is concave, a spire, and Gros's convex, a dome. Both cones are one
+ * `green` and the cel ramp does the shading. The bare andesite is laid on the
+ * slopes as ribs running down the fall line, not as blocks at the foot, and
+ * the forest is a skirt of round crowns in a deep green with the sea's sand
+ * under it.
  */
 
-/**
- * A peak, as a stack of [top of the section, apothem at the foot, apothem at the
- * top]. Petit ends at 0.8 and Gros at 6.2: a spire and a dome.
- */
-const PETIT: [top: number, bottom: number, apex: number][] = [
-  [9.0, 14.0, 11.6],
-  [19.0, 11.6, 8.7],
-  [28.0, 8.7, 5.6],
-  [34.5, 5.6, 3.0],
-  [39.4, 3.0, 0.7],
+const DEG = Math.PI / 180;
+
+/** A peak, as [height, apothem] steps from the foot to the top. */
+const PETIT: [y: number, r: number][] = [
+  [0, 14.5],
+  [7, 11.0],
+  [15, 8.0],
+  [23, 5.6],
+  [31, 3.6],
+  [36.5, 2.0],
+  [39.6, 0.5],
 ];
 
-const GROS: [top: number, bottom: number, apex: number][] = [
-  [8.0, 20.0, 17.5],
-  [16.0, 17.5, 14.5],
-  [23.0, 14.5, 11.0],
-  [28.5, 11.0, 7.0],
+const GROS: [y: number, r: number][] = [
+  [0, 20.5],
+  [8, 17.5],
+  [16, 14.4],
+  [23, 11.2],
+  [28, 7.8],
+  [31, 3.8],
 ];
+
+/** The turn of each step against the last, degrees: what makes the spurs. */
+const TWIST = [0, 4, -3, 5, -2, 4, 0];
 
 /** Where each peak stands. Petit is nearer the camera and Gros is behind it. */
 const PETIT_AT: [x: number, z: number] = [11, 6];
 const GROS_AT: [x: number, z: number] = [-12.5, -5];
 
-/**
- * The bare andesite, as [x, z, foot, apothem at the foot, height, lean, yaw].
- * Three, each big enough to be a face rather than a speckle.
- */
-const CLIFFS: [x: number, z: number, y: number, size: number, tall: number, lean: number, yaw: number][] = [
-  [15.5, 15.5, 2.0, 6.4, 20.0, 0.30, 0.5],
-  [20.0, 3.0, 4.0, 4.2, 12.0, 0.26, 1.5],
-  [-7.5, 11.0, 2.0, 5.0, 11.0, 0.22, -0.4],
+/** Bare rock down the fall line: [which peak, bearing, from height, to height, width]. */
+const RIBS: [peak: 'petit' | 'gros', bearing: number, from: number, to: number, width: number][] = [
+  ['petit', 20, 6, 33, 2.6],
+  ['petit', 70, 4, 26, 2.0],
+  ['petit', -35, 10, 30, 1.6],
+  ['gros', 35, 6, 25, 2.4],
 ];
 
-/** Forest clumps, as [x, z, height]. Ten, all `darkOlive` against the peaks' `green`, all big. */
-const CLUMPS: [x: number, z: number, height: number][] = [
-  [27.5, 13.0, 11.5],
-  [24.0, 18.5, 7.5],
-  [11.0, 25.0, 12.0],
-  [5.0, 22.0, 8.0],
-  [-4.5, 18.0, 9.5],
-  [31.0, -1.0, 10.0],
-  [24.5, -13.0, 8.5],
-  [-25.5, 12.0, 11.0],
-  [-31.5, -3.5, 9.0],
-  [-21.0, -20.5, 11.5],
-  [-6.5, -23.5, 8.0],
+/** The forest skirt: [x, z, crown radius]. */
+const CROWNS: [x: number, z: number, r: number][] = [
+  [26.5, 12.5, 3.6], [22.0, 18.5, 3.0], [14.0, 23.0, 3.8], [5.5, 21.5, 3.0],
+  [-3.5, 17.5, 3.4], [-12.0, 15.5, 3.0], [29.0, 1.0, 3.2], [24.0, -9.0, 3.0],
+  [-26.0, 11.0, 3.4], [-31.0, -2.0, 3.0], [-27.0, -15.0, 3.2], [-14.0, -24.0, 3.0],
+  [3.0, -15.0, 3.4], [-0.5, 6.5, 3.6],
 ];
 
 export const thePitons: Monument = {
@@ -87,72 +83,72 @@ export const thePitons: Monument = {
   footprint: 38,
 
   build(ctx: MonumentContext): Group {
-    const { THREE, palette, taper } = ctx;
+    const { THREE, palette, tone, taper, column, strut } = ctx;
+    const draft = new THREE.Group();
+    const add = (o: Object3D): void => void draft.add(o);
+    const canopy = palette.green;
+    const rock = tone(palette.slate, 0.85);
+    const jungle = tone(palette.green, 0.66);
 
-    const canopy = palette.green; // the rainforest that covers both peaks to the summit
-    const deep = palette.darkOlive; // the clumps at the feet, and the col between the two
-    const cliff = palette.slate; // bare andesite: the only cool colour, and the only grey
-    const scrub = palette.bark; // trunks, warm enough to keep hue in the shade they sit in
-
-    const group = new THREE.Group();
-
-    /** One peak: a stack of seven-sided frusta, all one colour. */
-    const peak = (
-      sections: [top: number, bottom: number, apex: number][],
-      x: number,
-      z: number,
-    ): Object3D => {
-      const mountain = new THREE.Group();
-      mountain.position.set(x, 0, z);
-      let base = 0;
-      for (const [top, bottom, apex] of sections) {
-        const shell = taper(bottom, apex, top - base, canopy, 7);
-        shell.position.y = base;
-        mountain.add(shell);
-        base = top;
+    const apothemAt = (steps: [number, number][], y: number): number => {
+      for (let i = 1; i < steps.length; i++) {
+        const [ya, ra] = steps[i - 1]!;
+        const [yb, rb] = steps[i]!;
+        if (y <= yb) return ra + ((rb - ra) * (y - ya)) / (yb - ya);
       }
-      group.add(mountain);
-      return mountain;
+      return steps[steps.length - 1]![1];
     };
 
-    // 1. The two peaks. Petit is 39.4 units and comes to a point; Gros is 30 and
-    //    stops at an apothem of 6.2, a dome. Petit stands nearer the camera, so it
-    //    is the taller (Gros is really 28 m higher), as in every photograph from
-    //    Soufrière Bay.
-    peak(PETIT, PETIT_AT[0], PETIT_AT[1]);
-    peak(GROS, GROS_AT[0], GROS_AT[1]);
+    const peak = (steps: [number, number][], [x, z]: [number, number]): void => {
+      for (let i = 1; i < steps.length; i++) {
+        const [ya, ra] = steps[i - 1]!;
+        const [yb, rb] = steps[i]!;
+        const shell = taper(ra, rb, yb - ya, canopy, 7);
+        shell.position.set(x, ya, z);
+        shell.rotation.y = TWIST[i]! * DEG;
+        add(shell);
+      }
+    };
 
-    // 2. Piton Mitan, the col: two low masses joining the feet of the peaks, which
-    //    gives the pair depth.
-    const saddleA = taper(10.0, 7.0, 8.0, deep, 6);
-    saddleA.position.set(-1.0, 0, 2.0);
-    group.add(saddleA);
-    const saddleB = taper(8.0, 5.0, 5.5, deep, 6);
-    saddleB.position.set(-3.0, 0, -8.0);
-    group.add(saddleB);
+    // 1. The two peaks: Petit a spire nearer the bay, Gros a dome behind it.
+    peak(PETIT, PETIT_AT);
+    peak(GROS, GROS_AT);
 
-    // 3. The rock. Petit Piton's seaward face is bare andesite for most of its
-    //    height, and grey against all that green tells the peaks apart. Each cliff
-    //    is one leaning frustum: a rotation with no scale on the same object.
-    for (const [x, z, y, size, tall, lean, yaw] of CLIFFS) {
-      const rock = taper(size, size * 0.32, tall, cliff, 5);
-      rock.rotation.set(Math.cos(yaw) * lean, yaw, -Math.sin(yaw) * lean);
-      rock.position.set(x, y, z);
-      group.add(rock);
+    // 2. The col between them, Piton Mitan, lower and darker.
+    const col = taper(9.5, 5.5, 9, tone(palette.green, 0.82), 6);
+    col.position.set(-1.5, 0, 0.5);
+    add(col);
+
+    // 3. Bare andesite down the fall line, a little proud of the slope.
+    for (const [which, bearing, from, to, width] of RIBS) {
+      const steps = which === 'petit' ? PETIT : GROS;
+      const [x, z] = which === 'petit' ? PETIT_AT : GROS_AT;
+      const at = (y: number) => {
+        const r = apothemAt(steps, y) + 0.35;
+        return new THREE.Vector3(x + Math.sin(bearing * DEG) * r, y, z + Math.cos(bearing * DEG) * r);
+      };
+      // In short runs, so the rib follows the slope's curve instead of cutting its chord.
+      const runs = 4;
+      for (let i = 0; i < runs; i++) {
+        const y0 = from + ((to - from) * i) / runs;
+        const y1 = from + ((to - from) * (i + 1)) / runs;
+        add(strut(at(y0), at(y1), width * (1 - 0.12 * i), rock));
+      }
     }
 
-    // 4. The forest at the feet: ten clumps, none on a grid, each about a quarter
-    //    of Petit Piton's height, so the base is broken and reads as jungle.
-    for (const [x, z, height] of CLUMPS) {
-      const trunk = taper(0.75, 0.6, height * 0.30, scrub, 5);
+    // 4. The forest skirt: round broadleaf crowns on short trunks.
+    for (const [x, z, r] of CROWNS) {
+      const trunk = column(0.5, 1.6, palette.bark, 5);
       trunk.position.set(x, 0, z);
-      group.add(trunk);
-      // Blunt, not pointed: a crown that keeps 0.44 of its width at the top reads as broadleaf, not spruce.
-      const crown = taper(height * 0.42, height * 0.28, height * 0.66, deep, 7);
-      crown.position.set(x, height * 0.26, z);
-      group.add(crown);
+      add(trunk);
+      const crown = taper(r, r * 0.55, r * 1.2, jungle, 7);
+      crown.position.set(x, 1.4, z);
+      add(crown);
+      const top = taper(r * 0.55, r * 0.15, r * 0.5, jungle, 7);
+      top.position.set(x, 1.4 + r * 1.2, z);
+      add(top);
     }
 
-    return group;
+    return ctx.merge(draft);
   },
 };

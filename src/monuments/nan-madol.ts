@@ -38,7 +38,7 @@ import type { Group, Mesh, Object3D, Monument, MonumentContext } from './contrac
  * Colour: `slate` for the stretcher courses (light enough that the shaded flank
  * holds together) and `bark` for the header courses (warm and dark), with a
  * 0.14 depth step so flush courses do not render as one blank slab; `tan` for
- * the coral rubble fill; `darkOlive` and `green` for the mangrove.
+ * the coral rubble fill; `darkOlive` and `green` for the palms.
  */
 
 // --- Elevation. Every number below is measured off this ladder. ---
@@ -124,13 +124,13 @@ export const nanMadol: Monument = {
   footprint: 25,
 
   build(ctx: MonumentContext): Group {
-    const { THREE, palette, box, column, taper, ringWall } = ctx;
+    const { THREE, palette, box, column, ringWall } = ctx;
 
     const stretcher = palette.slate; // basalt laid along the wall
     const header = palette.bark; // basalt laid across it, and every deep recess
     const rubble = palette.tan; // the coral fill the islets are packed with
     const water = palette.skyBlue; // the canals, and nothing else
-    const scrub = palette.darkOlive; // mangrove
+    const scrub = palette.darkOlive; // palm trunks
     const leaf = palette.green;
 
     const group = new THREE.Group();
@@ -286,12 +286,19 @@ export const nanMadol: Monument = {
     // Two more where the causeway meets the western islet, half sorted.
     for (const x of [-18.4, -19.7]) log(x, PLATFORM_TOP + 0.4, 5.2, 0.05, 0.52, 4.4, header);
 
-    // --- 8. Mangrove: the forest inside the ruin ---
-    for (const [x, y, z, scale] of SCRUB) {
-      put(taper(1.5 * scale, 0.9 * scale, 2.2 * scale, scrub, 5), x, y, z);
-      put(taper(2.8 * scale, 1.0 * scale, 2.4 * scale, leaf, 6), x, y + 2.2 * scale, z);
-    }
+    // --- 8. The forest inside the ruin: coconut palms leaning out of it, the
+    // island's own sign ---
+    SCRUB.forEach(([x, y, z, scale], index) => {
+      const lean = index % 2 === 0 ? 1 : -1;
+      const top = new THREE.Vector3(x + lean * 1.6 * scale, y + 8.5 * scale, z + 0.8 * scale);
+      group.add(ctx.strut(new THREE.Vector3(x, y, z), top, 0.55 * scale, scrub));
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + index;
+        const tip = new THREE.Vector3(top.x + Math.cos(a) * 3.4 * scale, top.y - 1.4 * scale, top.z + Math.sin(a) * 3.4 * scale);
+        group.add(ctx.strut(top, tip, 0.7 * scale, leaf));
+      }
+    });
 
-    return group;
+    return ctx.merge(group);
   },
 };

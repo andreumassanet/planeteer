@@ -441,14 +441,14 @@
    "iso": "NOR",
    "lat": 61.0472,
    "lon": 7.8125,
-   "footprint": 24,
+   "footprint": 16,
    "year": 1180,
    "note": "A wooden stave church from about 1180, its tiered roofs watched over by carved dragon heads.",
    "plan": [
-    -16.5,
-    16.5,
-    -16.5,
-    16.5
+    -7.5,
+    7.5,
+    -15,
+    12.5
    ],
    "clearance": 50
   },
@@ -506,18 +506,18 @@
    "id": "registan",
    "name": "The Registan",
    "iso": "UZB",
-   "lat": 39.841,
-   "lon": 66.9758,
-   "footprint": 36.5,
+   "lat": 39.5979,
+   "lon": 67.0497,
+   "footprint": 30,
    "year": 1660,
    "note": "Samarkand's great square, framed by three madrasas covered in blue tilework: the heart of the Timurid city.",
    "plan": [
-    -33,
-    33,
-    -12,
-    20
+    -21,
+    22,
+    -24,
+    15
    ],
-   "setting": "plaza",
+   "setting": "parcel",
    "clearance": 50
   },
   {
@@ -591,15 +591,15 @@
    "id": "sigiriya",
    "name": "Sigiriya",
    "iso": "LKA",
-   "lat": 7.9362,
-   "lon": 80.8063,
-   "footprint": 23.5,
+   "lat": 7.9299,
+   "lon": 80.8029,
+   "footprint": 25,
    "note": "A palace on top of a rock 180 metres high, entered between the paws of a colossal stone lion, built by King Kashyapa in the 5th century.",
    "plan": [
-    -21.5,
-    21.5,
-    -22,
-    22.5
+    -23.5,
+    23.5,
+    -23.5,
+    22
    ],
    "clearance": 50
   },
@@ -657,15 +657,15 @@
    "id": "terracotta-army",
    "name": "Terracotta Army",
    "iso": "CHN",
-   "lat": 34.465,
-   "lon": 109.3357,
-   "footprint": 34,
+   "lat": 34.4568,
+   "lon": 109.3498,
+   "footprint": 29.5,
    "note": "Some 8,000 life-size clay soldiers buried with China's first emperor around 210 BC, no two faces alike.",
    "plan": [
-    -16.5,
-    16.5,
-    -28.5,
-    26.5
+    -22.5,
+    22.5,
+    -20.5,
+    17.5
    ],
    "clearance": 50
   },
@@ -962,7 +962,7 @@
     -54.5,
     54.5,
     -47,
-    47
+    47.5
    ],
    "clearance": 50
   },
@@ -978,7 +978,7 @@
    "note": "A 40-metre steel horseman on the steppe east of Ulaanbaatar; you can walk out onto the horse's head.",
    "plan": [
     -18.5,
-    18.5,
+    19.5,
     -18.5,
     18.5
    ],
@@ -1265,16 +1265,16 @@
    "id": "table-mountain",
    "name": "Table Mountain",
    "iso": "ZAF",
-   "lat": -33.8931,
-   "lon": 18.906,
+   "lat": -33.9425,
+   "lon": 18.9018,
    "footprint": 55,
    "height": 1085,
    "note": "A flat-topped sandstone massif over Cape Town, often draped in the cloud the city calls its tablecloth.",
    "plan": [
-    -54.5,
-    54.5,
-    -32,
-    30
+    -50,
+    52.5,
+    -17,
+    21
    ],
    "clearance": 50
   },
@@ -1475,13 +1475,13 @@
    "height": 771,
    "note": "Two volcanic spires rising straight out of the Caribbean on the south-west coast of Saint Lucia.",
    "plan": [
-    -36,
-    36,
-    -27.5,
-    30.5
+    -34.5,
+    32.5,
+    -28,
+    27
    ],
    "shore": true,
-   "clearance": -32
+   "clearance": -28
   },
   {
    "id": "chichen-itza",
@@ -1561,10 +1561,10 @@
    "height": 979,
    "note": "The highest uninterrupted waterfall in the world, 979 metres off the lip of the tepui Auyán-tepui.",
    "plan": [
-    -42,
-    42,
-    -18,
-    28.5
+    -45.5,
+    45.5,
+    -31.5,
+    43
    ],
    "clearance": 50
   },
@@ -1769,6 +1769,329 @@
     14,
     -14,
     14
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "kuwait-towers",
+   "name": "Kuwait Towers",
+   "iso": "KWT",
+   "lat": 29.1771,
+   "lon": 47.9724,
+   "footprint": 17.5,
+   "height": 187,
+   "year": 1979,
+   "note": "Opened in 1979 on a point of the Gulf shore; the great sphere holds a water tank and a restaurant, and the upper one turns once every half hour.",
+   "snappedKm": 2.2,
+   "plan": [
+    -13.5,
+    16.5,
+    -13.5,
+    13.5
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "faisal-mosque",
+   "name": "Faisal Mosque",
+   "iso": "PAK",
+   "lat": 33.7234,
+   "lon": 72.972,
+   "footprint": 28,
+   "height": 90,
+   "year": 1986,
+   "note": "Vedat Dalokay drew it as a desert tent of folded concrete with no dome; it was the largest mosque in the world from 1986 until 1993.",
+   "plan": [
+    -22,
+    22,
+    -22,
+    22
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "motherland-monument",
+   "name": "Motherland Monument",
+   "iso": "UKR",
+   "lat": 50.4004,
+   "lon": 30.6097,
+   "footprint": 20,
+   "height": 102,
+   "year": 1981,
+   "note": "Unveiled over the Dnieper in 1981, 62 m of stainless steel on the roof of the war museum; in 2023 the Soviet emblem on her shield gave way to Ukraine's trident.",
+   "plan": [
+    -14,
+    14,
+    -14,
+    14
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "stari-most",
+   "name": "Stari Most",
+   "iso": "BIH",
+   "lat": 43.2179,
+   "lon": 17.7483,
+   "footprint": 27.5,
+   "height": 24,
+   "year": 1566,
+   "note": "Built by the Ottoman architect Mimar Hayruddin in 1566, destroyed by shelling in 1993 and rebuilt from the river's own stone in 2004; divers still leap from it into the Neretva.",
+   "plan": [
+    -25,
+    25,
+    -13.5,
+    13
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "buzludzha-monument",
+   "name": "Buzludzha Monument",
+   "iso": "BGR",
+   "lat": 42.7356,
+   "lon": 25.3936,
+   "footprint": 26,
+   "height": 70,
+   "year": 1981,
+   "note": "The Bulgarian Communist Party's house-monument, opened on a Balkan summit in 1981 and abandoned after 1989; a red glass star is set in each face of its tower.",
+   "plan": [
+    -25.5,
+    25.5,
+    -26,
+    24
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "flame-towers",
+   "name": "Flame Towers",
+   "iso": "AZE",
+   "lat": 40.4309,
+   "lon": 49.6847,
+   "footprint": 22,
+   "height": 182,
+   "year": 2012,
+   "note": "Finished in 2012 over a city called the land of fire; after dark the LEDs on their glass show them burning.",
+   "plan": [
+    -18,
+    18,
+    -18.5,
+    18
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "shibam",
+   "name": "Shibam",
+   "iso": "YEM",
+   "lat": 16.0173,
+   "lon": 48.641,
+   "footprint": 29,
+   "note": "A walled city of mud-brick tower houses up to eleven storeys, most rebuilt since the 16th century; it has been called the Manhattan of the desert.",
+   "plan": [
+    -22.5,
+    22.5,
+    -17.5,
+    17.5
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "darvaza-gas-crater",
+   "name": "Darvaza Gas Crater",
+   "iso": "TKM",
+   "lat": 40.2525,
+   "lon": 58.4397,
+   "footprint": 14,
+   "note": "A collapsed gas field in the Karakum desert, set alight to burn the gas off and burning ever since; it is known as the Door to Hell.",
+   "plan": [
+    -14,
+    14,
+    -14,
+    14
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "burana-tower",
+   "name": "Burana Tower",
+   "iso": "KGZ",
+   "lat": 42.7466,
+   "lon": 75.2499,
+   "footprint": 13.5,
+   "height": 24,
+   "note": "The minaret of the 11th-century Karakhanid city of Balasagun; earthquakes brought it down from about 45 m, and balbals, stone grave figures, stand in rows below it.",
+   "plan": [
+    -13.5,
+    13.5,
+    -13,
+    13
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "mitad-del-mundo",
+   "name": "Mitad del Mundo",
+   "iso": "ECU",
+   "lat": 0.0623,
+   "lon": -78.4558,
+   "footprint": 25.2,
+   "height": 30,
+   "year": 1982,
+   "note": "It marks the Equator where the French Geodesic Mission put it in the 1730s; satellites later found the true line about 240 m to the north.",
+   "plan": [
+    -20.5,
+    20.5,
+    -15,
+    15.5
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "kenyatta-centre",
+   "name": "Kenyatta International Convention Centre",
+   "iso": "KEN",
+   "lat": -1.3239,
+   "lon": 36.868,
+   "footprint": 21,
+   "height": 105,
+   "year": 1973,
+   "note": "Opened in 1973 and long Nairobi's tallest building; its amphitheatre is roofed like a traditional hut, and the tower is crowned with a helipad.",
+   "plan": [
+    -16,
+    14,
+    -10,
+    8.5
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "zuma-rock",
+   "name": "Zuma Rock",
+   "iso": "NGA",
+   "lat": 9.1186,
+   "lon": 7.1768,
+   "footprint": 26.2,
+   "height": 300,
+   "note": "A granite monolith rising some 300 m above the plain at the gateway to Abuja; it is pictured on the 100-naira note.",
+   "plan": [
+    -26,
+    26,
+    -18.5,
+    17.5
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "maqam-echahid",
+   "name": "Maqam Echahid",
+   "iso": "DZA",
+   "lat": 36.6477,
+   "lon": 3.0345,
+   "footprint": 16.5,
+   "height": 92,
+   "year": 1982,
+   "note": "Unveiled in 1982 for twenty years of independence: three concrete palm leaves shelter an eternal flame, with a soldier at the foot of each.",
+   "plan": [
+    -15.5,
+    15.5,
+    -15.5,
+    15.5
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "pha-that-luang",
+   "name": "Pha That Luang",
+   "iso": "LAO",
+   "lat": 18.0292,
+   "lon": 102.6673,
+   "footprint": 25.5,
+   "height": 45,
+   "year": 1566,
+   "note": "The golden stupa on the national seal of Laos, rebuilt by King Setthathirath in 1566 over older foundations; it is said to hold a relic of the Buddha.",
+   "plan": [
+    -18.5,
+    18.5,
+    -18.5,
+    20.5
+   ],
+   "setting": "parcel",
+   "clearance": 50
+  },
+  {
+   "id": "golden-bridge",
+   "name": "Golden Bridge",
+   "iso": "VNM",
+   "lat": 15.9753,
+   "lon": 107.9655,
+   "footprint": 26,
+   "year": 2018,
+   "note": "A gilded footbridge opened in 2018 on the Ba Na Hills above Da Nang, held out over the drop by two giant hands of moss-covered stone.",
+   "plan": [
+    -23,
+    23.5,
+    -17,
+    18
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "deadvlei",
+   "name": "Deadvlei",
+   "iso": "NAM",
+   "lat": -24.7593,
+   "lon": 15.2924,
+   "footprint": 35,
+   "height": 325,
+   "note": "A white clay pan cut off by dunes; its camelthorn trees died some 700 years ago and have not rotted in the dry air. Big Daddy, beside it, rises about 325 m.",
+   "plan": [
+    -30.5,
+    30.5,
+    -26,
+    24.5
+   ],
+   "clearance": 50
+  },
+  {
+   "id": "haamonga-a-maui",
+   "name": "Ha'amonga 'a Maui",
+   "iso": "TON",
+   "lat": -21.2072,
+   "lon": -175.1509,
+   "footprint": 13,
+   "height": 5,
+   "note": "A trilithon of coral limestone raised in the 13th century by the Tu'i Tonga; the lintel sits in notches cut into the tops of the two uprights.",
+   "snappedKm": 2.2,
+   "plan": [
+    -11,
+    12,
+    -9.5,
+    10.5
+   ],
+   "clearance": 4
+  },
+  {
+   "id": "bled-island",
+   "name": "Bled Island",
+   "iso": "SVN",
+   "lat": 46.3626,
+   "lon": 14.0901,
+   "footprint": 23,
+   "height": 52,
+   "note": "Slovenia's only natural island; ninety-nine stone steps climb from the landing to the Church of the Assumption, and by custom a groom carries his bride up them.",
+   "plan": [
+    -23,
+    23,
+    -22.5,
+    22.5
    ],
    "clearance": 50
   }

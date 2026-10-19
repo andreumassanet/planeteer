@@ -24,10 +24,12 @@ import type { Monument } from './contract.ts';
  * and the stone is a warm neutral (`bone` pylons, `tan` abutments and piers) so
  * masonry stays warm against the cold shaded arch. The roadway is `bark`.
  *
- * Both chords are the same parabola at different rises, so the truss depth is
- * 4.4 at the crown and falls to zero at the springings. The arch has 10 panels
- * against the real 28 (the mesh budget binds: 123 of 130 meshes). There are no
- * roadway markings, railway or cross-bracing below the deck.
+ * The chords are two parabolas: the bottom one springs from the pins on the
+ * abutments and the top one ends high over them at the pylons, so the truss is
+ * 4.4 deep at the crown and 15.4 at its ends, the coat hanger's own shape. The
+ * arch has 14 panels against the real 28, and the pieces are merged by colour,
+ * so the mesh budget no longer binds. There are no roadway markings, railway
+ * or cross-bracing below the deck.
  *
  * This monument and the Sydney Opera House are 1.68 world units apart at their
  * true coordinates, so they overlap whatever footprints are declared. The one
@@ -43,13 +45,19 @@ const SPAN_HALF = 40;
 const SPRING_Y = 1.6;
 const CROWN_TOP = 33;
 const CROWN_BOTTOM = 28.6;
+/**
+ * Where the top chord ends, over the bearings. The real truss is deepest at its
+ * ends and shallowest at the crown, which is what makes it a coat hanger rather
+ * than a single bow.
+ */
+const TOP_END = 17;
 /** Panels across the whole arch. Even, so there is a node at the crown. */
-const PANELS = 10;
+const PANELS = 14;
 
 /** The two arch trusses, at the edges of the deck. The hangers come down these planes. */
 const ARCH_Z = 4.8;
-const CHORD_THICKNESS = 0.62;
-const WEB_THICKNESS = 0.42;
+const CHORD_THICKNESS = 0.95;
+const WEB_THICKNESS = 0.48;
 const HANGER_THICKNESS = 0.4;
 const BRACE_THICKNESS = 0.36;
 
@@ -82,14 +90,14 @@ const nodeX = (index: number): number => -SPAN_HALF + (index * 2 * SPAN_HALF) / 
  * without being tapered by hand.
  */
 const arcAt = (x: number): number => 1 - (x / SPAN_HALF) ** 2;
-const topChordY = (x: number): number => SPRING_Y + (CROWN_TOP - SPRING_Y) * arcAt(x);
+const topChordY = (x: number): number => TOP_END + (CROWN_TOP - TOP_END) * arcAt(x);
 const bottomChordY = (x: number): number => SPRING_Y + (CROWN_BOTTOM - SPRING_Y) * arcAt(x);
 
 /**
  * Nodes with a hanger under them: those where the bottom chord is clear above
  * the deck. Past |x| = 33.6 the arch drops through the deck plane.
  */
-const HANGER_NODES = [2, 3, 4, 5, 6, 7, 8];
+const HANGER_NODES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 /** Spandrel posts, in the stretch where the arch runs under the deck and carries it. */
 const SPANDREL_X = 36;
@@ -107,7 +115,7 @@ export const sydneyHarbourBridge: Monument = {
 
   build(ctx) {
     const { THREE, palette, box, taper, strut } = ctx;
-    const steelwork = palette.steel;
+    const steelwork = ctx.tone(palette.steel, 1.35);
     const asphalt = palette.bark;
     const granite = palette.bone;
     const abutment = palette.tan;
@@ -147,6 +155,14 @@ export const sydneyHarbourBridge: Monument = {
         const from = uphill ? at(a, bottomChordY(a), z) : at(a, topChordY(a), z);
         const to = uphill ? at(b, topChordY(b), z) : at(b, bottomChordY(b), z);
         group.add(strut(from, to, WEB_THICKNESS, steelwork));
+      }
+
+      // The end posts over the pins, the truss's deepest members.
+      for (const side of [1, -1]) {
+        const x = side * SPAN_HALF;
+        const end = box(CHORD_THICKNESS, TOP_END - SPRING_Y, CHORD_THICKNESS, steelwork);
+        end.position.set(x, SPRING_Y, z);
+        group.add(end);
       }
 
       // Posts at every interior node. `box`, not `strut`: a vertical strut takes an arbitrary roll.
@@ -224,9 +240,16 @@ export const sydneyHarbourBridge: Monument = {
         const cornice = box(5.6, CORNICE_HEIGHT, 5.6, granite);
         cornice.position.set(x, PYLON_TOP - CORNICE_HEIGHT, z);
         group.add(cornice);
+
+        // The arched opening near the top of each face, dark against the granite.
+        for (const [dx, dz, w, d] of [[0, 2.42, 1.5, 0.2], [0, -2.42, 1.5, 0.2], [2.42, 0, 0.2, 1.5], [-2.42, 0, 0.2, 1.5]] as const) {
+          const opening = box(w, 3.4, d, ctx.tone(palette.bark, 0.9));
+          opening.position.set(x + dx, PYLON_TOP - CORNICE_HEIGHT - 5.2, z + dz);
+          group.add(opening);
+        }
       }
     }
 
-    return group;
+    return ctx.merge(group);
   },
 };
