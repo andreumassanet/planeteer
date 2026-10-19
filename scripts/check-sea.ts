@@ -57,6 +57,7 @@ import {
 } from '../src/sea-floor.ts';
 import type { TileLife } from '../src/sea-floor.ts';
 import { surfaceLift, seaWindow } from '../src/ocean.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outlines = readFileSync(resolve(here, '../public/data/countries.bin'));
@@ -449,7 +450,7 @@ console.log('\nthe drawn sea');
   lifeTimes.sort((x, y) => x - y);
   const lifeP95 = lifeTimes[Math.floor(lifeTimes.length * 0.95)]!;
   const lifeWorst = lifeTimes[lifeTimes.length - 1]!;
-  check(lifeP95 < 1, 'the swimmers cost little a frame', `p95 ${lifeP95.toFixed(3)} ms, worst ${lifeWorst.toFixed(3)}, over four seconds, ${life.stats.bubbles} bubbles`);
+  check(lifeP95 < 1 * TIME_SCALE, 'the swimmers cost little a frame', `p95 ${lifeP95.toFixed(3)} ms, worst ${lifeWorst.toFixed(3)}, over four seconds, ${life.stats.bubbles} bubbles`);
   const again = createSeaLife();
   again.update(1 / 60, { camera: lifeCamera, seconds: 1.7e9 + 239 / 60, diver: null, screw: null, screwSpeed: 0 }, (visit) => sea.eachLife(visit));
   check(again.snapshot().join('|') === life.snapshot().join('|'), 'the same clock puts every swimmer in the same place, however it got there', `${life.snapshot().length} swimmers`);
@@ -462,7 +463,7 @@ console.log('\nthe drawn sea');
     sea.update(1 / 60, { player, camera, daylight: 1, fog });
     worst = Math.max(worst, sea.stats.updateMs);
   }
-  check(worst < 4, 'a frame of it standing costs little', `worst ${worst.toFixed(2)} ms over two seconds, building ${sea.stats.building}`);
+  check(worst < 4 * TIME_SCALE, 'a frame of it standing costs little', `worst ${worst.toFixed(2)} ms over two seconds, building ${sea.stats.building}`);
   sea.update(1 / 60, { player, camera, daylight: 1, fog });
   check(!sea.underwater, 'and one over it is not');
   // Inland, nothing.

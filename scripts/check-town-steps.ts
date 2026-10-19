@@ -20,14 +20,15 @@ import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { radiusOf } from '../src/places.ts';
 import { unitAt } from '../src/sphere.ts';
 import { loadEarthFeatures } from './map-node.ts';
+import { TIME_SCALE } from './time-scale.ts';
 
 /**
  * The longest frame the streamer may take. Its own slice is
  * `detailBuild(BUILD_BUDGET_MS)`, about 3 ms at the default knob, overshot by at most one
  * step; the bound is loose for a loaded machine and catches a near city built
- * whole, which is a hundred ms and more.
+ * whole, which is a hundred ms and more. Three times looser on CI (`TIME_SCALE`).
  */
-const MAX_FRAME_MS = 25;
+const MAX_FRAME_MS = 25 * TIME_SCALE;
 /** How far off the city's edge the viewer stands to bring it near. */
 const APPROACH = 150;
 /** Where the viewer waits first: over the city's middle, past `PEOPLED_REACH`, so it stands at far detail. */

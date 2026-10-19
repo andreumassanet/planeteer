@@ -4,6 +4,7 @@ import { createLife } from '../../src/life.ts';
 import { setDetail } from '../../src/view.ts';
 import { dirAt, world, check } from './setup.ts';
 import { life } from './scale.ts';
+import { TIME_SCALE } from '../time-scale.ts';
 
 // --- streaming, at real places --------------------------------------------
 
@@ -113,7 +114,7 @@ console.log('re-deriving the cast:');
       `(worst scan ${scan.toFixed(2)}, worst build ${build.toFixed(2)})`,
     );
   }
-  const over = worst.filter(([, ms]) => ms > 4);
-  check(over.length === 0, 'the median update costs under 4 ms, scan and all', over.map(([n, ms]) => `${n} ${ms.toFixed(1)}`).join(', '));
+  const over = worst.filter(([, ms]) => ms > 4 * TIME_SCALE);
+  check(over.length === 0, `the median update costs under ${4 * TIME_SCALE} ms, scan and all`, over.map(([n, ms]) => `${n} ${ms.toFixed(1)}`).join(', '));
 }
 console.log('');

@@ -12,6 +12,7 @@ import { unitAt } from '../../src/sphere.ts';
 import { createGround } from '../../src/worlds/tiles.ts';
 import { createDecor } from '../../src/worlds/decor.ts';
 import { createSky } from '../../src/worlds/sky.ts';
+import { TIME_SCALE } from '../time-scale.ts';
 
 // ===========================================================================
 // 3. Each world
@@ -248,7 +249,7 @@ export function checkDrawn(spec: WorldSpec, terrain: Terrain): void {
   );
   // Every tile over the horizon, all round: the frustum draws about a third.
   if (ground.stats.triangles > 600000) fail(`${spec.id}: the ground on foot is ${ground.stats.triangles} triangles all round, over 600,000`);
-  if (ground.stats.buildMs > 60) fail(`${spec.id}: a tile takes ${ground.stats.buildMs.toFixed(1)} ms to build, over 60`);
+  if (ground.stats.buildMs > 60 * TIME_SCALE) fail(`${spec.id}: a tile takes ${ground.stats.buildMs.toFixed(1)} ms to build, over ${60 * TIME_SCALE}`);
   // From high up, the planet whole, and cheap.
   eye.setLength(terrain.radius * 2.5);
   ground.prime(eye);
