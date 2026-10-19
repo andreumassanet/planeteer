@@ -24,7 +24,7 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { HERO } from './body.ts';
-import { assemble, craftContext, finish, loft, octagon, soupOf } from './build.ts';
+import { assemble, craftContext, finish, loft, octagon, soupOf, turningAbout } from './build.ts';
 import type { Turning } from './build.ts';
 
 const H = AVATAR_HEIGHT;
@@ -89,6 +89,9 @@ function buildBicycle(variant: number, body?: number): THREE.Group {
   const trim = PALETTE.steel;
   const tube = 0.035 * M;
   const group = new THREE.Group();
+  // What turns with the bars: the fork, the front mudguard, the stem, the
+  // bars and their grips, the lamp and the basket.
+  const bars = new THREE.Group();
 
   const bb = new V(0, BB_Y, 0);
   const seatTop = new V(0, BIKE_HIP - 0.13 * M, -BIKE_BACK * 0.88);
@@ -105,11 +108,11 @@ function buildBicycle(variant: number, body?: number): THREE.Group {
     const x = side * 0.05 * M;
     group.add(strut(new V(x, BB_Y, 0), new V(x, rear.y, rear.z), tube * 0.8, paint));
     group.add(strut(new V(x * 0.4, seatTop.y, seatTop.z), new V(x, rear.y, rear.z), tube * 0.8, paint));
-    group.add(strut(new V(x * 0.6, headBottom.y, headBottom.z), new V(x, front.y, front.z), tube * 0.9, trim));
+    bars.add(strut(new V(x * 0.6, headBottom.y, headBottom.z), new V(x, front.y, front.z), tube * 0.9, trim));
   }
   // A mudguard hugging each wheel, standing proud of the tyre.
   mudguard(group, BIKE_WHEEL, REAR_AXLE, BIKE_WHEEL + 0.03 * M, 0.07 * M, -1.9, 0.2, 5, paint);
-  mudguard(group, BIKE_WHEEL, FRONT_AXLE, BIKE_WHEEL + 0.03 * M, 0.07 * M, -0.4, 1.3, 4, paint);
+  mudguard(bars, BIKE_WHEEL, FRONT_AXLE, BIKE_WHEEL + 0.03 * M, 0.07 * M, -0.4, 1.3, 4, paint);
   // The chain, top run and bottom, from the chainring on the right to the
   // sprocket on the rear hub.
   const sprocket = column(0.05 * M, 0.015 * M, trim, 8);
@@ -134,24 +137,24 @@ function buildBicycle(variant: number, body?: number): THREE.Group {
   group.add(saddle);
   // The stem up out of the head tube, and swept-back bars with dark grips.
   const stem = new V(0, BARS.y - 0.02 * M, headTop.z - 0.03 * M);
-  group.add(strut(headTop, stem, tube * 1.1, trim));
+  bars.add(strut(headTop, stem, tube * 1.1, trim));
   const barHalf = 0.28 * M;
   for (const side of [-1, 1]) {
     const x = side * barHalf;
-    group.add(strut(new V(0, stem.y, stem.z), new V(x, BARS.y, BARS.z + 0.05 * M), tube, trim));
+    bars.add(strut(new V(0, stem.y, stem.z), new V(x, BARS.y, BARS.z + 0.05 * M), tube, trim));
     const grip = strut(new V(x, BARS.y, BARS.z + 0.05 * M), new V(x, BARS.y, BARS.z - 0.07 * M), tube * 1.6, PALETTE.ink);
-    group.add(grip);
+    bars.add(grip);
   }
   // A lamp on every one, and a basket over it on every other one, clear of
   // the lamp's top.
   const lamp = column(BIKE_LAMP.radius, BIKE_LAMP.length, PALETTE.cream, 8);
   lamp.rotation.x = Math.PI / 2;
   lamp.position.set(0, BIKE_LAMP.y, BIKE_LAMP.z);
-  group.add(lamp);
+  bars.add(lamp);
   if (variant % 2 === 1) {
     const basket = box(0.36 * M, 0.2 * M, 0.26 * M, PALETTE.brown);
     basket.position.set(0, BIKE_LAMP.y + BIKE_LAMP.radius + 0.01 * M, headTop.z + 0.18 * M);
-    group.add(basket);
+    bars.add(basket);
   }
   // A rack over the back wheel.
   const rack = box(0.16 * M, 0.025 * M, 0.34 * M, trim);
@@ -179,9 +182,12 @@ function buildBicycle(variant: number, body?: number): THREE.Group {
   group.remove(crank);
 
   const wheel = wheelSoup(BIKE_WHEEL, 0.035 * M, PALETTE.ink, PALETTE.bone, 6);
+  // The bars turn about the head tube's own line.
+  const rake = Math.atan2(headTop.z - headBottom.z, headTop.y - headBottom.y);
   return assemble('bicycle', [soupOf(group)], [
     { name: 'wheel', at: new V(0, BIKE_WHEEL, REAR_AXLE), soup: wheel },
-    { name: 'wheel', at: new V(0, BIKE_WHEEL, FRONT_AXLE), soup: wheelSoup(BIKE_WHEEL, 0.035 * M, PALETTE.ink, PALETTE.bone, 6) },
+    turningAbout('fork', soupOf(bars), headTop, rake),
+    { name: 'wheel', at: new V(0, BIKE_WHEEL, FRONT_AXLE), soup: wheelSoup(BIKE_WHEEL, 0.035 * M, PALETTE.ink, PALETTE.bone, 6), on: 'fork' },
     { name: 'crank', at: bb.clone(), soup: crankSoup },
   ]);
 }
@@ -467,38 +473,42 @@ function addMotoFork(group: THREE.Group, ctx: CraftContext, paint: number): void
   mudguard(group, MOTO_WHEEL, MOTO_FRONT, MOTO_WHEEL + 0.03 * M, 0.14 * M, -0.6, 0.9, 4, paint);
 }
 
-/** The headlamp in its bowl ahead of the clamps, the clocks, the bars on a riser with grips, levers and mirrors, and the pegs, pedals and side stand. */
-function addMotoControls(group: THREE.Group, ctx: CraftContext): void {
+/**
+ * The headlamp in its bowl ahead of the clamps, the clocks, the bars on a
+ * riser with grips, levers and mirrors, all on `bars`, which turn; and the
+ * pegs, pedals and side stand on the frame.
+ */
+function addMotoControls(group: THREE.Group, bars: THREE.Group, ctx: CraftContext): void {
   const { strut, box, column } = ctx;
   const metal = PALETTE.steel;
   const chrome = PALETTE.bone;
   const bowl = column(0.1 * M, 0.08 * M, chrome, 10);
   bowl.rotation.x = Math.PI / 2;
   bowl.position.set(0, 0.9 * M, 0.5 * M);
-  group.add(bowl);
+  bars.add(bowl);
   const lamp = column(MOTO_LAMP.radius, MOTO_LAMP.length, PALETTE.cream, 10);
   lamp.rotation.x = Math.PI / 2;
   lamp.position.set(0, MOTO_LAMP.y, MOTO_LAMP.z);
-  group.add(lamp);
+  bars.add(lamp);
   const clocks = column(0.05 * M, 0.04 * M, PALETTE.ink, 8);
   clocks.rotation.x = -0.6;
   clocks.position.set(0, 1.03 * M, 0.44 * M);
-  group.add(clocks);
+  bars.add(clocks);
   const riser = new V(0, MOTO_BARS.y - 0.02 * M, MOTO_BARS.z + 0.05 * M);
-  group.add(strut(new V(0, STOCK.y + 0.04 * M, STOCK.z), riser, 0.04 * M, metal));
+  bars.add(strut(new V(0, STOCK.y + 0.04 * M, STOCK.z), riser, 0.04 * M, metal));
   const barHalf = 0.32 * M;
   for (const side of [-1, 1]) {
     const end = new V(side * barHalf, MOTO_BARS.y, MOTO_BARS.z);
-    group.add(strut(riser.clone().setX(side * 0.001), new V(side * 0.12 * M, MOTO_BARS.y, MOTO_BARS.z + 0.04 * M), 0.03 * M, chrome));
-    group.add(strut(new V(side * 0.12 * M, MOTO_BARS.y, MOTO_BARS.z + 0.04 * M), end, 0.03 * M, chrome));
-    group.add(strut(end, new V(side * (barHalf + 0.12 * M), MOTO_BARS.y, MOTO_BARS.z - 0.02 * M), 0.05 * M, PALETTE.ink));
-    group.add(strut(new V(side * 0.2 * M, MOTO_BARS.y + 0.01 * M, MOTO_BARS.z + 0.03 * M), new V(side * 0.36 * M, MOTO_BARS.y - 0.01 * M, MOTO_BARS.z + 0.08 * M), 0.015 * M, metal));
+    bars.add(strut(riser.clone().setX(side * 0.001), new V(side * 0.12 * M, MOTO_BARS.y, MOTO_BARS.z + 0.04 * M), 0.03 * M, chrome));
+    bars.add(strut(new V(side * 0.12 * M, MOTO_BARS.y, MOTO_BARS.z + 0.04 * M), end, 0.03 * M, chrome));
+    bars.add(strut(end, new V(side * (barHalf + 0.12 * M), MOTO_BARS.y, MOTO_BARS.z - 0.02 * M), 0.05 * M, PALETTE.ink));
+    bars.add(strut(new V(side * 0.2 * M, MOTO_BARS.y + 0.01 * M, MOTO_BARS.z + 0.03 * M), new V(side * 0.36 * M, MOTO_BARS.y - 0.01 * M, MOTO_BARS.z + 0.08 * M), 0.015 * M, metal));
     const stalkFoot = new V(side * 0.2 * M, MOTO_BARS.y, MOTO_BARS.z + 0.02 * M);
     const stalkTop = new V(side * 0.28 * M, MOTO_BARS.y + 0.17 * M, MOTO_BARS.z);
-    group.add(strut(stalkFoot, stalkTop, 0.015 * M, chrome));
+    bars.add(strut(stalkFoot, stalkTop, 0.015 * M, chrome));
     const mirror = box(0.1 * M, 0.06 * M, 0.02 * M, PALETTE.ink);
     mirror.position.set(side * 0.3 * M, stalkTop.y - 0.02 * M, MOTO_BARS.z);
-    group.add(mirror);
+    bars.add(mirror);
   }
 
   // Pegs for both, the rider's on brackets, a brake pedal and a gear lever,
@@ -526,12 +536,16 @@ function buildMotorbike(variant: number, body?: number): THREE.Group {
   addMotoEngine(group, ctx);
   addMotoBodywork(group, ctx, paint);
   addMotoRear(group, ctx, paint);
-  addMotoFork(group, ctx, paint);
-  addMotoControls(group, ctx);
+  // The fork, the lamp and the bars turn about the steering head's own line.
+  const bars = new THREE.Group();
+  addMotoFork(bars, ctx, paint);
+  addMotoControls(group, bars, ctx);
+  const rake = Math.atan2(STOCK.z - MOTO_FRONT, STOCK.y - MOTO_WHEEL);
 
   return assemble('motorbike', [soupOf(group)], [
     { name: 'wheel', at: new V(0, MOTO_WHEEL, MOTO_REAR), soup: motoWheelSoup(false) },
-    { name: 'wheel', at: new V(0, MOTO_WHEEL, MOTO_FRONT), soup: motoWheelSoup(true) },
+    turningAbout('fork', soupOf(bars), STOCK.clone(), rake),
+    { name: 'wheel', at: new V(0, MOTO_WHEEL, MOTO_FRONT), soup: motoWheelSoup(true), on: 'fork' },
   ]);
 }
 

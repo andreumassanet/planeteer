@@ -22,10 +22,15 @@ export function createSwim(core: PlayerCore, ring: Splash) {
   const s = core.fields;
   const { spray } = ring;
 
-  /** Into the water from the land, or from a fall. */
-  function enterWater(): void {
+  /**
+   * Into the water from the land, or from a fall. `soles`, where the body's
+   * soles are now, keeps them there: the body hangs from the surface by what
+   * it takes, and settles to its swimming depth from it.
+   */
+  function enterWater(soles?: number): void {
     s.state = 'swim';
     s.height = PLANET_RADIUS + WATERLINE;
+    if (soles !== undefined) s.sink = Math.max(0, s.height - soles);
     position.setLength(s.height);
     s.vertical = 0;
     s.airborne = false;

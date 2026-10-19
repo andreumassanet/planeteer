@@ -52,6 +52,8 @@ export function createInputCore(target: HTMLElement): InputCore {
     jump: false,
     climb: false,
     dive: false,
+    attitude: { pitch: 0, roll: 0 },
+    flightMode: false,
     use: false,
     view: false,
   };
@@ -87,6 +89,8 @@ export function createInputCore(target: HTMLElement): InputCore {
     state.run = actions.has('run') || (!keyed && stick.run);
     state.climb = actions.has('jump');
     state.dive = actions.has('dive');
+    state.attitude.pitch = (actions.has('pitchUp') ? 1 : 0) - (actions.has('pitchDown') ? 1 : 0);
+    state.attitude.roll = (actions.has('rollRight') ? 1 : 0) - (actions.has('rollLeft') ? 1 : 0);
   }
 
   function release(): void {
@@ -98,6 +102,7 @@ export function createInputCore(target: HTMLElement): InputCore {
     state.jump = false;
     state.use = false;
     state.view = false;
+    state.flightMode = false;
     state.look.x = 0;
     state.look.y = 0;
     state.zoom = 0;

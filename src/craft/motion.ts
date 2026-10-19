@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
 import type { Rigged } from '../models.ts';
 import { ROAD_HANDLING } from '../vehicles.ts';
-import type { CraftModel } from './contract.ts';
+import type { CraftModel, Seat } from './contract.ts';
 import { NEEDLE_REST, NEEDLE_SWEEP, WHEEL_LOCK } from './cabin.ts';
 
 /** What the vehicle is doing this frame, as the motion reads it. */
@@ -48,6 +48,13 @@ export interface MotionInput {
    * only while it is pushed; coasting, they stop and the wheels run on.
    */
   throttle: number;
+  /**
+   * An aircraft's stick, -1 to 1: `elevator` positive nose up, `aileron`
+   * positive rolling right. The control surfaces follow them; the rudder
+   * follows `steering`.
+   */
+  elevator: number;
+  aileron: number;
 }
 
 export interface CraftMotion {
@@ -76,10 +83,16 @@ export interface CraftMotion {
    * the rim cannot part. 0 for anything without a wheel.
    */
   readonly steer: number;
+  /**
+   * The seat with its grip carried round with the bars, where the model has a
+   * `'fork'`: the hands of whoever rides it stay on the grips as it steers.
+   * The seat itself where it has none. The result is reused.
+   */
+  turned(seat: Seat): Seat;
 }
 
 /** A motion input with nothing asked of it: parked, engine off. */
-export const AT_REST: Readonly<MotionInput> = { speed: 0, turnRate: 0, steering: 0, grounded: true, engine: false, moored: false, throttle: 0 };
+export const AT_REST: Readonly<MotionInput> = { speed: 0, turnRate: 0, steering: 0, grounded: true, engine: false, moored: false, throttle: 0, elevator: 0, aileron: 0 };
 
 /**
  * A car's body on its springs: radians of pitch per unit a second squared of
@@ -104,6 +117,18 @@ const IDLE_SHAKE = 0.025;
 const IDLE_ROLL = 0.004;
 /** How far the front wheels go over at full lock, radians. */
 const STEER_LOCK = 0.45;
+/**
+ * The other things that steer, at full deflection, radians: a two-wheeler's
+ * bars (less than a car's wheels, since a rider at speed leans rather than
+ * turns them), a rudder or an outboard, and an aircraft's elevator and
+ * ailerons.
+ */
+const FORK_LOCK = 0.32;
+const RUDDER_LOCK = 0.5;
+const ELEVATOR_LOCK = 0.35;
+const AILERON_LOCK = 0.3;
+/** How fast the surfaces and the bars follow what is asked of them, per second. */
+const SURFACE_EASE = 10;
 /** Under this speed a vehicle counts as standing, units a second. */
 const STANDING = 0.3;
 
@@ -232,7 +257,14 @@ interface Parts {
   /** A cabin's steering wheel and its speedometer's needle (`cabin.ts`). */
   steers: THREE.Object3D[];
   needles: THREE.Object3D[];
-  /** The wheels and their radii, and which are steered (ahead of the middle). */
+  /** What steers about its own +Y, and the control surfaces about their hinges, each with its rest. */
+  forks: THREE.Object3D[];
+  rudders: THREE.Object3D[];
+  elevators: THREE.Object3D[];
+  ailerons: THREE.Object3D[];
+  /** Each elevator's and aileron's rest about its hinge, and each aileron's side (+1 on the left wing). */
+  hinges: Map<THREE.Object3D, number>;
+  /** The wheels and their radii, and which are steered (ahead of the middle, and not on a fork). */
   wheels: THREE.Object3D[];
   radii: number[];
   steered: boolean[];
@@ -245,6 +277,7 @@ interface Parts {
 }
 
 const euler = new THREE.Euler();
+const AXIS_X = new THREE.Vector3(1, 0, 0);
 const offset = new THREE.Vector3();
 
 /** A turning part's mesh's own box, in the part's frame, or null if it has none. */
@@ -265,6 +298,11 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   const tails: THREE.Object3D[] = [];
   const steers: THREE.Object3D[] = [];
   const needles: THREE.Object3D[] = [];
+  const forks: THREE.Object3D[] = [];
+  const rudders: THREE.Object3D[] = [];
+  const elevators: THREE.Object3D[] = [];
+  const ailerons: THREE.Object3D[] = [];
+  const hinges = new Map<THREE.Object3D, number>();
   let rig: Rigged | null = null;
   let back: THREE.Bone | null = null;
   let holder: THREE.Object3D | null = null;
@@ -295,14 +333,21 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
     else if (part.name === 'tail') tails.push(part);
     else if (part.name === 'steer') steers.push(part);
     else if (part.name === 'needle') needles.push(part);
+    else if (part.name === 'fork') forks.push(part);
+    else if (part.name === 'rudder') rudders.push(part);
+    else if (part.name === 'elevator') elevators.push(part);
+    else if (part.name === 'aileron') ailerons.push(part);
+    // A wheel hung on a fork rolls with the others and steers with the fork.
+    else if (part.name === 'wheel' && part.parent?.name === 'fork') wheels.push(part);
   });
+  for (const part of [...elevators, ...ailerons]) hinges.set(part, part.rotation.x);
   // A wheel's mesh is built about its own axle (`Turning` in `build.ts`), so
   // its geometry's box is the wheel's, whatever the vehicle is doing.
   const radii = wheels.map((wheel) => {
     const extent = boxOf(wheel);
     return extent === null ? 0.5 : Math.max(0.05, (extent.max.y - extent.min.y) / 2);
   });
-  const steered = wheels.map((wheel) => wheel.position.z > 0);
+  const steered = wheels.map((wheel) => wheel.parent === group && wheel.position.z > 0);
   const pivotY = radii.length > 0 ? radii.reduce((a, b) => a + b, 0) / radii.length : 0;
   const blades: THREE.Object3D[] = [];
   const discs: THREE.Mesh[] = [];
@@ -339,7 +384,10 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
       throw new Error(`craft ${model.id}: '${part.name}' has a reflected matrix under its motion`);
     }
   });
-  return { sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, steers, needles, rig, back, holder, jumps };
+  return {
+    sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, steers, needles, rig, back, holder, jumps,
+    forks, rudders, elevators, ailerons, hinges,
+  };
 }
 
 let disc: THREE.CircleGeometry | null = null;
@@ -552,10 +600,38 @@ function rollWheels(parts: Parts, input: MotionInput, dt: number): void {
   }
 }
 
-/** Whether anything steered (wheels, steering wheel, needle) is still off its rest. */
-function isDeflected(parts: Parts, wheelTurn: number): boolean {
+/**
+ * The bars, the rudders and the control surfaces, eased after what is asked
+ * of them: the bars and the rudders about their own +Y (a right turn swings
+ * a fork's front and a rudder's trailing edge to the right, -X), the
+ * elevator about its hinge (trailing edge up for nose up) and the ailerons
+ * opposite (the right one up for a roll to the right).
+ */
+function deflect(parts: Parts, surfaces: Surfaces, input: MotionInput, dt: number): void {
+  const ease = approach(SURFACE_EASE, dt);
+  surfaces.fork += (-input.steering * FORK_LOCK - surfaces.fork) * ease;
+  surfaces.rudder += (input.steering * RUDDER_LOCK - surfaces.rudder) * ease;
+  surfaces.elevator += (input.elevator * ELEVATOR_LOCK - surfaces.elevator) * ease;
+  surfaces.aileron += (input.aileron * AILERON_LOCK - surfaces.aileron) * ease;
+  for (const part of parts.forks) part.rotation.y = surfaces.fork;
+  for (const part of parts.rudders) part.rotation.y = surfaces.rudder;
+  for (const part of parts.elevators) part.rotation.x = parts.hinges.get(part)! + surfaces.elevator;
+  for (const part of parts.ailerons) part.rotation.x = parts.hinges.get(part)! + (part.position.x < 0 ? 1 : -1) * surfaces.aileron;
+}
+
+/** The steered parts' deflections, radians. */
+interface Surfaces {
+  fork: number;
+  rudder: number;
+  elevator: number;
+  aileron: number;
+}
+
+/** Whether anything steered (wheels, steering wheel, needle, bars, surfaces) is still off its rest. */
+function isDeflected(parts: Parts, wheelTurn: number, surfaces: Surfaces): boolean {
   for (let i = 0; i < parts.wheels.length; i++) if (parts.steered[i] && Math.abs(parts.wheels[i]!.rotation.y) > 1e-3) return true;
   if (Math.abs(wheelTurn) > 1e-3) return true;
+  if (Math.abs(surfaces.fork) + Math.abs(surfaces.rudder) + Math.abs(surfaces.elevator) + Math.abs(surfaces.aileron) > 1e-3) return true;
   for (const needle of parts.needles) if (Math.abs(needle.rotation.z - NEEDLE_REST) > 1e-3) return true;
   return false;
 }
@@ -584,6 +660,13 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   const needleFull = ROAD_HANDLING[kind]?.boost ?? 40;
   for (const needle of parts.needles) needle.rotation.z = NEEDLE_REST;
   const horse = parts.rig === null ? null : createHorseMotion(group, model, parts, parts.rig);
+  const surfaces: Surfaces = { fork: 0, rudder: 0, elevator: 0, aileron: 0 };
+  // The seat handed back by `turned`, its grip carried round the fork's axis.
+  const fork = parts.forks[0] ?? null;
+  const turnedSeat: { -readonly [K in keyof Seat]: Seat[K] } = { x: 0, y: 0, z: 0, yaw: 0, pose: 'ride', shown: true };
+  const gripAt = new THREE.Vector3();
+  const forkAxis = new THREE.Vector3();
+  const forkAt = new THREE.Vector3();
   const rotors = createSpinMotion(parts);
 
   let lastSpeed = 0;
@@ -605,6 +688,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
     for (const wheel of parts.wheels) wheel.rotation.y = 0;
     wheelTurn = 0;
     for (const part of parts.steers) part.rotation.z = 0;
+    surfaces.fork = surfaces.rudder = surfaces.elevator = surfaces.aileron = 0;
+    for (const part of [...parts.forks, ...parts.rudders]) part.rotation.y = 0;
+    for (const [part, rest] of parts.hinges) part.rotation.x = rest;
     for (const needle of parts.needles) needle.rotation.z = NEEDLE_REST;
     for (const d of parts.discs) d.visible = false;
     for (const b of parts.blades) b.visible = true;
@@ -623,6 +709,17 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
     },
     get steer() {
       return wheelTurn;
+    },
+    turned(seat) {
+      if (fork === null || seat.grip === undefined || Math.abs(surfaces.fork) < 1e-4) return seat;
+      // The grip in the model's frame, turned about the fork's own axis
+      // (its +Y, stood at its rake) through where it hangs.
+      forkAt.copy(fork.position);
+      forkAxis.set(0, 1, 0).applyAxisAngle(AXIS_X, fork.rotation.x);
+      gripAt.set(seat.x + seat.grip[0], seat.y + seat.grip[1], seat.z + seat.grip[2]).sub(forkAt).applyAxisAngle(forkAxis, surfaces.fork).add(forkAt);
+      Object.assign(turnedSeat, seat);
+      turnedSeat.grip = [gripAt.x - seat.x, gripAt.y - seat.y, gripAt.z - seat.z];
+      return turnedSeat;
     },
     rest,
     update(dt, input) {
@@ -686,7 +783,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       // Each is a turn about its own +Z on top of the tilt `assemble` stood it
       // at, so the matrix stays a rotation (`Turning.tilt`).
       if (parts.steers.length > 0) {
-        wheelTurn += (input.steering * WHEEL_LOCK - wheelTurn) * approach(12, dt);
+        // Aloft, an aircraft's yoke turns with its ailerons.
+        const asked = plane && !input.grounded ? input.aileron : input.steering;
+        wheelTurn += (asked * WHEEL_LOCK - wheelTurn) * approach(12, dt);
         for (const part of parts.steers) part.rotation.z = wheelTurn;
       }
       if (parts.needles.length > 0) {
@@ -702,8 +801,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       }
 
       rotors.update(dt, input);
+      deflect(parts, surfaces, input, dt);
 
-      const steered = isDeflected(parts, wheelTurn);
+      const steered = isDeflected(parts, wheelTurn, surfaces);
       settling =
         input.engine ||
         input.moored ||

@@ -103,6 +103,7 @@ export function createChute(core: PlayerCore, frame: Frame, wallSet: WallChecks,
     s.velocity = s.speed;
     cues.turn = 0;
     cues.look = 0;
+    cues.back = false;
     s.lean = open ? s.steering * CHUTE_SWING : 0;
     s.height = position.length() + s.vertical * dt;
     const ground = standingRadius(position);

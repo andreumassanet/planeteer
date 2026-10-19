@@ -1,5 +1,6 @@
 /** The HUD's elements: the bar, the place badge, the cards, the pause and welcome screens and the sheet. */
 import { h, icon, kbd } from '../ui.ts';
+import { createSpeedometer } from './speedometer.ts';
 import type { HudOptions } from './types.ts';
 
 /** The bar: the gear, the map and the passport, the clock and the place badge. */
@@ -169,9 +170,11 @@ export function buildDom(options: HudOptions, signal: AbortSignal) {
   const status = buildStatus();
   const welcome = buildWelcome();
   const sheet = buildSheet();
-  root.append(bar.bar, h('div', { class: 'atlas-side' }, cards.destination, cards.found), cards.waypoint, status.hintsCard, status.toast, status.prompt, status.pause, status.perf, welcome.welcomeRoot, sheet.sheet);
+  const speedometer = createSpeedometer();
+  root.append(bar.bar, h('div', { class: 'atlas-side' }, cards.destination, cards.found), cards.waypoint, status.hintsCard, status.toast, status.prompt, status.pause, status.perf, speedometer.element, welcome.welcomeRoot, sheet.sheet);
   return {
     root,
+    speedometer,
     ...bar,
     ...cards,
     ...status,

@@ -79,6 +79,8 @@ export const WALL_RELEASE = 4;
 export const MIN_ELEVATION = -22 * DEG;
 export const MAX_ELEVATION = 80 * DEG;
 export const MAX_ELEVATION_RIDING = 89.5 * DEG;
+/** A vehicle's lens never goes under its pivot's level: low behind a car it sees only the road. */
+export const MIN_ELEVATION_RIDING = 2 * DEG;
 /**
  * Where the explicit roll fades in, as |view direction . up|. The blend is
  * invisible: with the camera offset in the plane of `up` and `heading`, the
@@ -149,8 +151,13 @@ export const FRAMING_RATE = 2.2;
 
 // ---- swinging back behind the player ---------------------------------------
 
-/** How fast a look taken from a craft comes back behind its bow (the mouse's share). */
+/**
+ * How fast a look taken from a craft comes back behind its bow (the mouse's
+ * share), once the mouse has rested `RECENTRE_DELAY` seconds; it fades in over
+ * `RETURN_EASE`.
+ */
 export const RECENTRE_RATE = 1.4;
+export const RECENTRE_DELAY = 0.8;
 /**
  * How far the view trails a craft's own turn, in seconds of that turn. Not zero:
  * the trail is what shows a turn from astern.
@@ -183,6 +190,12 @@ export const LOOK_DEADZONE = 0.002;
 
 /** The eye sits half a head under the crown of the seven-head body. */
 export const EYE_HEIGHT = AVATAR_HEIGHT * 0.93;
+/**
+ * How far ahead of the body's axis the eye sits, along the way the body faces:
+ * the eyes are at the front of the head, and from there looking down sees the
+ * chest and the feet rather than the inside of the collar.
+ */
+export const EYE_AHEAD = AVATAR_HEIGHT * 0.045;
 /** On a bench the eye comes down with the head, to the `Sit` clip's. */
 export const SEATED_EYE_HEIGHT = AVATAR_HEIGHT * SIT_EYE;
 /** How far the eye tips, measured from level (positive is looking down). */
@@ -201,3 +214,17 @@ export const COCKPIT_RETURN_DELAY = 1;
 export const COCKPIT_RETURN = 1.5;
 /** A vehicle's +Z is ahead and a camera looks down its own -Z: a half turn between them. */
 export const ABOUT_FACE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+
+/**
+ * An aircraft aloft is chased in its own frame (`flight.ts`): the lens turns
+ * with its nose and wings at `FLIGHT_FOLLOW_RATE` a second, and the wings' roll
+ * is softened by leaning the lens's up `FLIGHT_ROLL_KEEP` of the way back to
+ * the surface's (under 1, so a plane on its back still turns the view over).
+ * Framed from higher than `FLIGHT_FADE_FROM` over the horizon, as the map view
+ * of a climb is, it fades back to the heading's level chase by `FLIGHT_FADE_TO`;
+ * full control is always followed.
+ */
+export const FLIGHT_FOLLOW_RATE = 4;
+export const FLIGHT_ROLL_KEEP = 0.5;
+export const FLIGHT_FADE_FROM = 25 * DEG;
+export const FLIGHT_FADE_TO = 50 * DEG;

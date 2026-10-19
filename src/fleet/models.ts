@@ -31,6 +31,8 @@ export const KIND_OF: Readonly<Record<string, CraftKind>> = {
   ...Object.fromEntries((Object.entries(FLEET_MODELS) as [CraftKind, string][]).map(([kind, id]) => [id, kind])),
   scooter: 'motorbike',
   pickup: 'jeep',
+  saloon: 'car',
+  minibus: 'van',
 };
 
 /** The kinds that stand in the water rather than on the ground. */

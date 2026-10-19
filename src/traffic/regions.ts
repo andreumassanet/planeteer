@@ -63,7 +63,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'bicycle', weight: 4 },
       { item: 'scooter', weight: 2 },
       { item: 'city-bus', weight: 2 },
-      { item: 'box-truck', weight: 1 },
     ],
     water: [
       { item: 'sailing-dinghy', weight: 3 },
@@ -89,8 +88,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'minibus', weight: 3 },
       { item: 'panel-van', weight: 2 },
       { item: 'farm-tractor', weight: 2 },
-      { item: 'hand-cart', weight: 1 },
-      { item: 'box-truck', weight: 2 },
     ],
     water: [
       { item: 'rowing-boat', weight: 5 },
@@ -130,7 +127,7 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
   maghreb: {
     id: 'maghreb',
     name: 'Maghreb',
-    note: 'A white pickup, a shared minibus, and a hand-cart in the alley the pickup cannot enter.',
+    note: 'A white pickup, a shared minibus, and a scooter in the alley the pickup cannot enter.',
     paint: [P.white, P.cream, P.bone, P.sand, P.skyBlue, P.slate],
     trim: [...RUBBER],
     glass: [...GLAZING],
@@ -139,10 +136,8 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
     road: [
       { item: 'pickup-truck', weight: 6 },
       { item: 'minibus', weight: 5 },
-      { item: 'hand-cart', weight: 4 },
       { item: 'saloon-car', weight: 3 },
       { item: 'scooter', weight: 3 },
-      { item: 'box-truck', weight: 2 },
       { item: 'farm-tractor', weight: 1 },
     ],
     water: [
@@ -166,9 +161,7 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'minibus', weight: 8 },
       { item: 'scooter', weight: 7 },
       { item: 'pickup-truck', weight: 6 },
-      { item: 'hand-cart', weight: 4 },
       { item: 'bicycle', weight: 3 },
-      { item: 'box-truck', weight: 3 },
       { item: 'saloon-car', weight: 2 },
     ],
     water: [
@@ -193,8 +186,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'saloon-car', weight: 5 },
       { item: 'boxy-suv', weight: 5 },
       { item: 'minibus', weight: 3 },
-      { item: 'box-truck', weight: 2 },
-      { item: 'hand-cart', weight: 2 },
     ],
     water: [
       { item: 'fishing-boat', weight: 5 },
@@ -207,7 +198,7 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
   'south-asia': {
     id: 'south-asia',
     name: 'South Asia',
-    note: 'Auto-rickshaws three abreast, a painted lorry, and a hand-cart holding the whole street up.',
+    note: 'Auto-rickshaws three abreast, a painted lorry, and a scooter holding the whole street up.',
     paint: [P.gold, P.white, P.skyBlue, P.crimson, P.cream, P.green, P.orange],
     trim: [...RUBBER],
     glass: [...GLAZING],
@@ -217,8 +208,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'auto-rickshaw', weight: 9 },
       { item: 'scooter', weight: 7 },
       { item: 'bicycle', weight: 5 },
-      { item: 'box-truck', weight: 4 },
-      { item: 'hand-cart', weight: 4 },
       { item: 'minibus', weight: 3 },
       { item: 'hatchback', weight: 3 },
     ],
@@ -233,14 +222,14 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
   'east-asia': {
     id: 'east-asia',
     name: 'East Asia',
-    note: 'A kei truck backed into a gap no other vehicle would fit, bicycles, a white hatchback.',
+    note: 'A white pickup backed into a gap, bicycles, a white hatchback.',
     paint: [P.white, P.bone, P.steel, P.slate, P.crimson, P.cream],
     trim: [...RUBBER],
     glass: [...GLAZING],
     metal: [P.bone, P.steel, P.slate],
     cargo: [P.tan, P.brown, P.green, P.olive],
     road: [
-      { item: 'kei-truck', weight: 7 },
+      { item: 'pickup-truck', weight: 5 },
       { item: 'hatchback', weight: 6 },
       { item: 'bicycle', weight: 6 },
       { item: 'scooter', weight: 4 },
@@ -268,11 +257,10 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
     road: [
       { item: 'scooter', weight: 12 },
       { item: 'auto-rickshaw', weight: 5 },
-      { item: 'kei-truck', weight: 3 },
+      { item: 'pickup-truck', weight: 3 },
       { item: 'minibus', weight: 3 },
       { item: 'hatchback', weight: 3 },
       { item: 'bicycle', weight: 3 },
-      { item: 'box-truck', weight: 2 },
     ],
     water: [
       { item: 'rowing-boat', weight: 7 },
@@ -295,7 +283,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'pickup-truck', weight: 8 },
       { item: 'boxy-suv', weight: 6 },
       { item: 'saloon-car', weight: 4 },
-      { item: 'box-truck', weight: 2 },
       { item: 'city-bus', weight: 2 },
       { item: 'panel-van', weight: 2 },
       { item: 'farm-tractor', weight: 1 },
@@ -312,7 +299,7 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
   'latin-america': {
     id: 'latin-america',
     name: 'Latin America',
-    note: 'A colectivo with the door open, a pickup with people in the back, a cart on the shoulder.',
+    note: 'A colectivo with the door open, a pickup with people in the back, a bicycle on the shoulder.',
     paint: [P.white, P.cream, P.skyBlue, P.red, P.gold, P.bone, P.green],
     trim: [...RUBBER],
     glass: [...GLAZING],
@@ -323,8 +310,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'pickup-truck', weight: 6 },
       { item: 'hatchback', weight: 4 },
       { item: 'auto-rickshaw', weight: 3 },
-      { item: 'hand-cart', weight: 3 },
-      { item: 'box-truck', weight: 3 },
       { item: 'city-bus', weight: 2 },
     ],
     water: [
@@ -349,7 +334,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
       { item: 'boxy-suv', weight: 5 },
       { item: 'saloon-car', weight: 3 },
       { item: 'hatchback', weight: 2 },
-      { item: 'box-truck', weight: 2 },
       { item: 'farm-tractor', weight: 2 },
       { item: 'city-bus', weight: 1 },
     ],
@@ -374,7 +358,6 @@ export const TRAFFIC_STYLES: Record<RegionId, TrafficStyle> = {
     road: [
       { item: 'boxy-suv', weight: 5 },
       { item: 'pickup-truck', weight: 4 },
-      { item: 'hand-cart', weight: 1 },
     ],
     water: [
       { item: 'fishing-boat', weight: 6 },

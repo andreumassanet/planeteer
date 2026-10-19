@@ -6,6 +6,7 @@ import {
   COCKPIT_DOWN,
   DOWN_BY_KIND,
   EYE_FOCUS,
+  EYE_AHEAD,
   EYE_HEIGHT,
   EYE_MAX_ELEVATION,
   EYE_MIN_ELEVATION,
@@ -43,9 +44,13 @@ export function createFirstPerson(core: CameraCore, placement: Placement) {
     return true;
   }
 
-  /** Shows or hides the avatar. */
-  function showBody(player: CameraSubject, visible: boolean): void {
+  /**
+   * Shows or hides the avatar. With the eye in the head on foot the body stays
+   * drawn and only its head is folded away (`setEyeInHead`).
+   */
+  function showBody(player: CameraSubject, visible: boolean, inHead = false): void {
     player.setBodyVisible(visible);
+    player.setEyeInHead(inHead);
   }
 
   /**
@@ -57,7 +62,8 @@ export function createFirstPerson(core: CameraCore, placement: Placement) {
     s.pitch = clamp(s.pitch, EYE_MIN_ELEVATION, EYE_MAX_ELEVATION);
     const elevation = s.pitch;
 
-    camera.position.copy(player.position).addScaledVector(player.up, (player.sitting ? SEATED_EYE_HEIGHT : EYE_HEIGHT) - player.sink);
+    camera.position.copy(player.position).addScaledVector(player.up, (player.sitting ? SEATED_EYE_HEIGHT : EYE_HEIGHT) - player.sink)
+      .addScaledVector(player.forward, EYE_AHEAD);
     offset.copy(heading).multiplyScalar(Math.cos(elevation))
       .addScaledVector(player.up, -Math.sin(elevation));
     // `aimAt` takes its target in `pivot`, and going through it rather than

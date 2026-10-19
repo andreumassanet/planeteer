@@ -53,6 +53,8 @@ export interface SettingsOptions {
   shake?: Toggle;
   /** Rain, snow, storms and fog; off is clear skies. Omit it and the row is not built. */
   weather?: Toggle;
+  /** What the speedometer reads in, and whether boats and aircraft read in knots. Omit it and the rows are not built. */
+  units?: { speed: Choice; nautical: Toggle };
   /** A vehicle's keys, for a moment as you take it (`boardingHints`). */
   hints: Toggle;
   /** How many pixels the world is drawn at, against the screen's own. */

@@ -40,6 +40,11 @@ export function createStance(core: PlayerCore) {
     s.aloft = 0;
     s.turnRate = 0;
     s.roll = 0;
+    s.aerobatic = false;
+    s.recovering = false;
+    s.attitude.identity();
+    s.elevator = 0;
+    s.aileron = 0;
     s.climbRate = 0;
     s.climbing = 0;
     s.goAround = 0;

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { Avatar } from '../avatar.ts';
 import { buildAvatar } from '../avatar.ts';
 import type { World } from '../geo.ts';
-import { groundRadius } from '../globe.ts';
+import { PLANET_RADIUS, groundRadius } from '../globe.ts';
 import type { PlayerState } from '../craft/contract.ts';
 import type { CraftMotion } from '../craft/motion.ts';
 import { newChuteSwing } from '../craft/parachute.ts';
@@ -32,6 +32,8 @@ export interface PlayerFields {
   bodyWanted: boolean;
   /** First person in a seat: see `setCockpit`. */
   cockpit: boolean;
+  /** First person on foot: see `setEyeInHead`. */
+  eyeInHead: boolean;
   /** Out of an aircraft: falling (`chute` true, `canopy` 0) and under the canopy (`canopy` its age, seconds). */
   chute: boolean;
   canopy: number;
@@ -81,6 +83,16 @@ export interface PlayerFields {
   turnRate: number;
   /** How far the plane is rolled into a turn, -1 to 1, positive to the left. */
   roll: number;
+  /** The plane in full control (`aerobatics.ts`), and levelling off on its way back to simple control. */
+  aerobatic: boolean;
+  recovering: boolean;
+  /** The plane's chosen flight: aerobatics (`X`, or the stick aloft) or travel, the default. */
+  aeroWanted: boolean;
+  /** In full control, the plane's attitude in the surface frame (side, up, forward): pitch and roll, no yaw. */
+  attitude: THREE.Quaternion;
+  /** The control surfaces as the motion draws them, -1 to 1: nose up, roll right. */
+  elevator: number;
+  aileron: number;
   climbRate: number;
   swell: number;
   /** How hard a vehicle on wheels is pulling away, eased; and a motorbike's front wheel off the road for it. */
@@ -132,7 +144,7 @@ export interface PlayerCore {
   /** The movement keys as a vehicle reads them: see `levers`. */
   readonly stick: { x: number; y: number };
   /** What the walk tells the body besides its speed: how fast it turned, and how far the camera looks off its facing. */
-  readonly cues: { turn: number; look: number };
+  readonly cues: { turn: number; look: number; back: boolean };
   readonly chuteSwing: ReturnType<typeof newChuteSwing>;
   readonly chuteTrail: [number, number];
   /** Where a passenger was last frame, for his speed. */
@@ -192,6 +204,7 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     grounded: false,
     bodyWanted: true,
     cockpit: false,
+    eyeInHead: false,
     chute: false,
     canopy: 0,
     spread: 0,
@@ -223,6 +236,12 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     sinceCrash: CRASH_QUIET,
     turnRate: 0,
     roll: 0,
+    aerobatic: false,
+    recovering: false,
+    aeroWanted: false,
+    attitude: new THREE.Quaternion(),
+    elevator: 0,
+    aileron: 0,
     climbRate: 0,
     swell: 0,
     surge: 0,
@@ -241,7 +260,17 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     splashReach: SWIM_SPLASH,
   };
 
-  const landAt = options.groundAt ?? ((at: THREE.Vector3): number => groundRadius(world, at));
+  const drawnAt = options.groundAt ?? ((at: THREE.Vector3): number => groundRadius(world, at));
+  // Over the water the apron's dry half is ground too: the sea floor, where it stands over the sea.
+  const floorAt = options.seaFloorAt;
+  const landAt = floorAt === undefined
+    ? drawnAt
+    : (at: THREE.Vector3): number => {
+        const drawn = drawnAt(at);
+        if (drawn > PLANET_RADIUS + 1e-3) return drawn;
+        const floor = floorAt(at);
+        return floor > drawn ? floor : drawn;
+      };
 
   function standingRadius(at: THREE.Vector3): number {
     const relief = landAt(at);
@@ -267,7 +296,7 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     motion: new THREE.Vector3(),
     controls: { lift: 0 },
     stick: { x: 0, y: 0 },
-    cues: { turn: 0, look: 0 },
+    cues: { turn: 0, look: 0, back: false },
     chuteSwing: newChuteSwing(),
     chuteTrail: [0, 0],
     carried: new THREE.Vector3(),

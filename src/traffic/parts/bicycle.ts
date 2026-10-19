@@ -1,3 +1,4 @@
+import { RIDDEN_SECTION } from '../contract.ts';
 import type { Vehicle } from '../contract.ts';
 
 /**
@@ -15,6 +16,8 @@ export const bicycle: Vehicle = {
   name: 'Bicycle',
   kind: 'cycle',
   size: [2.52, 0.66, 1.37],
+  // Ridden by the hero's own size: placed as the craft that takes it.
+  section: RIDDEN_SECTION,
   note: 'Quaternius square-frame bicycle, with its rider.',
   mounts: [
     {

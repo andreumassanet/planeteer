@@ -34,6 +34,8 @@ export const BUDGET: Record<string, number> = {
   jeep: 3000,
   pickup: 3000,
   tractor: 3000,
+  saloon: 3000,
+  minibus: 3500,
   // Four rows in a lined, furnished cabin, with its glass.
   bus: 3500,
   scooter: 1500,
@@ -54,7 +56,7 @@ export const LAMP_ON = 0.02;
 /** Seats a craft must have at least. */
 export const SEATS_AT_LEAST: Record<string, number> = {
   hatchback: 4, van: 2, launch: 4, 'light-plane': 4, balloon: 4,
-  bus: 8, helicopter: 4, 'tuk-tuk': 3, motorbike: 2, 'jet-ski': 2, sailboat: 2, jeep: 2, pickup: 2, submarine: 2,
+  bus: 8, minibus: 4, saloon: 2, helicopter: 4, 'tuk-tuk': 3, motorbike: 2, 'jet-ski': 2, sailboat: 2, jeep: 2, pickup: 2, submarine: 2,
 };
 
 // --- the ids -------------------------------------------------------------

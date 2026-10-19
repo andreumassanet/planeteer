@@ -16,6 +16,7 @@ import './check-fleet/sites.ts';
 import './check-fleet/cars.ts';
 import './check-fleet/fields.ts';
 import './check-fleet/placing.ts';
+import './check-fleet/harbours.ts';
 import './check-fleet/rockets.ts';
 import './check-fleet/link.ts';
 import './check-fleet/ride.ts';

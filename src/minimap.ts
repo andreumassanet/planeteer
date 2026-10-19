@@ -2,7 +2,7 @@
  * The disc in the corner: where you are, at the scale of where you are.
  *
  * A local map. Its half-width is the ground you will cover: `LOCAL_VIEW` round
- * you on foot, opening by `SPEED_VIEW` seconds of whatever you are moving at,
+ * you on foot, closing to `TOWN_VIEW` inside a town's buildings, opening by `SPEED_VIEW` seconds of whatever you are moving at,
  * and to the horizon in the air, clamped to [`MIN_VIEW`, `MAX_VIEW`]. It turns
  * with the camera (what is ahead on the screen is up the disc) and an `N`
  * rides round the rim to say where north went. The country as a shape is the

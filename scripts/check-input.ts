@@ -314,13 +314,89 @@ test('the gestures the chat has are keys too: a wave and a dance, rebindable', (
   const listed = CONTROL_SECTIONS.flatMap((section) => section.rows.flatMap((row) => (row.action === undefined ? [] : [row.action])));
   assert.ok(listed.includes('dance'), 'the controls page lists the dance');
   try {
-    rebind('dance', 'KeyK');
-    assert.equal(actionOf('KeyK'), 'dance');
+    rebind('dance', 'KeyZ');
+    assert.equal(actionOf('KeyZ'), 'dance');
     assert.equal(actionOf('KeyF'), undefined);
   } finally {
     resetBindings();
   }
   assert.equal(actionOf('KeyF'), 'dance');
+});
+
+test('a plane\'s stick: I and K pitch, J and L roll, the numpad too, and R levels once a press', () => withInput((input, keys) => {
+  key(keys, 'keydown', 'KeyK');
+  assert.deepEqual(input.state.attitude, { pitch: 1, roll: 0 }, 'K pulls the nose up');
+  key(keys, 'keydown', 'KeyI');
+  assert.equal(input.state.attitude.pitch, 0, 'I and K together cancel');
+  key(keys, 'keyup', 'KeyK');
+  assert.equal(input.state.attitude.pitch, -1, 'I pushes it down');
+  key(keys, 'keyup', 'KeyI');
+  key(keys, 'keydown', 'KeyJ');
+  assert.deepEqual(input.state.attitude, { pitch: 0, roll: -1 }, 'J rolls left');
+  key(keys, 'keydown', 'Numpad6');
+  assert.equal(input.state.attitude.roll, 0, 'the numpad rolls right against it');
+  key(keys, 'keyup', 'KeyJ');
+  assert.equal(input.state.attitude.roll, 1);
+  key(keys, 'keyup', 'Numpad6');
+  // The rudder is the movement keys': the stick leaves them alone.
+  key(keys, 'keydown', 'KeyA');
+  key(keys, 'keydown', 'KeyL');
+  assert.deepEqual(input.state.move, { x: -1, y: 0 });
+  assert.equal(input.state.attitude.roll, 1);
+  key(keys, 'keyup', 'KeyA');
+  key(keys, 'keyup', 'KeyL');
+  assert.equal(key(keys, 'keydown', 'KeyX').defaultPrevented, true, 'X is the world\'s');
+  assert.equal(input.state.flightMode, true);
+  input.endFrame();
+  key(keys, 'keydown', 'KeyX', true);
+  assert.equal(input.state.flightMode, false, 'a held X switches once');
+  key(keys, 'keyup', 'KeyX');
+  // A card taking the keys lets go of the stick.
+  let open = false;
+  const unregister = registerModal(() => open);
+  try {
+    key(keys, 'keydown', 'KeyK');
+    key(keys, 'keydown', 'KeyL');
+    open = true;
+    assert.deepEqual(input.state.attitude, { pitch: 0, roll: 0 });
+  } finally {
+    unregister();
+  }
+}));
+
+test('J is the plane\'s roll, and the passport is on N', () => {
+  assert.equal(actionOf('KeyJ'), 'rollLeft');
+  assert.equal(actionOf('KeyL'), 'rollRight');
+  assert.equal(actionOf('KeyI'), 'pitchDown');
+  assert.equal(actionOf('KeyK'), 'pitchUp');
+  assert.equal(actionOf('KeyX'), 'flightMode');
+  assert.equal(codeOf('passport'), 'KeyN');
+  assert.equal(labelOf('passport'), 'N');
+  try {
+    // Rebound back onto J, the passport swaps its N to the roll.
+    assert.deepEqual(rebind('passport', 'KeyJ'), { ok: true, swapped: 'rollLeft', took: null });
+    assert.deepEqual(BINDINGS.rollLeft, ['KeyN', 'Numpad4']);
+  } finally {
+    resetBindings();
+  }
+});
+
+test('a passport kept on J from before keeps it, and the roll falls back to the numpad', async () => {
+  const stored = new Map([['atlas.keys.v1', JSON.stringify({ passport: ['KeyJ'] })]]);
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: (k: string) => stored.get(k) ?? null, setItem: () => {}, removeItem: () => {} },
+  });
+  try {
+    const fresh = (await import(new URL('../src/controls.ts?passport', import.meta.url).href)) as typeof import('../src/controls.ts');
+    assert.equal(fresh.codeOf('passport'), 'KeyJ');
+    assert.deepEqual(fresh.BINDINGS.rollLeft, ['Numpad4']);
+    assert.equal(fresh.actionOf('KeyN'), undefined, 'N is nobody\'s then');
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
 });
 
 test('a rebinding tells whoever draws key caps', () => {
@@ -348,6 +424,7 @@ test('the keys of the moment: none on foot, the climb and the descent in the air
   assert.ok(air !== null && air.once && !air.sticky);
   const keys = air.hints.flatMap((hint) => hint.keys);
   for (const action of ['jump', 'descend'] as const) assert.ok(keys.includes(action), action);
+  for (const action of ['pitchDown', 'pitchUp', 'rollLeft', 'rollRight', 'flightMode'] as const) assert.ok(keys.includes(action), `the plane aloft says ${action}`);
   const stranded = boardingHints('passenger', true, true);
   assert.ok(stranded !== null && stranded.sticky);
   const aboard = boardingHints('passenger', true, false);

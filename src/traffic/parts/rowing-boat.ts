@@ -1,3 +1,4 @@
+import { RIDDEN_SECTION } from '../contract.ts';
 import type { Vehicle } from '../contract.ts';
 
 /**
@@ -13,6 +14,8 @@ export const rowingBoat: Vehicle = {
   name: 'Rowing boat',
   kind: 'craft',
   size: [3.03, 3.5, 0.8],
+  // Crewed by the hero's size, as every vehicle a person rides.
+  section: RIDDEN_SECTION,
   note: 'Kenney row boat, oars out, sitting in the water.',
   mounts: [
     { x: 0, y: 0.35, z: -0.2, yaw: 0, pose: 'sit', driver: true, headroom: Infinity, legroom: 0.62, beam: Infinity, grip: [0, 0.75, 0.5] },

@@ -3,12 +3,11 @@
  * `hatchback-sports`, `van`, `suv` (the jeep), `truck` (the pickup) and
  * `tractor` (Car Kit, CC0) and Quaternius's `Bus` (Public Transport, CC0).
  *
- * The traffic fits these models to a lane (`PLACED_SECTION` in
- * `traffic/contract.ts`), which is too small to hold a seated body. Here they
- * are fitted so the roof clears the head of the person in it: the seated hip,
- * plus the crown over it, plus headroom. The car comes out a third larger than
- * the traffic's, and two of them are wider than a 7.2 road; it stands at a
- * road's end and does not pass anyone.
+ * Each is drawn at exactly the size its traffic part is placed at (the
+ * part's `fit` times its `section`), so the car passing in the street, the
+ * one parked at the kerb and the one driven off are one size. The part's
+ * section is the least at which the hero sits at the wheel under the roof;
+ * `seatsOf` throws where the crown would be through it.
  *
  * Window triangles are taken out of the shell and drawn as glass (`windowsOf`,
  * `glassMaterial`), the shell is lined inside (`liner` in `cabin.ts`) and the
@@ -32,7 +31,16 @@ import { bodyPaint, isGlass, paintColors } from '../models.ts';
 import type { Model } from '../models.ts';
 import { PALETTE } from '../theme.ts';
 import { tone } from '../monuments/contract.ts';
-import { PLACED_SECTION, RIDER_HEIGHT } from '../traffic/contract.ts';
+import { placedScale } from '../traffic/contract.ts';
+import type { Vehicle } from '../traffic/contract.ts';
+import { hatchback } from '../traffic/parts/hatchback.ts';
+import { saloonCar } from '../traffic/parts/saloon-car.ts';
+import { boxySuv } from '../traffic/parts/boxy-suv.ts';
+import { panelVan } from '../traffic/parts/panel-van.ts';
+import { minibus } from '../traffic/parts/minibus.ts';
+import { pickupTruck } from '../traffic/parts/pickup-truck.ts';
+import { farmTractor } from '../traffic/parts/farm-tractor.ts';
+import { cityBus } from '../traffic/parts/city-bus.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import type { WheelGrip } from '../cast.ts';
 import { ABREAST, HERO } from './body.ts';
@@ -44,21 +52,17 @@ import type { CabinBox, RoadCabin, ShellProbe, WheelArch, WheelKind } from './ca
 const H = AVATAR_HEIGHT;
 
 /**
- * The scale the pack's cars are drawn at: a hip a sole over a floor a
- * twenty-fifth of a body up, the crown over it and the same again of headroom.
+ * How many units of the world one of the pack's is, as the traffic places
+ * `part` drawn off `model`: its `fit` against the model's own box, times the
+ * section it is placed at. The one size of that vehicle everywhere.
  */
-const CAR_HIP = HERO.sole + 0.04 * H;
-/** The roof: the hip, the crown over it, and the same again of headroom. */
-const CAR_ROOF = CAR_HIP + HERO.crown + 0.04 * H;
-
-/** What the pack model is fitted to: the hatchback's roof, and the van at the same scale. */
-const FIT_MODEL = 'hatchback-sports';
-
-/** How many units of the world one of the pack's is, so the roof clears a seated head. */
-function carScale(models: ReadonlyMap<string, Model>): number {
-  const hatch = models.get(FIT_MODEL);
-  if (hatch === undefined) throw new Error(`craft: the traffic kit has no '${FIT_MODEL}'`);
-  return CAR_ROOF / (hatch.box.max.y - hatch.box.min.y);
+export function placedModelScale(part: Vehicle, model: Model): number {
+  const fit = part.fit;
+  if (fit === undefined) throw new Error(`craft: traffic part '${part.id}' declares no fit`);
+  const size = model.box.getSize(new THREE.Vector3());
+  const k = fit.width !== undefined ? fit.width / size.x : fit.length !== undefined ? fit.length / size.z : NaN;
+  if (!Number.isFinite(k)) throw new Error(`craft: traffic part '${part.id}' fits by neither width nor length`);
+  return k * placedScale(part)[0];
 }
 
 /** Where a model's roof runs along its length, in the pack's units: z of every vertex in its top twentieth. */
@@ -76,6 +80,7 @@ function roofOf(model: Model): [number, number] {
   return [aft, fore];
 }
 
+/** The slots a Kenney car's road wheels are drawn in, its tyre and hub; `CarSpec.wheels` names another pack's. */
 const WHEEL_SLOTS = /^(Tyre|Hub)$/;
 
 /**
@@ -236,7 +241,7 @@ export function windowsOf(model: Model, isPane: (slot: string, colour: THREE.Col
  * on y = 0, a uniform positive scale, so the normals carry over. With
  * `windows` absent the glass stays in the body, painted slate (`parkedArrays`).
  */
-function carSoups(model: Model, k: number, body: number, slots?: RegExp, windows?: Uint8Array): { still: Soup; glass: Soup; wheels: Turning[] } {
+function carSoups(model: Model, k: number, body: number, slots?: RegExp, windows?: Uint8Array, wheelSlots = WHEEL_SLOTS): { still: Soup; glass: Soup; wheels: Turning[] } {
   const colours = paintColors(model, bodyPaint(model, body, isGlass, slots));
   const position = model.geometry.getAttribute('position');
   const normal = model.geometry.getAttribute('normal');
@@ -252,7 +257,7 @@ function carSoups(model: Model, k: number, body: number, slots?: RegExp, windows
   const base = model.box.min.y;
 
   // The body's triangles, the windows', and the road wheels' (`wheelsOf`); a spare is body.
-  const wheelSlot = model.slots.map((slot) => WHEEL_SLOTS.test(slot));
+  const wheelSlot = model.slots.map((slot) => wheelSlots.test(slot));
   const found = wheelsOf(model, (t) => wheelSlot[model.slot[vertexOf(t * 3)]!]!);
   const onWheel = new Uint8Array(triangleCount);
   for (const wheel of found.road) for (const t of wheel.triangles) onWheel[t] = 1;
@@ -396,18 +401,23 @@ export interface CarSpec {
   front?: number;
   paints: readonly number[];
   /**
-   * World units a unit of the pack's, if not the hatchback's own (`carScale`):
-   * the bus is Quaternius's and not Kenney's, and is drawn at the traffic's own
-   * size, whose roof already clears a seated head by a body's height.
+   * The traffic's part drawn off the same model, whose placed size this craft
+   * takes (`placedModelScale`); absent for a cab furnished elsewhere
+   * (`worlds/cockpit.ts`), which says its own scale.
    */
-  scale?: (model: Model) => number;
+  part?: Vehicle;
+  /** The model's bodywork slots, where the paint does not find them by itself. */
+  body?: RegExp;
+  /** The slots its road wheels are drawn in, if not the Kenney cars' `Tyre` and `Hub`. */
+  wheels?: RegExp;
 }
 
-const SPECS: readonly CarSpec[] = [
+export const CAR_SPECS: readonly CarSpec[] = [
   {
     id: 'hatchback',
     kind: 'car',
     model: 'hatchback-sports',
+    part: hatchback,
     legs: 'drive',
     wheel: 'car',
     rows: 1,
@@ -417,9 +427,11 @@ const SPECS: readonly CarSpec[] = [
     id: 'van',
     kind: 'van',
     model: 'van',
+    part: panelVan,
     legs: 'drive',
     wheel: 'car',
-    rows: 2,
+    // Two rows: a third would sit through the back doors at the van's size.
+    rows: 1,
     paints: [PALETTE.white, PALETTE.skyBlue, PALETTE.gold, PALETTE.red, PALETTE.green],
   },
   // Kenney's `suv`, with its spare wheel on the tailgate, is the jeep: the
@@ -428,6 +440,7 @@ const SPECS: readonly CarSpec[] = [
     id: 'jeep',
     kind: 'jeep',
     model: 'suv',
+    part: boxySuv,
     legs: 'drive',
     wheel: 'car',
     rows: 1,
@@ -438,6 +451,7 @@ const SPECS: readonly CarSpec[] = [
     id: 'pickup',
     kind: 'jeep',
     model: 'truck',
+    part: pickupTruck,
     legs: 'drive',
     wheel: 'car',
     rows: 0,
@@ -448,6 +462,7 @@ const SPECS: readonly CarSpec[] = [
     id: 'tractor',
     kind: 'tractor',
     model: 'tractor',
+    part: farmTractor,
     legs: 'chair',
     // Its cab is a box of its own, closed at the front, too short for the
     // legs to go forward to pedals under a bonnet as a car's do; upright on a
@@ -460,24 +475,48 @@ const SPECS: readonly CarSpec[] = [
     single: true,
     paints: [PALETTE.red, PALETTE.green, PALETTE.gold, PALETTE.skyBlue],
   },
-  // Quaternius's `Bus` at the traffic's own width, four rows of two: the
-  // driver and seven more, which is every seat the relay keeps.
+  // Quaternius's `Bus`, four rows of two: the driver and seven more, which
+  // is every seat the relay keeps. The pack's bus is grey and white, so the
+  // paint names its bodywork slots.
   {
     id: 'bus',
     kind: 'bus',
     model: 'bus',
+    part: cityBus,
+    body: /^(Top|Bottom)$/,
+    wheels: /^Material$/,
     legs: 'chair',
     wheel: 'bus',
     rows: 3,
     paints: [PALETTE.gold, PALETTE.red, PALETTE.skyBlue, PALETTE.white, PALETTE.green],
-    scale: (model) => BUS_WIDTH / (model.box.max.x - model.box.min.x),
+  },
+  // Kenney's `sedan`, the saloon: two rows, as the hatchback.
+  {
+    id: 'saloon',
+    kind: 'car',
+    model: 'sedan',
+    part: saloonCar,
+    legs: 'drive',
+    wheel: 'car',
+    rows: 0,
+    paints: [PALETTE.white, PALETTE.slate, PALETTE.red, PALETTE.skyBlue, PALETTE.gold],
+  },
+  // Quaternius's `Ambulance` painted out, the minibus: a cab and rows behind it.
+  {
+    id: 'minibus',
+    kind: 'van',
+    model: 'ambulance',
+    part: minibus,
+    body: /^(White|Red)$/,
+    wheels: /^Material$/,
+    // Upright as a bus driver sits, a little back from its short bonnet.
+    legs: 'chair',
+    wheel: 'bus',
+    front: 0.7,
+    rows: 1,
+    paints: [PALETTE.white, PALETTE.skyBlue, PALETTE.gold, PALETTE.green, PALETTE.red],
   },
 ];
-
-/** The bus's width: the traffic's own, 3.3 at `PLACED_SECTION`, so the one a town parks is the one taken. */
-const BUS_WIDTH = 3.3 * PLACED_SECTION;
-/** The slots of the bus's bodywork, the ones the paint names: the pack's bus is grey and white. */
-const BUS_BODY = /^(Top|Bottom|Material)$/;
 
 /** Distance between rows of seats: the pack behind the hip, a seat back, a knee, and a little air. */
 const ROW_PITCH = HERO.back + HERO.knee + 0.08 * H;
@@ -587,9 +626,9 @@ function seatsOf(spec: CarSpec, probe: ShellProbe, screen: Screen, roofFore: num
  */
 export function insideOf(spec: CarSpec, model: Model, k: number, full = true): CarInside {
   const windows = windowsOf(model, spec.isPane, spec.paneArea);
-  const slots = spec.model === 'bus' ? BUS_BODY : undefined;
+  const slots = spec.body;
   // The shell's shape is the same in every paint; the probe and the lining are laid off it once.
-  const { still: shell, glass, wheels } = carSoups(model, k, PALETTE.white, slots, windows);
+  const { still: shell, glass, wheels } = carSoups(model, k, PALETTE.white, slots, windows, spec.wheels);
   const screen = screenOf(glass);
   if (screen === null) throw new Error(`craft ${spec.id}: '${spec.model}' has no windscreen`);
   const probe = probeOf([shell, glass]);
@@ -636,15 +675,16 @@ function archOf(wheel: Turning): WheelArch {
   return { side: wheel.at.x >= 0 ? 1 : -1, inner: Math.abs(wheel.at.x) - halfX, y: wheel.at.y, z: wheel.at.z, radius };
 }
 
-function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>, carK: number): CraftModel {
+function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>): CraftModel {
   const model = models.get(spec.model);
   if (model === undefined) throw new Error(`craft: the traffic kit has no '${spec.model}'`);
-  const k = spec.scale?.(model) ?? carK;
+  if (spec.part === undefined) throw new Error(`craft ${spec.id}: no traffic part to take its size from`);
+  const k = placedModelScale(spec.part, model);
   const inside = insideOf(spec, model, k);
-  const slots = spec.model === 'bus' ? BUS_BODY : undefined;
+  const slots = spec.body;
   const build = (variant: number, body?: number): THREE.Group => {
     const paint = body ?? spec.paints[((variant % spec.paints.length) + spec.paints.length) % spec.paints.length]!;
-    const { still, wheels } = carSoups(model, k, paint, slots, inside.windows);
+    const { still, wheels } = carSoups(model, k, paint, slots, inside.windows, spec.wheels);
     return assemble(spec.id, [still], [...wheels, ...inside.turning], { glass: [inside.glass], cabin: [inside.furnished] });
   };
   return finish({
@@ -662,17 +702,15 @@ function carModel(spec: CarSpec, models: ReadonlyMap<string, Model>, carK: numbe
 
 /** The road craft built off the traffic kit's own models, by name. */
 export function buildCars(models: ReadonlyMap<string, Model>): CraftModel[] {
-  const k = carScale(models);
-  return SPECS.map((spec) => carModel(spec, models, k));
+  return CAR_SPECS.map((spec) => carModel(spec, models));
 }
 
 /** `buildCars` a craft a step, for a caller building over frames. */
 export function* buildCarsSteps(models: ReadonlyMap<string, Model>): Generator<void, CraftModel[], void> {
-  const k = carScale(models);
   const built: CraftModel[] = [];
-  for (const spec of SPECS) {
+  for (const spec of CAR_SPECS) {
     yield;
-    built.push(carModel(spec, models, k));
+    built.push(carModel(spec, models));
   }
   return built;
 }
@@ -683,8 +721,8 @@ export function* buildCarsSteps(models: ReadonlyMap<string, Model>): Generator<v
 
 /**
  * A traffic vehicle's inside, built once per kit model in the frame a craft of
- * that model is laid in (`carSoups`). The traffic draws its vehicles smaller,
- * so the whole inside is carried into the traffic's frame by one uniform scale.
+ * that model is laid in (`carSoups`), and carried into the traffic part's
+ * frame by one uniform scale.
  */
 export interface TrafficInside {
   windows: Uint8Array;
@@ -698,8 +736,8 @@ export interface TrafficInside {
 }
 
 /**
- * How tall the traffic's drivers are, as shares of the traffic's rider
- * (`RIDER_HEIGHT`): the first that fits the vehicle's cabin.
+ * How tall the traffic's drivers are, as shares of the hero: the first that
+ * fits the vehicle's cabin. A vehicle placed as its craft fits the first.
  */
 const DRIVER_SIZES = [1, 0.95, 0.9, 0.85, 0.8, 0.75];
 
@@ -708,19 +746,20 @@ const traffic = new Map<string, TrafficInside | null>();
 
 /**
  * A kit model's inside for the traffic, which draws it `fit` of its own units
- * to one of the part's: laid out at the scale at which the hero is the size of
- * the driver that fits (`DRIVER_SIZES`). Cached per model, fit and side;
- * `rightHand` seats the driver on the right.
+ * to one of the part's and places the part at `section`: laid out at the
+ * scale at which the hero is the size of the driver that fits
+ * (`DRIVER_SIZES`). Cached per model, fit, section and side; `rightHand`
+ * seats the driver on the right.
  */
-export function trafficInside(model: Model, fit: number, rightHand = false): TrafficInside | null {
-  const key = `${model.name}@${fit.toFixed(5)}${rightHand ? 'R' : 'L'}`;
+export function trafficInside(model: Model, fit: number, rightHand = false, section = 1): TrafficInside | null {
+  const key = `${model.name}@${fit.toFixed(5)}x${section.toFixed(5)}${rightHand ? 'R' : 'L'}`;
   const known = traffic.get(key);
   if (known !== undefined) return known;
-  const craft = SPECS.find((entry) => entry.model === model.name);
+  const craft = CAR_SPECS.find((entry) => entry.model === model.name);
   const spec: CarSpec = { ...(craft ?? { id: model.name, kind: 'car', model: model.name, legs: 'drive', wheel: 'car', paints: [PALETTE.white] }), rows: 0, rightHand };
   let value: TrafficInside | null = null;
   for (const size of DRIVER_SIZES) {
-    const k = (AVATAR_HEIGHT * fit) / (RIDER_HEIGHT * size);
+    const k = (fit * section) / size;
     try {
       const inside = insideOf(spec, model, k, false);
       // Nothing turns in a merged mover: the wheel is laid in where it stands.
@@ -760,7 +799,8 @@ function bake(part: Turning): Soup {
 /**
  * Who drives a traffic vehicle, in the part's own frame: the hip, the wheel
  * the hands are put to (`holdWheel` in `cast.ts`) — the craft's own wheel,
- * about the hip, carried to the driver's size — and the body's height there.
+ * about the hip, carried to the driver's size — and the body's height there
+ * (the hero's, over the section the part is placed at).
  */
 export interface TrafficDriver {
   hip: THREE.Vector3;
@@ -774,10 +814,11 @@ export interface TrafficDriver {
  * its inside — lining, front row, dashboard, wheel — as a child in the craft
  * material, and its windows as a child named `'glass'` in the glass's
  * (`glassMaterial`), both carried into the part's frame from the craft's
- * (`TrafficInside`). Returns where each driver goes, for the caller to seat
- * a body there; an empty list where nothing was glazed.
+ * (`TrafficInside`). `section` is the scale the caller places the part at.
+ * Returns where each driver goes, for the caller to seat a body there; an
+ * empty list where nothing was glazed.
  */
-export function glazeTraffic(built: THREE.Object3D, modelOf: (name: string) => Model | null, rightHand = false): TrafficDriver[] {
+export function glazeTraffic(built: THREE.Object3D, modelOf: (name: string) => Model | null, rightHand = false, section = 1): TrafficDriver[] {
   built.updateMatrixWorld(true);
   const found: THREE.Mesh[] = [];
   built.traverse((object) => {
@@ -788,7 +829,7 @@ export function glazeTraffic(built: THREE.Object3D, modelOf: (name: string) => M
   for (const mesh of found) {
     const model = modelOf(mesh.name)!;
     const placed = new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld);
-    const inside = trafficInside(model, new THREE.Vector3().setFromMatrixColumn(placed, 0).length(), rightHand);
+    const inside = trafficInside(model, new THREE.Vector3().setFromMatrixColumn(placed, 0).length(), rightHand, section);
     if (inside === null) continue;
     // The shell without its windows: the same attributes, a new index.
     const source = mesh.geometry;

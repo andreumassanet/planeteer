@@ -84,8 +84,9 @@ export function createFrame(core: PlayerCore) {
   /** Height after a move of `distance` over the ground: follow a rise and a slope down, glide down a step, fall off a cliff. */
   function settle(dt: number, ground: number, drop: number, distance: number): void {
     if (s.airborne) {
+      // Exact under constant gravity, so the arc is the same at any frame rate.
+      s.height += (s.vertical - 0.5 * GRAVITY * dt) * dt;
       s.vertical -= GRAVITY * dt;
-      s.height += s.vertical * dt;
       if (s.height <= ground) {
         s.height = ground;
         if (!isWater(ground)) {

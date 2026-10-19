@@ -43,7 +43,9 @@ export function createFraming(core: CameraCore) {
         // tower, rather than hanging over the water looking down through it.
         framing.height = Math.min(framing.height, AVATAR_HEIGHT * 0.6);
       } else if ((kind === 'plane' || kind === 'balloon' || kind === 'helicopter') && player.airborne) {
-        const t = clamp(player.altitude / PLANE_CEILING, 0, 1);
+        // Full control is flown close behind, low, whatever the height: a map
+        // view would turn a loop into a dot.
+        const t = player.aerobatic === true ? 0 : clamp(player.altitude / PLANE_CEILING, 0, 1);
         // Two different eases: the angle has to open early, or the first thousand
         // units of a climb look like nothing is happening.
         const elevation = mix(FLIGHT_LOW.elevation, FLIGHT_HIGH.elevation, Math.pow(t, 0.6));

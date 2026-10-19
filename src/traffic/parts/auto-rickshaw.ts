@@ -1,3 +1,4 @@
+import { RIDDEN_SECTION } from '../contract.ts';
 import type { Group, TrafficContext, Vehicle } from '../contract.ts';
 
 /**
@@ -16,6 +17,8 @@ export const autoRickshaw: Vehicle = {
   name: 'Auto-rickshaw',
   kind: 'utility',
   size: [3.46, 1.82, 2.56],
+  // Ridden by the hero's own size: placed as the craft that takes it.
+  section: RIDDEN_SECTION,
   note: 'One wheel forward, two aft, a rounded hood over a bench. The only three-wheeler here.',
 
   mounts: [
@@ -55,6 +58,7 @@ export const autoRickshaw: Vehicle = {
       ctx,
       group,
       draft,
+      steer: new THREE.Group(),
       paint,
       glass,
       rubber,
@@ -75,15 +79,28 @@ export const autoRickshaw: Vehicle = {
     addHood(r);
 
     for (const mesh of [...ctx.merge(draft).children]) group.add(mesh);
+    // The bars, the fork, the fender and the front hub, apart and named, so
+    // the craft that takes it can turn them about the line from the front
+    // hub up through the bars.
+    const fork = ctx.merge(r.steer);
+    fork.name = 'fork';
+    fork.userData.axis = { at: [0, radius, r.front], tilt: Math.atan2(BARS_Z - r.front, BARS_Y - radius) };
+    group.add(fork);
     return group;
   },
 };
+
+/** The bars' middle, which the steering turns about with the front hub. */
+const BARS_Y = 1.24;
+const BARS_Z = 1.02;
 
 /** One variant's shared numbers: colours, the wheel layout and the main heights. */
 interface Rickshaw {
   ctx: TrafficContext;
   group: Group;
   draft: Group;
+  /** What turns with the bars, merged on its own. */
+  steer: Group;
   paint: number;
   glass: number;
   rubber: number;
@@ -116,7 +133,7 @@ function addWheels(r: Rickshaw): void {
     const hub = column(r.radius * 0.48, width, r.metal, 8);
     hub.rotation.z = Math.PI / 2;
     hub.position.set(x + width / 2, r.radius, z);
-    r.draft.add(hub);
+    (x === 0 ? r.steer : r.draft).add(hub);
   }
 }
 
@@ -188,7 +205,7 @@ function addBody(r: Rickshaw): void {
 function addFront(r: Rickshaw): void {
   const { THREE, box, solid, strut, column, tone, lit } = r.ctx;
   const V = THREE.Vector3;
-  const { draft, paint, rubber, metal, radius, front } = r;
+  const { draft, steer, paint, rubber, metal, radius, front } = r;
 
   const apron = solid({ color: paint, width: 0.74, foreWidth: 0.5, topWidth: 0.9, topForeWidth: 0.56, depth: 0.3, height: 1.12 - 0.76, topAft: -0.15, topFore: 0.1 });
   apron.position.set(0, 0.76, 1.24);
@@ -207,18 +224,18 @@ function addFront(r: Rickshaw): void {
     foreRise: 0.05,
   });
   fender.position.set(0, radius * 2 + 0.03, front + 0.04);
-  draft.add(fender);
+  steer.add(fender);
   for (const side of [-1, 1]) {
-    draft.add(strut(new V(side * 0.14, 0.9, front - 0.1), new V(side * 0.14, radius, front), 0.07, metal));
+    steer.add(strut(new V(side * 0.14, 0.9, front - 0.1), new V(side * 0.14, radius, front), 0.07, metal));
   }
-  draft.add(strut(new V(0, 0.9, front - 0.12), new V(0, 1.24, 1.02), 0.08, metal));
+  steer.add(strut(new V(0, 0.9, front - 0.12), new V(0, BARS_Y, BARS_Z), 0.08, metal));
   const bars = box(0.72, 0.08, 0.08, metal);
-  bars.position.set(0, 1.2, 1.02);
-  draft.add(bars);
+  bars.position.set(0, 1.2, BARS_Z);
+  steer.add(bars);
   for (const side of [-1, 1]) {
     const grip = box(0.14, 0.1, 0.1, rubber);
-    grip.position.set(side * 0.37, 1.19, 1.02);
-    draft.add(grip);
+    grip.position.set(side * 0.37, 1.19, BARS_Z);
+    steer.add(grip);
   }
   const lamp = lit(column(0.1, 0.06, tone(metal, 1.3), 8));
   lamp.rotation.x = Math.PI / 2;

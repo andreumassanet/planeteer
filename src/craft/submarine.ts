@@ -22,7 +22,7 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { HERO } from './body.ts';
-import { GLASS_TINT, PROUD, assemble, craftContext, finish, lathe, loft, soupOf } from './build.ts';
+import { GLASS_TINT, PROUD, assemble, craftContext, finish, lathe, loft, soupOf, turningAbout } from './build.ts';
 import type { Soup, Station, Turning } from './build.ts';
 import { instrumentPanel, joinSoups, liner, painted, probeOf, seatPieces } from './cabin.ts';
 
@@ -121,9 +121,10 @@ function buildSubmarine(variant: number): THREE.Group {
     group.add(stern);
   }
   // The rudder, above and below the stern.
+  const steering = new THREE.Group();
   const rudder = box(0.08 * M, 1.5 * M, 0.7 * M, trim);
   rudder.position.set(0, AXIS - 0.75 * M, STERN + 0.75 * M);
-  group.add(rudder);
+  steering.add(rudder);
   // The periscope, off the tower's front, bent at the top.
   const mast = new V(0, TOWER_TOP, TOWER_Z + TOWER_HALF * 0.5);
   const head = new V(0, TOWER_TOP + 0.6 * M, TOWER_Z + TOWER_HALF * 0.5);
@@ -152,7 +153,11 @@ function buildSubmarine(variant: number): THREE.Group {
     arm.add(blade);
     screw.add(arm);
   }
-  const turning: Turning[] = [{ name: 'prop', at: new V(0, AXIS, STERN - 0.12 * M), soup: soupOf(screw) }];
+  const turning: Turning[] = [
+    { name: 'prop', at: new V(0, AXIS, STERN - 0.12 * M), soup: soupOf(screw) },
+    // About its leading edge.
+    turningAbout('rudder', soupOf(steering), new V(0, AXIS, STERN + 1.1 * M)),
+  ];
 
   return assemble('submarine', [soupOf(group)], turning, { glass: [dome()], cabin: [cabinOf(soupOf(shell))] });
 }

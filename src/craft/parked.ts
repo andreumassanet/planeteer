@@ -56,7 +56,7 @@ export function paintFor(id: string, palette: readonly number[]): number {
 }
 
 /** The kit models the road craft are built from (`cars.ts`). */
-const CAR_KIT = ['hatchback-sports', 'van', 'suv', 'truck', 'tractor', 'bus'] as const;
+const CAR_KIT = ['hatchback-sports', 'sedan', 'van', 'suv', 'truck', 'tractor', 'bus', 'ambulance'] as const;
 
 let models: Map<string, CraftModel> | null = null;
 /**
@@ -155,6 +155,19 @@ export function unfurnish(group: THREE.Object3D): THREE.Object3D {
     const opaque = new THREE.Color(OPAQUE_GLASS);
     for (let i = 0; i < colour.count; i++) colour.setXYZ(i, opaque.r, opaque.g, opaque.b);
     glass.material = craftMaterial();
+  }
+  return group;
+}
+
+/**
+ * A built craft as a buffer that cannot carry glass but shows its inside
+ * stands it, in place: its glass taken out, the windows left open on its
+ * cabin (a farm's tractor in its tile).
+ */
+export function unglaze(group: THREE.Object3D): THREE.Object3D {
+  for (let glass = group.getObjectByName('glass'); glass !== undefined; glass = group.getObjectByName('glass')) {
+    (glass as THREE.Mesh).geometry.dispose();
+    glass.removeFromParent();
   }
   return group;
 }

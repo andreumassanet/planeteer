@@ -3,6 +3,25 @@ import { PALETTE } from '../theme.ts';
 import { hex } from '../ui.ts';
 
 export const STYLE = `
+/*
+ * The HUD's frame: one margin from every edge, grown with the window and kept
+ * clear of a notch, and the sizes the corners hold. The minimap (top right,
+ * \`index.html\`) and the chat (bottom left) stand on the same lines. The
+ * corners: the bar top left, the disc top right with the cards under it, the
+ * chat bottom left, the speedometer bottom right; the centre line holds the
+ * toast at the top and the prompt and a vehicle's keys at the bottom.
+ */
+:root {
+  --hud-edge: clamp(14px, calc(0.9vw + 8px), 28px);
+  --hud-top: max(var(--hud-edge), env(safe-area-inset-top));
+  --hud-left: max(var(--hud-edge), env(safe-area-inset-left));
+  --hud-right: max(var(--hud-edge), env(safe-area-inset-right));
+  --hud-bottom: max(var(--hud-edge), env(safe-area-inset-bottom));
+  --hud-gap: 12px;
+  /* The minimap's edge, its default \`size\` in \`minimap/constants.ts\`. */
+  --hud-map: 180px;
+  --hud-speedo: clamp(138px, 10.5vw, 184px);
+}
 .atlas-hud {
   position: fixed;
   inset: 0;
@@ -20,18 +39,18 @@ export const STYLE = `
 
 /* --- the bar, top left: two buttons and where you are ----------------------- */
 /*
- * Never wider than the gap it has: the minimap stands 24 px in from the right
- * and is 200 across, so "Democratic Republic of the Congo" gives way with an
+ * Never wider than the gap it has: the minimap stands \`--hud-right\` in from
+ * the right and is \`--hud-map\` across, so "Democratic Republic of the Congo" gives way with an
  * ellipsis before it runs under the disc. The flag and the clock never do.
  */
 .atlas-hud-bar {
   position: absolute;
-  top: 24px;
-  left: 24px;
+  top: var(--hud-top);
+  left: var(--hud-left);
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  max-width: calc(100vw - 290px);
+  max-width: calc(100vw - var(--hud-left) - var(--hud-right) - var(--hud-map) - 2 * var(--hud-gap));
 }
 .atlas-hud-bar > .ui-btn { position: relative; flex: none; }
 /* The key a button answers to, on its corner, where a controller game puts it. */
@@ -114,8 +133,8 @@ export const STYLE = `
  */
 .atlas-side {
   position: absolute;
-  top: 222px;
-  right: 24px;
+  top: calc(var(--hud-top) + var(--hud-map) + 18px);
+  right: var(--hud-right);
   width: 248px;
   display: flex;
   flex-direction: column;
@@ -235,7 +254,7 @@ export const STYLE = `
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 24px;
+  bottom: var(--hud-bottom);
   margin: 0 auto;
   display: flex;
   flex-wrap: wrap;
@@ -243,7 +262,7 @@ export const STYLE = `
   justify-content: center;
   gap: 6px 14px;
   width: max-content;
-  max-width: calc(100vw - 48px);
+  max-width: calc(100vw - var(--hud-left) - var(--hud-right));
   box-sizing: border-box;
   padding: 6px 14px 6px 7px;
   font-size: 12.5px;
@@ -270,7 +289,7 @@ export const STYLE = `
 .atlas-toast {
   position: absolute;
   left: 50%;
-  top: 86px;
+  top: calc(var(--hud-top) + 62px);
   display: flex;
   align-items: center;
   gap: 9px;
@@ -286,11 +305,15 @@ export const STYLE = `
 .atlas-toast svg { width: 19px; height: 19px; flex: none; }
 
 /* --- the prompt: what E does here ------------------------------------------------- */
-/* Over the keys' row, so the two never share a line when both are up. */
+/*
+ * Over the keys' row, so the two never share a line when both are up; or,
+ * \`float\`, a tag over the thing itself, placed each frame by \`placePrompt\`
+ * and faded with its distance.
+ */
 .atlas-prompt {
   position: absolute;
   left: 50%;
-  bottom: 88px;
+  bottom: calc(var(--hud-bottom) + 64px);
   display: flex;
   align-items: center;
   gap: 9px;
@@ -304,6 +327,46 @@ export const STYLE = `
 }
 .atlas-prompt.on { opacity: 1; transform: translate(-50%, 0); }
 .atlas-prompt svg { width: 19px; height: 19px; }
+.atlas-prompt.float { left: 0; top: 0; bottom: auto; transition: opacity 0.15s ease; will-change: transform; }
+.atlas-prompt.float.on { opacity: var(--cue-fade, 1); }
+.atlas-prompt.float::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 11px;
+  height: 11px;
+  background: var(--ui-paper);
+  border-right: 3px solid var(--ui-ink);
+  border-bottom: 3px solid var(--ui-ink);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+/* --- the speedometer, bottom right, in a vehicle ------------------------------ */
+.atlas-speedo {
+  position: absolute;
+  right: var(--hud-right);
+  bottom: var(--hud-bottom);
+  width: var(--hud-speedo);
+  height: var(--hud-speedo);
+  border-radius: 50%;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(14px) scale(0.94);
+  transition: opacity 0.25s ease, transform 0.35s var(--ui-spring);
+}
+.atlas-speedo.on { opacity: 1; transform: none; }
+.atlas-speedo svg { display: block; width: 100%; height: 100%; }
+.atlas-speedo text { font-family: var(--ui-font); fill: var(--ui-ink); }
+.atlas-speedo .sp-num { font-size: 13px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
+.atlas-speedo .sp-value { font-size: 40px; font-weight: 900; text-anchor: middle; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.atlas-speedo .sp-unit { font-size: 12px; font-weight: 800; text-anchor: middle; opacity: 0.6; letter-spacing: 0.04em; }
+.atlas-speedo .sp-sub { font-size: 12.5px; font-weight: 800; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.atlas-speedo .sp-needle { transition: none; }
+/* Room for the dial: the keys' row wraps in the middle, the frame counter stands over it. */
+.atlas-hud:has(.atlas-speedo.on) .atlas-hints { max-width: calc(100vw - 2 * var(--hud-right) - 2 * var(--hud-speedo) - 2 * var(--hud-gap)); }
+.atlas-hud:has(.atlas-speedo.on) .atlas-perf { bottom: calc(var(--hud-bottom) + var(--hud-speedo) + var(--hud-gap)); }
 
 /* --- everything away: H ------------------------------------------------------- */
 /*
@@ -399,8 +462,8 @@ body.atlas-hud-hidden .atlas-chat:not(.open) {
 /* --- frames ----------------------------------------------------------------------- */
 .atlas-perf {
   position: absolute;
-  right: 24px;
-  bottom: 22px;
+  right: var(--hud-right);
+  bottom: var(--hud-bottom);
   display: none;
   gap: 12px;
   padding: 7px 12px;
@@ -455,6 +518,15 @@ html.touch-ui .atlas-found-note {
   overflow: hidden;
 }
 html.touch-ui .atlas-toast { top: calc(max(10px, env(safe-area-inset-top)) + 136px); font-size: 14px; }
+/* A finger's dial: small, under the bar, clear of both thumbs. */
+html.touch-ui .atlas-speedo {
+  --hud-speedo: 104px;
+  right: auto;
+  bottom: auto;
+  left: max(10px, env(safe-area-inset-left));
+  top: calc(max(10px, env(safe-area-inset-top)) + 56px);
+}
+html.touch-ui .atlas-speedo .sp-num { font-size: 15px; }
 html.touch-ui .atlas-waypoint-label { max-width: 160px; }
 html.touch-ui .atlas-chat:not(.open) {
   left: max(12px, env(safe-area-inset-left));
@@ -468,6 +540,7 @@ html.touch-ui .atlas-welcome-row > span:first-child { min-width: 0; }
 /* Wide enough for the clock beside the badge only on its side. */
 @media (orientation: portrait) {
   html.touch-ui .atlas-hud-bar > .atlas-clock { display: none; }
+  html.touch-ui .atlas-hud:has(.atlas-speedo.on) .atlas-side { top: calc(max(10px, env(safe-area-inset-top)) + 172px); }
 }
 /* A phone on its side: the cards between the badge and the disc, at the top. */
 @media (orientation: landscape) and (max-height: 520px) {
@@ -552,6 +625,7 @@ body:has(.atlas-sheet.on) .atlas-chat:not(.open) { opacity: 0; visibility: hidde
   .atlas-toast, .atlas-toast.on { transform: translate(-50%, 0); transition: opacity 0.2s ease; }
   .atlas-hints, .atlas-hints.on { transform: none; transition: opacity 0.2s ease; }
   .atlas-prompt, .atlas-prompt.on { transform: translate(-50%, 0); }
+  .atlas-speedo, .atlas-speedo.on { transform: none; transition: opacity 0.2s ease; }
   .atlas-pause, .atlas-pause.on { transform: translate(-50%, -50%); }
   .atlas-place, .atlas-place.bump { transform: none; transition: opacity 0.2s ease; }
   .atlas-welcome.on .atlas-welcome-card { animation: none; }

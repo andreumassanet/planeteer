@@ -15,7 +15,7 @@ import type { CraftModel, PlayerState, WirePose } from '../craft/contract.ts';
  *   took off it.
  * - `foundered`: a vehicle driven into water it cannot float on.
  */
-export type PlayerEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
+export type PlayerEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
 
 export interface PlayerInput {
   move: { x: number; y: number };
@@ -31,6 +31,14 @@ export interface PlayerInput {
    */
   climb?: boolean;
   dive?: boolean;
+  /**
+   * Held, a plane's stick: `pitch` positive pulls the nose up, `roll`
+   * positive rolls right. Either off zero in the air takes the plane into
+   * aerobatics (`player/aerobatics.ts`).
+   */
+  attitude?: { pitch: number; roll: number };
+  /** Edge: a plane's flight switches between travel and aerobatics. */
+  flightMode?: boolean;
 }
 
 /**
@@ -104,6 +112,19 @@ export interface Player {
    */
   clearance: number;
   overWater: boolean;
+  /** At the controls of a plane in full control: pitch and roll are the keys' own. */
+  aerobatic: boolean;
+  /**
+   * In full control, how far the nose is pitched from the heading, radians,
+   * continuous through a loop (`PI` at its top); 0 otherwise.
+   */
+  nosePitch: number;
+  /**
+   * An aircraft aloft: its body's rotation in the frame of its bow (side, up,
+   * `forward`), pitch and roll and whatever yaw full control has off the bow;
+   * the identity otherwise. The chase turns with it.
+   */
+  readonly attitude: THREE.Quaternion;
   /**
    * Held intent in the air, written by whoever reads the keyboard: +1 climb,
    * -1 descend. `rig.aim` fills it in from the raw input.
@@ -128,6 +149,11 @@ export interface Player {
    * glass all but cleared. Off, both are as they were.
    */
   setCockpit(on: boolean): void;
+  /**
+   * First person on foot: the body stays drawn with its head folded away, so
+   * looking down shows the chest, the arms and the feet in their stride.
+   */
+  setEyeInHead(on: boolean): void;
   /** Teleport. Leaves the player in a fully consistent state in one call, on foot or swimming. */
   goTo(lat: number, lon: number): void;
   /**
@@ -225,7 +251,9 @@ export interface PlayerOptions {
   onTouchdown?: (speed: number) => void;
   /**
    * The radius of the sea floor under a point (`seaDepthAt` in `sea-floor.ts`),
-   * which a diver and a submarine stop on. Without it nobody goes under the surface.
+   * which a diver and a submarine stop on and a wader walks on; where it stands
+   * over the sea (the apron's dry half) it is ground. Without it nobody goes
+   * under the surface, and the water's edge is a step into a swim.
    */
   seaFloorAt?: (point: THREE.Vector3) => number;
 }

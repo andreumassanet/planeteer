@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
-import { PROUD, assemble, craftContext, finish, loft, octagon, soupOf } from './build.ts';
+import { PROUD, assemble, craftContext, finish, loft, octagon, soupOf, turningAbout } from './build.ts';
 import type { Station } from './build.ts';
 
 const H = AVATAR_HEIGHT;
@@ -152,18 +152,22 @@ function buildJetSki(variant: number): THREE.Group {
   screen.position.set(0, 0.86 * M, 0.78 * M);
   screen.rotation.x = -0.6;
   group.add(screen);
+  // The bars turn on their riser's line, and the nozzle with them.
+  const bars = new THREE.Group();
+  const column0 = new V(0, 0.88 * M, 0.6 * M);
   const riser = new V(0, BARS.y - 0.04 * M, BARS.z + 0.02 * M);
-  group.add(strut(new V(0, 0.88 * M, 0.6 * M), riser, 0.06 * M, PALETTE.steel));
+  bars.add(strut(column0, riser, 0.06 * M, PALETTE.steel));
   const barHalf = 0.34 * M;
   for (const side of [-1, 1]) {
-    group.add(strut(riser, new V(side * barHalf, BARS.y, BARS.z), 0.04 * M, PALETTE.steel));
-    group.add(strut(new V(side * barHalf, BARS.y, BARS.z), new V(side * (barHalf + 0.1 * M), BARS.y, BARS.z - 0.02 * M), 0.055 * M, PALETTE.ink));
+    bars.add(strut(riser, new V(side * barHalf, BARS.y, BARS.z), 0.04 * M, PALETTE.steel));
+    bars.add(strut(new V(side * barHalf, BARS.y, BARS.z), new V(side * (barHalf + 0.1 * M), BARS.y, BARS.z - 0.02 * M), 0.055 * M, PALETTE.ink));
   }
   // The nozzle, out of the transom at the waterline.
+  const jet = new THREE.Group();
   const nozzle = column(0.08 * M, 0.16 * M, PALETTE.steel, 8);
   nozzle.rotation.x = -Math.PI / 2;
   nozzle.position.set(0, 0.02 * M, STERN + 0.04 * M);
-  group.add(nozzle);
+  jet.add(nozzle);
   // A mirror either side of the pod.
   for (const side of [-1, 1]) {
     group.add(strut(new V(side * 0.2 * M, 0.8 * M, 0.72 * M), new V(side * 0.32 * M, 0.9 * M, 0.7 * M), 0.025 * M, PALETTE.ink));
@@ -174,7 +178,10 @@ function buildJetSki(variant: number): THREE.Group {
   // A grab handle behind the saddle.
   group.add(strut(new V(-0.14 * M, HIP - 0.06 * M, BACK - 0.5 * M), new V(0.14 * M, HIP - 0.06 * M, BACK - 0.5 * M), 0.04 * M, PALETTE.steel));
 
-  return assemble('jet-ski', [soupOf(group)]);
+  return assemble('jet-ski', [soupOf(group)], [
+    turningAbout('fork', soupOf(bars), riser, Math.atan2(riser.z - column0.z, riser.y - column0.y)),
+    turningAbout('rudder', soupOf(jet), new V(0, 0.02 * M, STERN + 0.04 * M)),
+  ]);
 }
 
 const SEATS: readonly Seat[] = [

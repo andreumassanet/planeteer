@@ -1,5 +1,5 @@
 import { SCENERY_SCALE } from '../../scenery/contract.ts';
-import { BODY_SCALE } from '../../stature.ts';
+import { AVATAR_HEIGHT, BODY_SCALE } from '../../stature.ts';
 
 /**
  * Placed scale: the kit is authored at `SCENERY_SCALE` and placed at 1.35 times
@@ -69,6 +69,14 @@ export interface CrowdBody {
  * small rather than scaled small.
  */
 export const RIDER_HEIGHT = 1.82 * SCENERY_SCALE;
+
+/**
+ * The section a vehicle the hero rides astride or on a bench is placed at:
+ * the kit builds it round `RIDER_HEIGHT`, and this makes that rider the hero.
+ * The scooter, the auto-rickshaw and the bicycle are placed at it, and their
+ * craft are built at it (`RIDE_SCALE`), so all three are one size everywhere.
+ */
+export const RIDDEN_SECTION = AVATAR_HEIGHT / RIDER_HEIGHT;
 
 /** `RIDER_HEIGHT` as a ratio of the seated figure's standing height. */
 export const RIDER_SCALE = RIDER_HEIGHT / SEATED.standing;

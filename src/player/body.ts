@@ -33,8 +33,9 @@ export function createBody(core: PlayerCore) {
   function applyBody(): void {
     const inside = s.cockpit && s.ride !== null;
     const shown = s.ride === null || seatOf(s.ride).shown;
-    avatar.group.visible = shown && (s.bodyWanted || inside);
-    avatar.setHeadless(inside && shown);
+    const onFoot = s.eyeInHead && s.ride === null;
+    avatar.group.visible = shown && (s.bodyWanted || inside || onFoot);
+    avatar.setHeadless((inside && shown) || onFoot);
     if (s.ride === null) return;
     // Only when the answer changes: the camera says what it wants of the body
     // every frame, and each swap walks the whole vehicle. And the later swap

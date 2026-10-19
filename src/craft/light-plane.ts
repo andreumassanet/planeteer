@@ -27,7 +27,7 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { ABREAST, HERO } from './body.ts';
-import { GLASS_TINT, PROUD, assemble, craftContext, finish, loft, octagon, soupOf, well } from './build.ts';
+import { GLASS_TINT, PROUD, assemble, craftContext, finish, loft, octagon, soupOf, turningAbout, well } from './build.ts';
 import { instrumentPanel, painted, wheelPart } from './cabin.ts';
 import type { WheelGrip } from '../cast.ts';
 import type { Station, Turning } from './build.ts';
@@ -253,9 +253,16 @@ function addCockpit(group: THREE.Group, ctx: CraftContext, trim: number): THREE.
   return screen;
 }
 
-/** Wings, tailplane, fin and rudder. */
-function addFlyingSurfaces(group: THREE.Group, ctx: CraftContext, paint: number, wingColour: number, trim: number): void {
+/**
+ * Wings, tailplane, fin and rudder. What moves is handed back as turning
+ * parts: an aileron at each wing's trailing edge, the tailplane as one
+ * all-moving elevator about its quarter chord, and the rudder about its hinge.
+ */
+function addFlyingSurfaces(group: THREE.Group, ctx: CraftContext, paint: number, wingColour: number, trim: number): Turning[] {
   const { box } = ctx;
+  const turning: Turning[] = [];
+  const tail = new THREE.Group();
+  const tailHinge = new V(0, COAMING - 0.1 * H, TAIL + 0.25 * H);
   // The wing hangs under the cabin floor, its root inside the fuselage.
   const chord = 0.7 * H;
   const span = 1.8 * H;
@@ -268,11 +275,22 @@ function addFlyingSurfaces(group: THREE.Group, ctx: CraftContext, paint: number,
     const tip = box(0.05 * H, 0.07 * H, chord * 0.5, trim);
     tip.position.set(side * (span + 0.02 * H), BELLY - 0.035 * H + span * 0.05 - 0.035 * H, WING_Z - chord * 0.1);
     group.add(tip);
+    // The aileron: a slab hinged on the trailing edge over the outer half of
+    // the span, in the trim colour so the hinge reads as a line.
+    const aileron = new THREE.Group();
+    const flap = box(AILERON.span, 0.03 * H, AILERON.chord, trim);
+    flap.position.set(0, -0.015 * H, -AILERON.chord / 2);
+    aileron.add(flap);
+    const middle = (AILERON.from + AILERON.span / 2) * side;
+    const hinge = new V(middle, BELLY - 0.035 * H + Math.abs(middle) * 0.05, WING_Z - AILERON.back);
+    flap.position.add(hinge);
+    turning.push(turningAbout('aileron', soupOf(aileron), hinge));
 
     const tailplane = wingPanel(side, 0.36 * H, 0.05 * H, 0.62 * H, 0.02, wingColour);
-    tailplane.position.set(0, COAMING - 0.1 * H, TAIL + 0.25 * H);
-    group.add(tailplane);
+    tailplane.position.copy(tailHinge);
+    tail.add(tailplane);
   }
+  turning.push(turningAbout('elevator', soupOf(tail), tailHinge));
   // The fin: a swept slab over the tail, and a rudder in the trim colour
   // behind it, stepped so the hinge is an ink line.
   const finBase = COAMING - 0.08 * H;
@@ -292,7 +310,8 @@ function addFlyingSurfaces(group: THREE.Group, ctx: CraftContext, paint: number,
       paint,
     ),
   );
-  group.add(
+  const rudder = new THREE.Group();
+  rudder.add(
     loft(
       [
         { z: TAIL - 0.1 * H, ring: finRing(finBase + 0.02 * H, finBase + 0.5 * H, 0.02 * H) },
@@ -301,8 +320,12 @@ function addFlyingSurfaces(group: THREE.Group, ctx: CraftContext, paint: number,
       trim,
     ),
   );
-
+  turning.push(turningAbout('rudder', soupOf(rudder), new V(0, finBase, TAIL + 0.05 * H)));
+  return turning;
 }
+
+/** The ailerons: where each starts out along the span, how long it is, its chord, and how far aft of the wing's root it is hinged. */
+const AILERON = { from: 0.9 * H, span: 0.75 * H, chord: 0.16 * H, back: 0.43 * H };
 
 /** The three wheels (the nose and main ones turn), their spats and legs. Returns the turning parts, the yoke first. */
 function addUndercarriage(group: THREE.Group, ctx: CraftContext, paint: number): Turning[] {
@@ -386,9 +409,9 @@ function buildPlane(variant: number): THREE.Group {
   const group = new THREE.Group();
   addFuselage(group, paint, trim);
   const screen = addCockpit(group, ctx, trim);
-  addFlyingSurfaces(group, ctx, paint, wingColour, trim);
+  const surfaces = addFlyingSurfaces(group, ctx, paint, wingColour, trim);
   const turning = addUndercarriage(group, ctx, paint);
-  turning.push(propeller(ctx, trim));
+  turning.push(propeller(ctx, trim), ...surfaces);
 
   return assemble('light-plane', [soupOf(group)], turning, { glass: [painted(soupOf(screen), GLASS_TINT)] });
 }

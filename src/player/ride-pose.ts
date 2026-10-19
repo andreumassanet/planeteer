@@ -6,6 +6,7 @@ import { AT_REST } from '../craft/motion.ts';
 import type { MotionInput } from '../craft/motion.ts';
 import { HELI_BANK, HELI_NOSE, HELI_SPEED, HELI_SPOOL, HELI_TURN, SUB_UNDER } from '../vehicles.ts';
 import {
+  AERO_PIVOT,
   BALLOON_PIVOT,
   BALLOON_SWING,
   BALLOON_SWING_MAX,
@@ -69,6 +70,10 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
     motionInput.engine = true;
     motionInput.moored = false;
     motionInput.throttle = driving ? stick.y : speed_ > 0.5 ? 1 : 0;
+    // The stick as the control surfaces show it: the plane's own, held by whoever flies it.
+    const flown = driving && kind === 'plane' && !s.grounded;
+    motionInput.elevator = flown ? s.elevator : 0;
+    motionInput.aileron = flown ? s.aileron : 0;
     held.motion.update(dt, motionInput);
   }
 
@@ -81,7 +86,7 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
     // Seated, the legs as the seat folds them and, at a wheel, the hands
     // round it at the turn the motion has just given it.
     if (where.pose === 'sit') avatar.sit(dt, where, held.motion.steer);
-    else if (where.pose === 'ride') avatar.ride(dt, where, held.motion.phase);
+    else if (where.pose === 'ride') avatar.ride(dt, held.motion.turned(where), held.motion.phase);
     else if (held.model.medium === 'water') avatar.steer(dt, s.lean);
     else avatar.stride(dt, 0, false);
     seatOn(where);
@@ -124,6 +129,16 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
       s.nose += (HELI_NOSE * clamp(speed_ / HELI_SPEED, -0.5, 1) * flying - s.nose) * approach(HELI_ATTITUDE_EASE, dt);
       s.lean += (-clamp(s.turnRate / HELI_TURN, -1, 1) * HELI_BANK * flying - s.lean) * approach(HELI_ATTITUDE_EASE, dt);
       craft.rotation.set(s.nose, 0, s.lean);
+      return;
+    }
+    if (kind === 'plane' && !s.grounded && s.aerobatic) {
+      // Full control: the attitude as it stands, turned about the middle of
+      // the plane rather than its wheels, so a roll does not swing it round them.
+      craft.quaternion.copy(s.attitude);
+      const pivot = held.model.size[2] * AERO_PIVOT;
+      hangFrom.set(0, pivot, 0).applyQuaternion(s.attitude);
+      craft.position.set(-hangFrom.x, pivot - hangFrom.y, -hangFrom.z);
+      s.lean = 0;
       return;
     }
     if (kind === 'plane' && !s.grounded) {

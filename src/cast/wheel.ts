@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LEAN_STEP, leanAxis, leanInverse, leanParent, leanTo, leanTurn } from './astride.ts';
+import { closeHand } from './grip.ts';
 import { aimArm, twoBone, type Limbs } from './limbs.ts';
 
 /**
@@ -80,7 +81,7 @@ export const wheelLower = new THREE.Vector3();
  * wrist is on the rim. `hip` is where the seat's hip is in `frame`. Unlike
  * `reachArms` the arms are not locked straight: a wheel is held near the
  * chest, and an arm pointed at it from the shoulder would put the hand
- * through it. Allocates nothing.
+ * through it. The fingers close round the rim (`closeHand`). Allocates nothing.
  */
 export function holdWheel(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vector3, wheel: WheelGrip, turn: number): number {
   frame.updateMatrixWorld(true);
@@ -115,6 +116,9 @@ export function holdWheel(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vector
     wheelPole.set(side * 0.45, -1, -0.15);
     twoBone(wheelShoulder, first, second, wheelTarget, wheelPole, wheelUpper, wheelLower);
     aimArm(arm, frame, wheelUpper, wheelLower);
+    // The fingers round the rim; a hand resting on its thigh stays open.
+    const hand = limbs.hands[i];
+    if (hand !== undefined && wheel.rest?.side !== side) closeHand(hand);
   });
   return lean;
 }

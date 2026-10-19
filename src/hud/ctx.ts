@@ -26,6 +26,8 @@ export interface HudCtx extends HudDom {
   readonly hinted: Set<string>;
 
   promptShown: string | null;
+  /** Whether the prompt is standing over the thing it is about rather than over the bottom of the screen. */
+  promptFloating: boolean;
   sheetOpen: boolean;
   /** Where you are, once it has held long enough to count. */
   settled: number;
@@ -100,6 +102,7 @@ export function createHudCtx(world: World, options: HudOptions): HudCtx {
     dryBody: options.surface?.sea === false,
     hinted: loadHinted(),
     promptShown: null,
+    promptFloating: false,
     sheetOpen: false,
     settled: -1,
     settledPlace: null,

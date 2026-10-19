@@ -7,6 +7,8 @@ export interface MotionCues {
   turn?: number;
   /** Radians from the body's facing to where the camera looks, positive to its left. */
   look?: number;
+  /** Backing: the gait's cycle played the other way, the body still facing ahead. */
+  back?: boolean;
 }
 
 /**

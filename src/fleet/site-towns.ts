@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import type { World } from '../geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, groundRadius } from '../globe.ts';
-import { BUILT_CEILING, isShown } from '../places.ts';
+import { BUILT_CEILING, PROMINENCE_RADIUS, shownAt } from '../places.ts';
 import type { Place } from '../places.ts';
 import {
   courseOf,
@@ -78,12 +78,15 @@ export function createSiteTowns(source: FleetSource): SiteTowns {
   const roadIndex: RoadIndex = roadIndexFor(roads, places);
 
   // The built towns, bucketed. Hidden places stand for nothing: no square, no gates.
+  // Built at the shipped prominence radius, not the live knob: the sites and their
+  // ids are what every client and the relay agree on, and the roads a car stands
+  // beside are baked against that radius too (`atlas.prominence` says so).
   const cells: number[][] = Array.from({ length: COLS * ROWS }, () => []);
   const centres: THREE.Vector3[] = [];
   const shown: boolean[] = [];
   places.forEach((place, i) => {
     centres.push(unitAt(place.lat, place.lon, new THREE.Vector3()));
-    shown.push(isShown(place));
+    shown.push(shownAt(place, PROMINENCE_RADIUS));
     if (!shown[i]) return;
     cells[cellOf(place.lat, place.lon)]!.push(i);
   });

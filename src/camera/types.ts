@@ -20,10 +20,19 @@ export interface CameraSubject {
   readonly sitting: boolean;
   readonly state: Player['state'];
   readonly controls: { lift: number };
+  /**
+   * An aircraft aloft: its body's rotation in the frame of its bow (side, up,
+   * `forward`). The chase turns with it; absent, or the identity, it chases
+   * the heading alone.
+   */
+  readonly attitude?: THREE.Quaternion;
+  /** A plane in full control, flown close behind in its own frame. */
+  readonly aerobatic?: boolean;
   readonly ride: { readonly model: { readonly kind: string; readonly size: readonly [number, number, number] } } | null;
   seatEye(position: THREE.Vector3, orientation: THREE.Quaternion): boolean;
   setBodyVisible(visible: boolean): void;
   setCockpit(on: boolean): void;
+  setEyeInHead(on: boolean): void;
 }
 
 export interface CameraRig {

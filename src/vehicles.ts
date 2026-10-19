@@ -346,6 +346,16 @@ export const PLANE_CRUISE_LOW = 140;
  */
 export const PLANE_CRUISE_NOMINAL = 1500;
 export const PLANE_CRUISE_HIGH = PLANE_CRUISE_NOMINAL * WORLD_SCALE;
+/**
+ * The cruise at a height over the sea: low, from the floor to about a third of
+ * the ceiling, nearly `PLANE_CRUISE_LOW`, then rising to `PLANE_CRUISE_HIGH`
+ * at the ceiling, by the square of the share of it. Square, so a loop or a
+ * climb out of a valley does not change the air it flies in.
+ */
+export function planeCruiseAt(altitude: number): number {
+  const share = Math.min(1, Math.max(0, altitude / PLANE_CEILING));
+  return PLANE_CRUISE_LOW + (PLANE_CRUISE_HIGH - PLANE_CRUISE_LOW) * share * share;
+}
 /** The throttle, `W` and `S`, as a share of the cruise it opens up or closes down. */
 export const PLANE_THROTTLE_UP = 0.6;
 export const PLANE_THROTTLE_DOWN = 0.35;
@@ -356,6 +366,12 @@ export const PLANE_THROTTLE_DOWN = 0.35;
  */
 export const PLANE_TURN = 1.0;
 export const PLANE_ACCELERATION_TIME = 2.6;
+/**
+ * The most the speed changes in a second, units a second squared: the ease
+ * above crosses the ocean-crossing speeds in seconds, not in one, and coming
+ * out of aerobatics high up winds up rather than leaps.
+ */
+export const PLANE_SPEED_RATE = 400;
 /** The throttle closes faster than it opens, so a landing is aimable. */
 export const PLANE_LANDING_TIME = 1.2;
 
@@ -364,13 +380,15 @@ export const PLANE_LANDING_TIME = 1.2;
  * rate is `PLANE_CLIMB_RATE` times the height over the ground, and never under
  * `PLANE_CLIMB_MIN`, so the climb reads as a zoom out of the map. Descending is
  * the same law the other way, and it flares: under `PLANE_FLARE` times the
- * height, and no less than `PLANE_TOUCHDOWN`.
+ * height, and no less than `PLANE_TOUCHDOWN`: slower than the climb, so the
+ * fall from the ceiling to the low air takes about eight seconds (the height
+ * falls by `PLANE_FLARE` of itself a second) and reads as a descent.
  */
 export const PLANE_CLIMB_MIN = 18;
 export const PLANE_CLIMB_RATE = 0.7;
 /** Time constant of the vertical speed, in seconds. */
 export const PLANE_VERTICAL_TIME = 0.7;
-export const PLANE_FLARE = 0.6;
+export const PLANE_FLARE = 0.28;
 export const PLANE_TOUCHDOWN = 4;
 
 /**

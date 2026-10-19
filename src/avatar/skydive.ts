@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { aimArm, aimLeg, twoBone } from '../cast.ts';
+import { aimArm, aimLeg, closeHand, twoBone } from '../cast.ts';
 import type { Avatar } from './avatar-type.ts';
 import type { BodyKit } from './body-kit.ts';
 import { DANGLE, DANGLE_RATE, FALL_ARM, FALL_FOREARM, FALL_SHIN, FALL_THIGH, FLUTTER, FLUTTER_RATE, FREEFALL_BANK, FREEFALL_PITCH, HANG_SHIN, HANG_THIGH } from './motion-config.ts';
@@ -91,6 +91,9 @@ export function createSkydive(kit: BodyKit): Avatar['skydive'] {
       blendLimb(side, FALL_ARM, FALL_FOREARM, skyHang, skyHangLower, open);
       flutter(i * 2, 1 - open);
       aimArm(arm, body, skyUpper, skyLower);
+      // Under the canopy the hand closes round its toggle; in the fall it is spread.
+      const hand = limbs.hands[i];
+      if (hand !== undefined && open > 0.5) closeHand(hand);
     });
     const beat = skyClock * DANGLE_RATE * Math.PI * 2;
     limbs.legs.forEach((leg, i) => {
@@ -107,6 +110,7 @@ export function createSkydive(kit: BodyKit): Avatar['skydive'] {
       flutter(i * 2 + 5, 1 - open);
       aimLeg(leg, body, skyUpper, skyLower);
     });
+    kit.foldHead();
   }
 
   return skydive;

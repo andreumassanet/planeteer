@@ -59,13 +59,14 @@ export const VARIANTS = 4;
  * The scale a placer applies, as `[x, y, z]`: width, height, length. A vehicle
  * faces +Z, so the length crop is a z scale. `air` is exempt.
  *
- * The determinant is `PLACED_SECTION^2 * lengthScale` and must stay positive,
+ * The determinant is `section^2 * lengthScale` and must stay positive,
  * or the winding flips and the outline hull renders the vehicle as a blob.
  */
 export function placedScale(vehicle: Vehicle): [number, number, number] {
   if (KINDS[vehicle.kind].medium === 'air') return [1, 1, 1];
-  const length = Math.min(PLACED_SECTION, PLACED_LENGTH_CAP / vehicle.size[0]);
-  return [PLACED_SECTION, PLACED_SECTION, length];
+  const section = vehicle.section ?? PLACED_SECTION;
+  const length = Math.min(section, PLACED_LENGTH_CAP / vehicle.size[0]);
+  return [section, section, length];
 }
 
 /** `Vehicle.size` after `placedScale`, in the same `[length, width, height]` order. */

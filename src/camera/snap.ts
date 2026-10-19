@@ -52,7 +52,7 @@ export function createSnap(core: CameraCore, framer: Framing, optics: Lens, eyes
       // head and not from wherever first person began.
       orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
       s.held = Infinity;
-      showBody(player, false);
+      showBody(player, true, true);
       eye(player);
       return;
     }

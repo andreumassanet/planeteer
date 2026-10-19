@@ -7,8 +7,9 @@
  * The modes live in `player/` (one module each) over a shared `PlayerCore`;
  * this file builds them and routes each frame to the one that is active.
  */
+import * as THREE from 'three';
 import type { World } from './geo.ts';
-import { roadOf } from './player/constants.ts';
+import { MOVE_STEP, roadOf } from './player/constants.ts';
 import { createPlayerCore } from './player/core.ts';
 import { createBalloon } from './player/balloon.ts';
 import { createBody } from './player/body.ts';
@@ -80,6 +81,19 @@ export function createPlayer(
   const dismount = createDismount(core, frame, bail, stance, body, ring, published, presentation);
   const teleport = createTeleport(core, stance, body, published, presentation);
 
+  /**
+   * How many equal steps no longer than `MOVE_STEP` a frame of `dt` is moved
+   * in on foot and on the road: a slow frame climbs no riser and jumps no
+   * higher than a fast one.
+   */
+  const stepsOf = (dt: number): number => Math.max(1, Math.ceil(dt / MOVE_STEP - 1e-6));
+
+  /** On foot or swimming at the surface, stepped while nothing else takes the body. */
+  function onFoot(dt: number, input: PlayerInput): void {
+    const steps = stepsOf(dt);
+    for (let i = 0; i < steps && s.ride === null && !s.chute && !s.sitting; i++) walker.walk(dt / steps, input);
+  }
+
   /** One frame, routed to the mode the player is in. */
   function update(dt: number, input: PlayerInput): void {
     s.sinceCrash += dt;
@@ -106,19 +120,23 @@ export function createPlayer(
       else if (model.kind === 'plane') plane.fly(dt, input, model);
       else if (model.kind === 'balloon') balloon.drift(dt, input, model);
       else if (model.kind === 'helicopter') helicopter.hover(dt, input, model);
-      else if (handling !== undefined) road.drive(dt, input, model, handling);
+      else if (handling !== undefined) {
+        const ride = s.ride;
+        const steps = stepsOf(dt);
+        for (let i = 0; i < steps && s.ride === ride; i++) road.drive(dt / steps, input, model, handling);
+      }
     } else if (s.chute) chute.glide(dt, input);
     else if (s.sitting) {
       // Any key that walks, or a jump, gets up; until then the root stays
       // on its bench, the clip holds the pose and no wall is asked.
       if (Math.abs(input.move.x) + Math.abs(input.move.y) > 1e-3 || input.jump) {
         stance.stand();
-        walker.walk(dt, input);
+        onFoot(dt, input);
       } else {
         motion.set(0, 0, 0);
         s.velocity = 0;
       }
-    } else walker.walk(dt, input);
+    } else onFoot(dt, input);
 
     s.climb = dt > 0 ? (position.length() - radiusBefore) / dt : 0;
     published.publish();
@@ -148,6 +166,9 @@ export function createPlayer(
     altitude: 0,
     clearance: Infinity,
     overWater: false,
+    aerobatic: false,
+    nosePitch: 0,
+    attitude: new THREE.Quaternion(),
     controls,
     update,
     setBodyVisible(visible) {
@@ -157,6 +178,11 @@ export function createPlayer(
     seatEye: body.seatEye,
     setCockpit(on) {
       s.cockpit = on;
+      body.applyBody();
+    },
+    setEyeInHead(on) {
+      if (s.eyeInHead === on) return;
+      s.eyeInHead = on;
       body.applyBody();
     },
     board: mount.board,

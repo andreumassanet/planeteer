@@ -107,7 +107,7 @@ export function createPresentation(core: PlayerCore, ring: Splash, ridePose: Rid
     avatar.stride(dt, speed_, s.airborne, cues);
     // A heel strike at each half of the cycle; see `Avatar.phase`.
     const stepPhase = avatar.phase;
-    if (!s.airborne && speed_ > WALK_SPEED * 0.3 && (stepPhase < s.lastStep || (s.lastStep < 0.5 && stepPhase >= 0.5))) {
+    if (!s.airborne && speed_ > WALK_SPEED * 0.3 && Math.floor(stepPhase * 2) !== Math.floor(s.lastStep * 2)) {
       options.onStep?.(speed_ / WALK_SPEED);
     }
     s.lastStep = stepPhase;

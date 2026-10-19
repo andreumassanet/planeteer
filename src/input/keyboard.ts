@@ -13,10 +13,15 @@ const HELD: Partial<Record<string, string>> = {
   descend: 'dive',
   use: 'use',
   view: 'view',
+  pitchDown: 'pitchDown',
+  pitchUp: 'pitchUp',
+  rollLeft: 'rollLeft',
+  rollRight: 'rollRight',
+  flightMode: 'flightMode',
 };
 
 /** Actions that fire once per physical press rather than while held. */
-const EDGES = new Set(['jump', 'use', 'view']);
+const EDGES = new Set(['jump', 'use', 'view', 'flightMode']);
 
 export function listenToKeys(core: InputCore): void {
   const { state, held, signal, fields, touch, refresh, release } = core;
@@ -44,7 +49,7 @@ export function listenToKeys(core: InputCore): void {
     // The edge fires once per physical press: `repeat` would otherwise make a
     // held Space into a jump every frame the key auto-repeats.
     if (EDGES.has(action) && !event.repeat && !held.has(event.code)) {
-      state[action as 'jump' | 'use' | 'view'] = true;
+      state[action as 'jump' | 'use' | 'view' | 'flightMode'] = true;
     }
     held.set(event.code, action);
     refresh();

@@ -172,12 +172,42 @@ export function soupOf(group: THREE.Object3D): Soup {
  * (`'needle'`) turn about their own +Z, which `tilt` (a turn about X) stands at
  * the angle of the column or dial; the motion turns them about that axle and
  * leaves the tilt alone (`craft/motion.ts`).
+ *
+ * What steers turns with the steering: a two-wheeler's `'fork'` (its bars,
+ * fork and front wheel) and a `'rudder'` (a rudder, an outboard, a jet's
+ * nozzle) about their own +Y, stood at a rake by `tilt`; an aircraft's
+ * `'elevator'` and each `'aileron'` about their own +X, the hinge. `on` hangs
+ * the part from the first part of that name, so it turns with it as well as
+ * on its own axle: a front wheel `on` its fork.
  */
 export interface Turning {
-  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank' | 'steer' | 'needle';
+  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank' | 'steer' | 'needle' | 'fork' | 'rudder' | 'elevator' | 'aileron';
   at: THREE.Vector3;
   soup: Soup;
   tilt?: number;
+  on?: Turning['name'];
+}
+
+/**
+ * A soup built in the model's frame as a turning part about the axis through
+ * `at` that `tilt` (a turn about X) leans off +Y: its points, normals and ink
+ * normals carried into the part's own frame.
+ */
+export function turningAbout(name: Turning['name'], soup: Soup, at: THREE.Vector3, tilt = 0, on?: Turning['name']): Turning {
+  const back = new THREE.Matrix4().makeRotationX(-tilt);
+  const v = new THREE.Vector3();
+  const out: Soup = {
+    position: new Float32Array(soup.position.length),
+    normal: new Float32Array(soup.normal.length),
+    color: soup.color.slice(),
+    outline: new Float32Array(soup.outline.length),
+  };
+  for (let i = 0; i < soup.position.length; i += 3) {
+    v.fromArray(soup.position, i).sub(at).applyMatrix4(back).toArray(out.position, i);
+    v.fromArray(soup.normal, i).applyMatrix4(back).toArray(out.normal, i);
+    v.fromArray(soup.outline, i).applyMatrix4(back).toArray(out.outline, i);
+  }
+  return { name, at: at.clone(), soup: out, tilt, ...(on === undefined ? {} : { on }) };
 }
 
 const faceA = new THREE.Vector3();
@@ -260,6 +290,7 @@ export function assemble(name: string, still: readonly Soup[], turning: readonly
     group.add(cabin);
   }
   const glass = inside.glass ?? [];
+  const pivots: THREE.Group[] = [];
   for (const part of turning) {
     const pivot = new THREE.Group();
     pivot.name = part.name;
@@ -268,7 +299,16 @@ export function assemble(name: string, still: readonly Soup[], turning: readonly
     // A cabin's wheel and needle are the cabin's, matte.
     pivot.add(meshOf([part.soup], `${part.name}-mesh`, part.name === 'steer' || part.name === 'needle' ? cabinMaterial() : craftMaterial()));
     group.add(pivot);
+    pivots.push(pivot);
   }
+  // A part on another hangs from it, where it stood.
+  group.updateMatrixWorld(true);
+  turning.forEach((part, i) => {
+    if (part.on === undefined) return;
+    const holder = pivots.find((pivot) => pivot.name === part.on);
+    if (holder === undefined) throw new Error(`craft ${name}: a '${part.name}' on a '${part.on}' it does not have`);
+    holder.attach(pivots[i]!);
+  });
   if (glass.some((soup) => soup.position.length > 0)) {
     const pane = new THREE.Mesh(geometryOf(glass), glassMaterial());
     pane.name = 'glass';
@@ -470,7 +510,7 @@ export type CraftDraft = Omit<CraftModel, 'size'>;
  * built box. The turning parts are direct children and move with it.
  */
 export function finish(draft: CraftDraft): CraftModel {
-  const box = new THREE.Box3().setFromObject(draft.build(0));
+  const box = new THREE.Box3().setFromObject(draft.build(0), true);
   const dx = (box.min.x + box.max.x) / 2;
   const dz = (box.min.z + box.max.z) / 2;
   const size: [number, number, number] = [box.max.z - box.min.z, box.max.x - box.min.x, box.max.y - box.min.y];

@@ -77,6 +77,8 @@ export interface Prompt {
   label: 'Drive' | 'Ride' | 'Fly' | 'Sail' | 'Get in';
   /** How far the player stands from its nearest side, for whoever else `E` might be meant for. */
   gap: number;
+  /** Where the vehicle stands, its origin on the ground; live, so read it, never keep it. */
+  at: THREE.Vector3;
 }
 
 export interface Fleet extends FleetSeats {

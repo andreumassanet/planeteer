@@ -15,13 +15,23 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
     rows: [
       { action: 'forward', label: 'Forward · throttle up' },
       { action: 'back', label: 'Back · throttle down' },
-      { action: 'left', label: 'Left · bank left' },
-      { action: 'right', label: 'Right · bank right' },
+      { action: 'left', label: 'Left · bank left · rudder' },
+      { action: 'right', label: 'Right · bank right · rudder' },
       { action: 'run', label: 'Run · swim faster · boost · gallop · descend in the air' },
       { action: 'jump', label: 'Jump · climb · rise in a balloon or a helicopter · open or stow a parachute' },
       { action: 'descend', label: 'Descend and land · dive · sink' },
       { action: 'use', label: 'Get in or out · jump out under way · take the wheel · talk' },
       { action: 'horn', label: 'Horn · bell · snort, at the controls' },
+    ],
+  },
+  {
+    title: 'Flying a plane',
+    rows: [
+      { action: 'pitchDown', label: 'Nose down · aerobatics' },
+      { action: 'pitchUp', label: 'Nose up · aerobatics' },
+      { action: 'rollLeft', label: 'Roll left · aerobatics' },
+      { action: 'rollRight', label: 'Roll right · aerobatics' },
+      { action: 'flightMode', label: 'Switch between travel and aerobatics' },
     ],
   },
   {
@@ -31,6 +41,7 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
       { fixed: 'wheel', label: 'Nearer or further, on foot' },
       { action: 'view', label: 'First person, on foot or in any seat' },
       { action: 'photo', label: 'Save a photo' },
+      { action: 'photoMode', label: 'Photo mode: a free camera, focus and filters' },
       { action: 'hud', label: 'Hide or show everything on screen' },
     ],
   },
@@ -128,16 +139,18 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
     case 'plane':
       return airborne
         ? set(
-            'plane-air-2',
+            'plane-air-4',
             [
               { keys: ['jump'], label: 'Climb' },
               { keys: ['run', 'descend'], label: 'Descend · land on flat ground' },
               { keys: ['left', 'right'], label: 'Bank' },
+              { keys: ['flightMode'], label: 'Travel ↔ aerobatics' },
+              { keys: ['pitchDown', 'rollLeft', 'pitchUp', 'rollRight'], label: 'Aerobatics: pitch and roll, rudder on the bank keys' },
               { ...bail, label: 'Jump out, with a parachute' },
             ],
             true,
           )
-        : set('plane', [{ keys: ['forward'], label: 'Hold to take off' }, { keys: ['left', 'right'], label: 'Steer' }, { keys: ['back'], label: 'Brake' }, out]);
+        : set('plane-2', [{ keys: ['forward'], label: 'Hold to take off' }, { keys: ['left', 'right'], label: 'Steer' }, { keys: ['back'], label: 'Brake' }, { keys: ['flightMode'], label: 'Travel ↔ aerobatics' }, out]);
     case 'balloon':
       return set(airborne ? 'balloon-air' : 'balloon', [
         { keys: MOVE, label: 'Steer' },

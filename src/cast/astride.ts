@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { closeHand } from './grip.ts';
 import { aimBone, foldTip, reachArms, type Limbs } from './limbs.ts';
 
 /** What a body astride is put to: `Seat`'s grip, footrests and crank (`craft/contract.ts`). */
@@ -122,4 +123,6 @@ export function poseAstride(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vect
     }
   }
   reachArms(limbs, frame, gripAt);
+  // The fingers round the bars or the reins.
+  for (const hand of limbs.hands) closeHand(hand);
 }

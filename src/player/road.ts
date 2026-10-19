@@ -14,7 +14,7 @@ import {
   isWater,
 } from '../vehicles.ts';
 import type { RoadHandling } from '../vehicles.ts';
-import { CRASH_QUIET, HORSE_JUMP_SPEED, LEAN_EASE, MAX_NOSE, TILT_SMOOTHING } from './constants.ts';
+import { CRASH_QUIET, HORSE_JUMP_SPEED, LEAN_EASE, MAX_NOSE, MOVE_STEP, TILT_SMOOTHING } from './constants.ts';
 import { approach, clamp, levers, mix } from './math.ts';
 import type { PlayerInput } from './types.ts';
 import type { PlayerCore } from './core.ts';
@@ -69,7 +69,7 @@ export function createRoad(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
     if (!blocked) blocked = !swamps && isWater(ground);
     // In the air as on the ground, as `walk` keeps it: a riser over the wheels
     // (or a horse's hooves) mid-jump is still a wall.
-    if (!blocked && distance > 1e-9) blocked = ground - s.height > handling.step + distance * handling.slope;
+    if (!blocked && distance > 1e-9) blocked = ground - s.height > handling.step + Math.max(distance, Math.abs(s.speed) * MOVE_STEP) * handling.slope;
     if (blocked) {
       undo();
       s.speed = struck ? -hitAt * handling.bounce : 0;

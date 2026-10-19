@@ -41,6 +41,20 @@ export function createHudApi(ctx: HudCtx): Hud {
         options.touch?.setMode(next, aloft || nextAirborne, alone);
       }
     },
+    placePrompt(x, y, fade) {
+      const floating = x !== null;
+      if (floating !== ctx.promptFloating) {
+        ctx.promptFloating = floating;
+        prompt.classList.toggle('float', floating);
+        if (!floating) prompt.style.transform = '';
+      }
+      if (!floating) return;
+      prompt.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, calc(-100% - 10px))`;
+      prompt.style.setProperty('--cue-fade', fade.toFixed(2));
+    },
+    setSpeed(reading, unit, dt) {
+      ctx.speedometer.update(reading, unit, dt);
+    },
     showKeys(set) {
       showHints(ctx, set);
     },

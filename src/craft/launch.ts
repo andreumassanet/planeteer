@@ -29,7 +29,7 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { ABREAST, HERO } from './body.ts';
-import { GLASS_TINT, PROUD, assemble, craftContext, finish, loft, octagon, soupOf, well } from './build.ts';
+import { GLASS_TINT, PROUD, assemble, craftContext, finish, loft, octagon, soupOf, turningAbout, well } from './build.ts';
 import { painted, wheelPart } from './cabin.ts';
 import type { WheelGrip } from '../cast.ts';
 import type { Station, WellSection } from './build.ts';
@@ -222,17 +222,19 @@ function buildLaunch(variant: number): THREE.Group {
   pan(0, REAR, Math.min(inner * 2 - 0.04 * H, ABREAST + HERO.half * 2.4));
 
   // ---- the outboard -------------------------------------------------------
-  // Hung off the transom: a cowl above the water and a leg into it.
+  // Hung off the transom: a cowl above the water and a leg into it, which
+  // swing with the wheel about the bracket's pin.
   const transomTop = sheerAt(TRANSOM).y;
+  const outboard = new THREE.Group();
   const cowl = octagonBox(0.15 * H, 0.26 * H, 0.2 * H, PALETTE.steel);
   cowl.position.set(0, transomTop - 0.12 * H, TRANSOM - 0.13 * H);
-  group.add(cowl);
+  outboard.add(cowl);
   const cap = box(0.24 * H, 0.04 * H, 0.16 * H, PALETTE.ink);
   cap.position.set(0, transomTop + 0.14 * H, TRANSOM - 0.13 * H);
-  group.add(cap);
+  outboard.add(cap);
   const leg = box(0.07 * H, transomTop - 0.1 * H - KEEL * 0.9, 0.1 * H, PALETTE.ink);
   leg.position.set(0, KEEL * 0.9, TRANSOM - 0.12 * H);
-  group.add(leg);
+  outboard.add(leg);
   const bracket = box(0.14 * H, 0.08 * H, 0.1 * H, PALETTE.steel);
   bracket.position.set(0, transomTop - 0.1 * H, TRANSOM - 0.04 * H);
   group.add(bracket);
@@ -249,7 +251,8 @@ function buildLaunch(variant: number): THREE.Group {
     group.add(lamp);
   }
 
-  return assemble('launch', [soupOf(group)], [wheelPart(HELM, hub, PALETTE.ink)], { glass: [painted(soupOf(panes), GLASS_TINT)] });
+  const pin = new V(0, transomTop, TRANSOM - 0.06 * H);
+  return assemble('launch', [soupOf(group)], [wheelPart(HELM, hub, PALETTE.ink), turningAbout('rudder', soupOf(outboard), pin)], { glass: [painted(soupOf(panes), GLASS_TINT)] });
 }
 
 /** A rounded box standing on y = 0: the outboard's cowl. */

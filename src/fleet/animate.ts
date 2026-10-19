@@ -9,6 +9,9 @@ import { MOORED, MOOR_REACH } from './limits.ts';
 import type { Placing } from './placing.ts';
 import type { Drawn, FleetContext } from './state.ts';
 
+/** A turn, radians a second, read as full rudder on a vehicle without road handling. */
+const REMOTE_FULL_TURN = 0.6;
+
 export function createAnimator(ctx: FleetContext, placing: Placing) {
   const { options, link, point, up } = ctx;
   const { player } = options;
@@ -52,7 +55,12 @@ export function createAnimator(ctx: FleetContext, placing: Placing) {
       const lock = 1 + (handling.fastLock - 1) * Math.min(1, pace / handling.boost);
       const reach = handling.turn * grip * lock;
       if (reach > 1e-3) remote.steering = Math.max(-1, Math.min(1, (-entry.turn / reach) * (entry.speed < 0 ? -1 : 1)));
+    }    else if (pace > 0.5) {
+      // A boat's rudder, an aircraft's rudder and ailerons: read off the turn
+      // against a brisk one (`REMOTE_FULL_TURN`).
+      remote.steering = Math.max(-1, Math.min(1, -entry.turn / REMOTE_FULL_TURN));
     }
+    remote.aileron = isAirKind(kind) ? remote.steering : 0;
     // On the ground unless it flies, or its rider's own state is off it: a
     // horse's leap is the driver's jump, which the pose alone cannot tell
     // from a step off a terrace.

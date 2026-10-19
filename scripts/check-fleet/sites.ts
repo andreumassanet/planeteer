@@ -1,7 +1,7 @@
 import { world, places, roads, monuments, check } from './setup.ts';
 import { plannedSite } from '../../src/landmark-ground.ts';
 import { createSiteIndex, type FleetSite } from '../../src/fleet.ts';
-import { isShown } from '../../src/places.ts';
+import { PROMINENCE_RADIUS, isShown, prominenceRadius, setProminenceRadius } from '../../src/places.ts';
 import { CRAFT_KINDS } from '../../src/craft/contract.ts';
 import { unitAt, latOf, lonOf } from '../../src/sphere.ts';
 import { Vector3 } from 'three';
@@ -18,6 +18,19 @@ const firstMs = performance.now() - began;
 began = performance.now();
 const again = createSiteIndex(source).all();
 const secondMs = performance.now() - began;
+
+// The sites keep to the shipped prominence radius whatever the console's knob
+// says: their ids are shared with every client and the relay.
+{
+  const knob = prominenceRadius();
+  setProminenceRadius(PROMINENCE_RADIUS * 2);
+  const index = createSiteIndex(source);
+  setProminenceRadius(knob);
+  // Towns the doubled knob hides: the first twenty, of which some have a road and so a car.
+  const hiddenByKnob = places.flatMap((place, p) => (isShown(place) && place.prominence < PROMINENCE_RADIUS * 2 ? [p] : [])).slice(0, 20);
+  const hidden = hiddenByKnob.find((p) => index.sitesOf(p).length > 0) ?? -1;
+  check(hidden >= 0, 'the fleet\'s sites keep to the shipped prominence radius, not the live knob', hidden >= 0 ? places[hidden]!.name : 'every town the knob hides lost its sites');
+}
 
 export const byKind = new Map<string, FleetSite[]>();
 for (const site of sites) {

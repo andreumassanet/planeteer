@@ -38,6 +38,8 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
   const shake = options.shake === undefined ? null : makeSwitch(options.shake, 'Camera shake');
   const weather = options.weather === undefined ? null : makeSwitch(options.weather, 'Weather');
   const flags = makeSwitch(options.flags, 'Flags and borders');
+  const speedUnit = options.units === undefined ? null : makeChoice(options.units.speed, 'Speed units');
+  const nautical = options.units === undefined ? null : makeSwitch(options.units.nautical, 'Knots on water and in the air');
 
   const resolution = makeChoice(options.resolution, 'Resolution');
   const graphics = options.graphics === undefined ? null : makeChoice(options.graphics, 'Graphics');
@@ -100,7 +102,12 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
           row('Time of day', 'Live is the real sun where you stand. Drag to choose another hour; it runs on from there until you reload.', timeLive, timeValue, timeInput),
           row('Time-lapse', 'The day at an hour a minute: sun, sky, lights and traffic. Until you reload.', timeFast!.element),
         ),
-    section('On screen', row('Performance overlay', 'Frames per second, what a frame costs and the triangles drawn, in the corner.', performance.element)),
+    section(
+      'On screen',
+      speedUnit === null ? null : row('Speed units', 'What the speedometer reads in while you drive, ride, sail or fly.', speedUnit.element),
+      nautical === null ? null : row('Knots on water and in the air', 'Boats and aircraft read in knots, whatever the roads read in; the altitude is then in feet.', nautical.element),
+      row('Performance overlay', 'Frames per second, what a frame costs and the triangles drawn, in the corner.', performance.element),
+    ),
 
   ];
   return {
@@ -112,6 +119,8 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
       effects?.refresh();
       shake?.refresh();
       weather?.refresh();
+      speedUnit?.refresh();
+      nautical?.refresh();
       flags.refresh();
       resolution.refresh();
       graphics?.refresh();

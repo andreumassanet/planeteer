@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Person } from './types.ts';
+import { handsOf, type Knuckle } from './grip.ts';
 
 /** A person's limbs, as a hand-written pose needs them. */
 export interface Limbs {
@@ -8,6 +9,8 @@ export interface Limbs {
   spine: THREE.Bone | null;
   legs: { upper: THREE.Bone; lower: THREE.Bone; foot: THREE.Bone; ankle: THREE.Vector3 }[];
   arms: { upper: THREE.Bone; lower: THREE.Bone; wrist: THREE.Bone }[];
+  /** Each hand's finger joints, the left first, which `closeHand` closes round a control; empty on a rig without fingers. */
+  hands: Knuckle[][];
 }
 
 /**
@@ -36,12 +39,13 @@ export function limbsOf(person: Person): Limbs {
     wrist: bone(`Wrist.${side}`),
   }));
   const spine = person.bones.get('Abdomen') ?? null;
-  return { hips: bone('Hips'), spine, legs, arms };
+  const hands = handsOf((name) => person.bones.get(name) ?? person.bones.get(name.replace('.', '')));
+  return { hips: bone('Hips'), spine, legs, arms, hands };
 }
 
 /**
  * Where the clips left every bone a hand-written pose moves (the spine a
- * rider leans on, the arms, the legs and the feet), kept by `on` just before
+ * rider leans on, the arms, the fingers, the legs and the feet), kept by `on` just before
  * the pose is written and put back by `off` before the clips run again.
  *
  * A hand pose not taken off stays on: the mixer writes a bone only when the
@@ -57,6 +61,7 @@ export function handHold(limbs: Limbs): HandHold {
   const bones: THREE.Bone[] = limbs.spine === null ? [] : [limbs.spine];
   for (const arm of limbs.arms) bones.push(arm.upper, arm.lower, arm.wrist);
   for (const leg of limbs.legs) bones.push(leg.upper, leg.lower, leg.foot);
+  for (const hand of limbs.hands) for (const knuckle of hand) bones.push(knuckle.bone);
   const turns = bones.map(() => new THREE.Quaternion());
   const places = bones.map(() => new THREE.Vector3());
   let held = false;

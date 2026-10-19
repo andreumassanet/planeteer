@@ -4,13 +4,29 @@ import { JUMP, MAX_FPS, MIN_SHIFT, MIN_TURN, SPEED_EASE, ZOOM_TIME } from './con
 import { draw } from './draw.ts';
 import type { MinimapState } from './state.ts';
 import type { MinimapHere } from './types.ts';
-import { SPEED_VIEW, LOCAL_VIEW, SKY_LIMIT } from './constants.ts';
+import { SPEED_VIEW, LOCAL_VIEW, SKY_LIMIT, TOWN_APPROACH, TOWN_VIEW } from './constants.ts';
 
 const interval = 1000 / MAX_FPS;
 
+/** 0 away from any town, 1 inside its buildings, eased over `TOWN_APPROACH` radii between. */
+function townness(m: MinimapState): number {
+  const near = m.nearby;
+  if (near === null || near.radius <= 0) return 0;
+  if (near.inside) return 1;
+  const t = Math.min(1, Math.max(0, (TOWN_APPROACH - near.units / near.radius) / (TOWN_APPROACH - 1)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * The half-width the disc wants, as an angle: a few blocks inside a town,
+ * wider in the open, opening with speed, and out to the horizon in the air.
+ */
 export function framing(m: MinimapState, position: THREE.Vector3): number {
   const { RADIUS, CEILING, minAngle, maxAngle } = m;
-  const angle = Math.min(maxAngle, Math.max(minAngle, (LOCAL_VIEW + m.speed * SPEED_VIEW) / RADIUS));
+  const town = townness(m);
+  // In a town the way ahead is a street or two, so speed opens the disc less.
+  const local = LOCAL_VIEW + (TOWN_VIEW - LOCAL_VIEW) * town + m.speed * SPEED_VIEW * (1 - 0.75 * town);
+  const angle = Math.min(maxAngle, Math.max(minAngle, local / RADIUS));
   const altitude = position.length() - RADIUS - CEILING;
   if (altitude > 0) return Math.min(SKY_LIMIT, Math.max(angle, Math.acos(RADIUS / (RADIUS + altitude))));
   return Math.min(SKY_LIMIT, angle);

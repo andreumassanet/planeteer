@@ -10,6 +10,8 @@ import { latOf, lonOf, unitAt } from '../../src/sphere.ts';
 import { cars } from './cars.ts';
 import { shoreDistance } from '../../src/terrain.ts';
 import { isWater } from '../../src/vehicles.ts';
+import { airAt } from '../../src/player/aerobatics.ts';
+import { AERO_LIFT_SPEED, AERO_STALL } from '../../src/player/constants.ts';
 
 // --- the ride, headless -------------------------------------------------------------------
 //
@@ -60,7 +62,7 @@ console.log('\nthe ride, headless:');
   const events: string[] = [];
   const player = createPlayer(world, 41.39, 2.17, { onEvent: (event) => events.push(event) });
   const heading = new Vector3();
-  const step = (seconds: number, input: { x?: number; y?: number; run?: boolean; climb?: boolean; dive?: boolean; jump?: boolean }): void => {
+  const step = (seconds: number, input: { x?: number; y?: number; run?: boolean; climb?: boolean; dive?: boolean; jump?: boolean; pitch?: number; roll?: number; flightMode?: boolean }): void => {
     for (let t = 0; t < seconds; t += 1 / 60) {
       heading.copy(player.forward);
       player.update(1 / 60, {
@@ -71,6 +73,8 @@ console.log('\nthe ride, headless:');
         heading,
         climb: input.climb ?? false,
         dive: input.dive ?? false,
+        attitude: { pitch: input.pitch ?? 0, roll: input.roll ?? 0 },
+        flightMode: (input.flightMode ?? false) && t === 0,
       });
     }
   };
@@ -206,6 +210,84 @@ console.log('\nthe ride, headless:');
   for (seconds = 0; seconds < 120 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
   check(player.grounded, 'and the descend key lands it too', `after ${seconds} s`);
   check(player.leave() !== null, 'and it is left there');
+
+  // Full control: the stick pitches and rolls the plane, through a loop and
+  // upside down, a stall drops the nose, the mode key hands it back, and the
+  // ground takes a fair touchdown and knocks off a bad one.
+  {
+    board(plane);
+    const radial = (): Vector3 => player.position.clone().normalize();
+    // Up into the low air, where the loops are flown, and level there.
+    const over = (): number => player.position.length() - ground(radial());
+    const climbTo = (height: number): void => {
+      for (let t = 0; t < 60 && over() < height; t += 1 / 60) step(1 / 60, { climb: true });
+      step(3, {});
+    };
+    climbTo(450);
+    const wire: number[] = [];
+    const upness = (): number => {
+      player.pose(wire);
+      return new Vector3(wire[6], wire[7], wire[8]).dot(radial());
+    };
+    const startForward = player.forward.clone();
+    events.length = 0;
+    let top = 0;
+    let turned = 0;
+    for (let t = 0; t < 8; t += 1 / 60) {
+      step(1 / 60, { pitch: 1 });
+      top = Math.max(top, Math.abs(player.nosePitch));
+      turned = Math.max(turned, startForward.angleTo(player.forward.clone().projectOnPlane(player.up)));
+    }
+    check(player.aerobatic && top > 2.8 && !events.includes('crashed'),
+      'holding the nose up flies a loop, in full control', `nose to ${top.toFixed(2)} rad, ${player.altitude.toFixed(0)} up`);
+    check(turned < 0.35, 'and the heading the camera chases holds through it', `${(turned * 180 / Math.PI).toFixed(1)} degrees`);
+    step(1, { flightMode: true });
+    step(8, {});
+    check(!player.aerobatic && Math.abs(upness() - 1) < 0.05, 'the mode key levels it and hands back travel', `up ${upness().toFixed(3)}`);
+    let inverted = 1;
+    for (let t = 0; t < 1.6; t += 1 / 60) {
+      step(1 / 60, { roll: 1 });
+      inverted = Math.min(inverted, upness());
+    }
+    check(player.aerobatic && inverted < -0.9, 'rolling takes it upside down, and the pose sent says so', `up ${inverted.toFixed(2)} at the least`);
+    step(1, { flightMode: true });
+    step(8, {});
+    // Up to the vertical with the throttle shut, then let go: it slows, stalls and the nose falls through.
+    climbTo(600);
+    const stallFrom = player.altitude;
+    const stallSpeed = AERO_LIFT_SPEED * AERO_STALL * airAt(stallFrom);
+    for (let t = 0; t < 4 && player.nosePitch < 1.3; t += 1 / 60) step(1 / 60, { pitch: 1, y: -1 });
+    let slowest = Infinity;
+    let peak = -Infinity;
+    let lowestNose = Infinity;
+    for (let t = 0; t < 15; t += 1 / 60) {
+      step(1 / 60, { y: -1 });
+      slowest = Math.min(slowest, player.speed);
+      peak = Math.max(peak, player.nosePitch);
+      if (slowest < stallSpeed) lowestNose = Math.min(lowestNose, player.nosePitch);
+    }
+    check(slowest < stallSpeed && lowestNose < peak - 0.6, 'pulled up to the vertical with the throttle shut it stalls and the nose drops',
+      `${slowest.toFixed(0)} units/s at the slowest, the nose from ${peak.toFixed(2)} to ${lowestNose.toFixed(2)}, from ${stallFrom.toFixed(0)} up`);
+    step(1, { flightMode: true });
+    step(10, {});
+    // Upside down into the ground: a knock, told, and still flying over it.
+    events.length = 0;
+    climbTo(450);
+    for (let t = 0; t < 1.2; t += 1 / 60) step(1 / 60, { roll: 1 });
+    // On its back the pull takes the nose to the ground; then let go.
+    step(1, { pitch: 1 });
+    let lowest = Infinity;
+    for (let t = 0; t < 40 && !events.includes('crashed'); t += 1 / 60) {
+      step(1 / 60, {});
+      lowest = Math.min(lowest, player.position.length() - ground(radial()));
+    }
+    check(events.includes('crashed') && player.airborne && !player.grounded && lowest > -0.01,
+      'flown into the ground upside down it knocks off it, and is never under it', `${events.join(', ')}; lowest ${lowest.toFixed(2)}`);
+    step(1, { flightMode: true });
+    step(10, {});
+    for (seconds = 0; seconds < 180 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
+    check(!player.aerobatic && player.grounded && player.leave() !== null, 'levelled, it lands in travel and is left', `after ${seconds} s`);
+  }
 
   // Out of a plane in flight: a fall, a canopy near the ground, and down.
   board(plane);

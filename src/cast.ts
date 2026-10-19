@@ -37,6 +37,7 @@ export type { Cast, Person } from './cast/types.ts';
 export { castMaterial } from './cast/source.ts';
 export { loadCast } from './cast/loader.ts';
 export { aimArm, aimLeg, foldLegs, handHold, limbsOf, reachArms, twoBone } from './cast/limbs.ts';
+export { closeHand } from './cast/grip.ts';
 export type { HandHold, Limbs } from './cast/limbs.ts';
 export { RIDE_LEAN, poseAstride } from './cast/astride.ts';
 export type { AstrideSeat } from './cast/astride.ts';

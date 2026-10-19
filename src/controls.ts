@@ -53,6 +53,15 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // `Q` for the horn, at the controls of anything that has one (`HORN_OF` in
   // `craft/contract.ts`); `H`, the letter a horn would want, hides the overlay.
   horn: ['KeyQ'],
+  // A light plane's stick, as `I J K L` and the numpad's arrows: `I` pushes the
+  // nose down and `K` pulls it up, `J` and `L` roll. Any of them aloft takes
+  // the plane into aerobatics (`player/aerobatics.ts`); `X` switches between
+  // travel and aerobatics.
+  pitchDown: ['KeyI', 'Numpad8'],
+  pitchUp: ['KeyK', 'Numpad5'],
+  rollLeft: ['KeyJ', 'Numpad4'],
+  rollRight: ['KeyL', 'Numpad6'],
+  flightMode: ['KeyX'],
   view: ['KeyV'],
   map: ['KeyM'],
   // Not `Esc`, which the browser spends on freeing the mouse.
@@ -65,14 +74,16 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // The whole overlay off and on again, for a clear look at the world.
   hud: ['KeyH'],
   photo: ['KeyP'],
+  // Photo mode (`app/photo-mode.ts`): a free camera, the lens and the look; `P` still takes the picture.
+  photoMode: ['KeyR'],
   // The chat's field (`chat.ts`). `Enter` opens it only when nothing on the page
   // has the focus, so a button a keyboard has reached still presses on `Enter`.
   chat: ['Enter', 'KeyT', 'NumpadEnter'],
   // A wave where the others can see it, and a dance, on until the body moves.
   wave: ['KeyG'],
   dance: ['KeyF'],
-  // The passport (`passport-card.ts`): J for journal.
-  passport: ['KeyJ'],
+  // The passport (`passport-card.ts`): `N` for notebook; `J` is the plane's roll.
+  passport: ['KeyN'],
   // The world map's zoom while it is up: `Tab` on the map is the landmarks'.
   mapIn: ['Equal', 'NumpadAdd'],
   mapOut: ['Minus', 'NumpadSubtract'],

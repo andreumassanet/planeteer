@@ -1,0 +1,111 @@
+/**
+ * Chasing an aircraft aloft in its own frame: behind and above it as its nose
+ * and wings stand, the roll softened, eased so a loop or a roll swings the
+ * lens round with it. Framed from high over the map it fades back to the
+ * heading's level chase. The mouse still glances and tilts, in that frame.
+ */
+import * as THREE from 'three';
+import {
+  FLIGHT_FADE_FROM,
+  FLIGHT_FADE_TO,
+  FLIGHT_FOLLOW_RATE,
+  FLIGHT_ROLL_KEEP,
+  MAX_ELEVATION_RIDING,
+  MIN_ELEVATION_RIDING,
+  PIVOT_HEIGHT,
+} from './constants.ts';
+import { approach, ramp } from './math.ts';
+import type { CameraSubject } from './types.ts';
+import type { CameraCore } from './core.ts';
+
+const X = new THREE.Vector3(1, 0, 0);
+const Y = new THREE.Vector3(0, 1, 0);
+
+export function createFlightChase(core: CameraCore) {
+  const { camera, desired, heading, pivot, target, view } = core;
+  const s = core.fields;
+  const side = new THREE.Vector3();
+  const nose = new THREE.Vector3();
+  const bodyUp = new THREE.Vector3();
+  const level = new THREE.Vector3();
+  const across = new THREE.Vector3();
+  const local = new THREE.Vector3();
+  const sample = new THREE.Vector3();
+  const basis = new THREE.Matrix4();
+  const wanted = new THREE.Quaternion();
+  const levelled = new THREE.Quaternion();
+  /** The lens's frame as it has turned so far: +Z the way it looks along, +Y its up. */
+  const frame = new THREE.Quaternion();
+  let following = false;
+
+  /** An aircraft in the air, with an attitude to follow. */
+  function flying(player: CameraSubject): boolean {
+    const kind = player.ride?.model.kind;
+    return player.airborne && player.attitude !== undefined && (kind === 'plane' || kind === 'helicopter');
+  }
+
+  /** A vector of the body's frame, in the world: `v` in (side, up, forward). */
+  function toWorld(v: THREE.Vector3, player: CameraSubject): void {
+    v.set(
+      side.x * v.x + player.up.x * v.y + player.forward.x * v.z,
+      side.y * v.x + player.up.y * v.y + player.forward.y * v.z,
+      side.z * v.x + player.up.z * v.y + player.forward.z * v.z,
+    );
+  }
+
+  /**
+   * Where the lens wants to be: `pivot`, `desired` and `target`, in the
+   * aircraft's frame as the lens has turned to it. False, and nothing written,
+   * when this chase does not apply.
+   */
+  function place(player: CameraSubject, dt: number): boolean {
+    if (!flying(player)) {
+      following = false;
+      return false;
+    }
+    const attitude = player.attitude!;
+    side.crossVectors(player.up, player.forward).normalize();
+    nose.set(0, 0, 1).applyQuaternion(attitude);
+    toWorld(nose, player);
+    bodyUp.set(0, 1, 0).applyQuaternion(attitude);
+    toWorld(bodyUp, player);
+    // The roll softened: the body's up leant towards the surface's, never all the way.
+    level.copy(player.up).addScaledVector(nose, -nose.dot(player.up));
+    bodyUp.addScaledVector(level, FLIGHT_ROLL_KEEP).normalize();
+    across.crossVectors(bodyUp, nose).normalize();
+    basis.makeBasis(across, bodyUp, nose);
+    wanted.setFromRotationMatrix(basis);
+
+    // High over the map, the heading's level chase.
+    const base = Math.atan2(view.height, view.distance);
+    const weight = player.aerobatic === true ? 1 : 1 - ramp(base, FLIGHT_FADE_FROM, FLIGHT_FADE_TO);
+    if (weight < 1) {
+      across.crossVectors(player.up, heading).normalize();
+      basis.makeBasis(across, player.up, heading);
+      levelled.setFromRotationMatrix(basis);
+      wanted.copy(levelled.slerp(wanted, weight));
+    }
+    if (!following) frame.copy(wanted);
+    else frame.slerp(wanted, approach(FLIGHT_FOLLOW_RATE, dt));
+    following = true;
+
+    s.pitch = Math.min(Math.max(s.pitch, Math.min(MIN_ELEVATION_RIDING, base) - base), MAX_ELEVATION_RIDING - base);
+    // The glance is already in `heading`, which the level chase uses.
+    local.set(0, view.height, -view.distance).applyAxisAngle(X, s.pitch).applyAxisAngle(Y, s.glance * weight).applyQuaternion(frame);
+    pivot.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
+    desired.copy(pivot).add(local);
+    target.copy(pivot);
+    return true;
+  }
+
+  /** Looks at the target, raised by what the ground raised the lens, rolled as the lens's frame is. */
+  function aim(player: CameraSubject, lift: number): void {
+    sample.copy(target).addScaledVector(player.up, lift);
+    camera.up.set(0, 1, 0).applyQuaternion(frame);
+    camera.lookAt(sample);
+  }
+
+  return { place, aim };
+}
+
+export type FlightChase = ReturnType<typeof createFlightChase>;

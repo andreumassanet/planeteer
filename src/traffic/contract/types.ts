@@ -132,6 +132,18 @@ export interface Vehicle {
   size: readonly [number, number, number];
   /** Where riders go. Empty is legal. */
   mounts: readonly Mount[];
+  /**
+   * The scale it is placed at over the kit's authoring, if not
+   * `PLACED_SECTION`: a vehicle somebody can take is placed at the size of the
+   * craft that takes it (`craft/cars.ts`, `craft/traffic-craft.ts`), so it is
+   * one size parked, passing and driven.
+   */
+  section?: number;
+  /**
+   * What a kit model it is drawn off is fitted to (`ctx.vehicle`), for the
+   * craft built off the same model at the same size.
+   */
+  fit?: VehicleFit;
   /** One line: what this is and what it is for. */
   note?: string;
   /**

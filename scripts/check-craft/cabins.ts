@@ -22,7 +22,7 @@ console.log('\nthe cabins:');
   // The contract the other worlds' closed craft are held to as well (`check-worlds.ts`).
   const { glassFaults, wheelFaults } = await import('../cabin-contract.ts');
   /** The craft a body sits inside, which have glass and a cabin. */
-  const CLOSED = ['hatchback', 'van', 'jeep', 'pickup', 'tractor', 'bus', 'helicopter', 'submarine'];
+  const CLOSED = ['hatchback', 'saloon', 'van', 'minibus', 'jeep', 'pickup', 'tractor', 'bus', 'helicopter', 'submarine'];
   const up = new THREE.Vector3(0, 1, 0);
   for (const model of craft.values()) {
     for (const [i, seat] of model.seats.entries()) if (!seat.shown) fail(`${model.id}: seat ${i} hides its body`);
@@ -187,14 +187,13 @@ console.log('\nwhat stands still until it is taken:');
   const tractor = parkedModel('tractor')!;
   for (let n = 0; n < 60; n++) {
     const id = countryVehicleId('tractor', 17 + n * 4, 3 + n * 9, n % 3)!;
-    const arrays = parkedArrays(tractor, fleetVariant(id, tractor.variants), undefined);
-    // Its cabin left out, and its glass painted opaque, at the tail of the buffer.
-    const driven = takenWithout(id, undefined, ['cabin', 'steer', 'needle']);
-    const unglazed = (colour: Float32Array): Float32Array => colour.subarray(0, colour.length - driven.glass * 3);
-    // And the same size: it stood at 0.70 of the craft, and grew under whoever took it.
+    // Its cabin in and its windows open: everything but the glass, as the tile merges it.
+    const arrays = parkedArrays(tractor, fleetVariant(id, tractor.variants), undefined, 1, true);
+    const driven = takenWithout(id, undefined, ['glass']);
+    // And the same size as the one driven off.
     if (n === 0 && !same(arrays.position, driven.merged.position)) fail(`${id}: the farm's tractor and the one driven off are not the same size`);
     compared++;
-    if (!same(unglazed(arrays.color), unglazed(driven.merged.color))) {
+    if (!same(arrays.color, driven.merged.color)) {
       differ++;
       if (differ <= 5) fail(`${id}: the farm's tractor and the one driven off are not the same colours`);
     }

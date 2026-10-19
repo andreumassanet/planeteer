@@ -24,7 +24,7 @@ import { autoRickshaw } from '../traffic/parts/auto-rickshaw.ts';
 import { RIDE_SCALE } from './contract.ts';
 import type { CraftKind, CraftModel, Lamp, Seat } from './contract.ts';
 import { ABREAST } from './body.ts';
-import { assemble, finish, soupOf } from './build.ts';
+import { assemble, finish, soupOf, turningAbout } from './build.ts';
 import type { Soup, Turning } from './build.ts';
 
 export { RIDE_SCALE };
@@ -55,7 +55,11 @@ function about(soup: Soup, at: THREE.Vector3): Soup {
   return soup;
 }
 
-/** The part at the hero's scale: its body as one soup, and its wheels each about its own axle. */
+/**
+ * The part at the hero's scale: its body as one soup, its wheels each about
+ * its own axle, and what it names `'fork'` (the bars, the fork, the fender)
+ * about the steering axis it gives, the front wheel hung on it.
+ */
 function partSoups(spec: PartSpec, style: TrafficStyle): { still: Soup; wheels: Turning[] } {
   const part = spec.part;
   // One shape for every look: the part's own first variant, drawn in each
@@ -70,6 +74,20 @@ function partSoups(spec: PartSpec, style: TrafficStyle): { still: Soup; wheels: 
   built.traverse((object) => {
     if (object.name === 'wheel' && (object as THREE.Mesh).isMesh) found.push(object as THREE.Mesh);
   });
+  let fork: Turning | null = null;
+  const steer = built.getObjectByName('fork');
+  const axis = steer?.userData.axis as { at: [number, number, number]; tilt: number } | undefined;
+  if (steer !== undefined && axis !== undefined) {
+    const alone = new THREE.Group();
+    alone.matrixAutoUpdate = false;
+    alone.matrix.copy(steer.matrixWorld);
+    steer.removeFromParent();
+    steer.position.set(0, 0, 0);
+    steer.rotation.set(0, 0, 0);
+    steer.scale.set(1, 1, 1);
+    alone.add(steer);
+    fork = turningAbout('fork', soupOf(alone), new THREE.Vector3(...axis.at).multiplyScalar(RIDE_SCALE), axis.tilt);
+  }
   for (const mesh of found) {
     const box = new THREE.Box3().setFromObject(mesh);
     const at = box.getCenter(new THREE.Vector3());
@@ -84,6 +102,12 @@ function partSoups(spec: PartSpec, style: TrafficStyle): { still: Soup; wheels: 
     mesh.scale.set(1, 1, 1);
     alone.add(mesh);
     wheels.push({ name: 'wheel', at, soup: about(soupOf(alone), at) });
+  }
+  if (fork !== null && wheels.length > 0) {
+    // The foremost wheel turns with the bars.
+    const front = wheels.reduce((a, b) => (b.at.z > a.at.z ? b : a));
+    front.on = 'fork';
+    wheels.push(fork);
   }
   return { still: soupOf(holder), wheels };
 }

@@ -18,7 +18,7 @@ import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { CraftModel, Seat } from './contract.ts';
 import { HERO } from './body.ts';
-import { PROUD, assemble, craftContext, finish, loft, soupOf, well } from './build.ts';
+import { PROUD, assemble, craftContext, finish, loft, soupOf, turningAbout, well } from './build.ts';
 import type { Station, WellSection } from './build.ts';
 
 const H = AVATAR_HEIGHT;
@@ -111,12 +111,14 @@ function buildSailboat(variant: number): THREE.Group {
   group.add(bulb);
   // The rudder astern, and the tiller from a yoke on its head forward along
   // the helm's side, clear of his elbow, to his hand.
+  // Both swing about the rudder's stock.
+  const steering = new THREE.Group();
   const rudder = box(0.06 * M, SHEER - FIN * 0.6, 0.4 * M, tone(PALETTE.steel, 0.9));
   rudder.position.set(0, FIN * 0.6, TRANSOM - 0.2 * M);
-  group.add(rudder);
+  steering.add(rudder);
   const side = HERO.half + 0.1 * H;
-  group.add(strut(new V(0, SHEER + 0.02 * H, TRANSOM - 0.08 * M), new V(side, SHEER + 0.03 * H, TRANSOM + 0.02 * M), 0.03 * H, PALETTE.brown));
-  group.add(strut(new V(side, SHEER + 0.03 * H, TRANSOM + 0.02 * M), new V(side, HIP + 0.12 * H, HELM + 0.3 * H), 0.03 * H, PALETTE.brown));
+  steering.add(strut(new V(0, SHEER + 0.02 * H, TRANSOM - 0.08 * M), new V(side, SHEER + 0.03 * H, TRANSOM + 0.02 * M), 0.03 * H, PALETTE.brown));
+  steering.add(strut(new V(side, SHEER + 0.03 * H, TRANSOM + 0.02 * M), new V(side, HIP + 0.12 * H, HELM + 0.3 * H), 0.03 * H, PALETTE.brown));
   // The sole, and a thwart under each hip.
   const sole = box(HALF * 1.1, PROUD, WELL_FORE - WELL_AFT - 0.04 * H, PALETTE.brown);
   sole.position.set(0, SOLE, (WELL_AFT + WELL_FORE) / 2);
@@ -172,7 +174,7 @@ function buildSailboat(variant: number): THREE.Group {
   jib.rotation.y = 0.12;
   group.add(jib);
 
-  return assemble('sailboat', [soupOf(group)]);
+  return assemble('sailboat', [soupOf(group)], [turningAbout('rudder', soupOf(steering), new V(0, SHEER, TRANSOM - 0.02 * M))]);
 }
 
 const SEATS: readonly Seat[] = [

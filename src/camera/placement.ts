@@ -10,6 +10,7 @@ import {
   MAX_ELEVATION_RIDING,
   MIN_DISTANCE,
   MIN_ELEVATION,
+  MIN_ELEVATION_RIDING,
   ROLL_FADE_FROM,
   ROLL_FADE_TO,
   SHOULDER,
@@ -41,7 +42,8 @@ export function createPlacement(core: CameraCore) {
     // clamp is against the framing's own elevation.
     const ceiling = seated(player) ? MAX_ELEVATION_RIDING : MAX_ELEVATION;
     const base = Math.atan2(view.height, view.distance);
-    s.pitch = Math.min(Math.max(s.pitch, MIN_ELEVATION - base), ceiling - base);
+    const floor = seated(player) ? MIN_ELEVATION_RIDING : MIN_ELEVATION;
+    s.pitch = Math.min(Math.max(s.pitch, Math.min(floor, base) - base), ceiling - base);
 
     right.crossVectors(heading, player.up).normalize();
     offset.copy(player.up).multiplyScalar(view.height).addScaledVector(heading, -view.distance);
@@ -163,8 +165,10 @@ export function createPlacement(core: CameraCore) {
     // puts the direction of travel at the top of the screen.
     look.subVectors(sample, camera.position);
     const length = look.length();
-    const along = length > 1e-6 ? Math.abs(look.dot(player.up) / length) : 0;
-    camera.up.copy(player.up).lerp(heading, ramp(along, ROLL_FADE_FROM, ROLL_FADE_TO)).normalize();
+    const rise = length > 1e-6 ? look.dot(player.up) / length : 0;
+    // Looking up, the heading is at the bottom of the screen, so the roll fades to its opposite.
+    camera.up.copy(heading).multiplyScalar(rise > 0 ? -1 : 1)
+      .lerp(player.up, 1 - ramp(Math.abs(rise), ROLL_FADE_FROM, ROLL_FADE_TO)).normalize();
     camera.lookAt(sample);
   }
 

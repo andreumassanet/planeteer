@@ -83,6 +83,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     const turn = motion.stroke * Math.PI * 2;
     body.position.set(0, sink + (SWIM_LIFT + Math.abs(Math.sin(turn)) * SWIM_RIDE) * crawl * (1 - under), 0);
     body.rotation.set(0, 0, Math.sin(turn) * SWIM_ROLL * crawl);
+    if (headless) foldHead();
   }
 
   /** The head bone's own scale, kept while it is folded away; see `setHeadless`. */

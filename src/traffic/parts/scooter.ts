@@ -1,3 +1,4 @@
+import { RIDDEN_SECTION } from '../contract.ts';
 import type { Group, TrafficContext, Vehicle } from '../contract.ts';
 
 /**
@@ -18,6 +19,8 @@ export const scooter: Vehicle = {
   name: 'Scooter',
   kind: 'cycle',
   size: [2.5, 0.78, 1.54],
+  // Ridden by the hero's own size: placed as the craft that takes it.
+  section: RIDDEN_SECTION,
   note: 'A step-through with a floorboard, a legshield and a rounded cowl. Weighted above every car in three regions.',
 
   mounts: [
@@ -52,6 +55,8 @@ export const scooter: Vehicle = {
     const rear = -0.78;
     const front = rng.range(0.9, 0.95);
 
+    // What turns with the bars, merged on its own (`addFront`).
+    const steer = new THREE.Group();
     for (const z of [rear, front]) {
       const tyre = wheel(WHEEL, 0.17, rubber);
       tyre.position.set(0, WHEEL, z);
@@ -60,7 +65,7 @@ export const scooter: Vehicle = {
       const hub = column(WHEEL * 0.5, 0.22, metal, 8);
       hub.rotation.z = Math.PI / 2;
       hub.position.set(0.11, WHEEL, z);
-      draft.add(hub);
+      (z === front ? steer : draft).add(hub);
     }
 
     // The floorboard between the wheels, with a dark mat where the feet go.
@@ -125,7 +130,7 @@ export const scooter: Vehicle = {
     grille.position.set(0, 0.66, 0.67);
     draft.add(grille);
 
-    addFront(ctx, group, draft, paint, rubber, metal, front);
+    addFront(ctx, steer, draft, paint, rubber, metal, front);
 
     // The exhaust low on the right, under the cowl.
     draft.add(strut(new V(-0.2, 0.3, -0.34), new V(-0.24, 0.34, -0.9), 0.12, metal));
@@ -143,18 +148,33 @@ export const scooter: Vehicle = {
     }
 
     for (const mesh of [...merge(draft).children]) group.add(mesh);
+    // The bars, the headset, the fork and the fender, apart and named, so
+    // the craft that takes it can turn them about the line from the front
+    // hub up through the headset.
+    // The lamp is lit and stays out of the merge.
+    const lamps = steer.children.filter((child) => (child.userData.atlasLit ?? 0) > 0);
+    for (const lamp of lamps) steer.remove(lamp);
+    const fork = merge(steer);
+    for (const lamp of lamps) fork.add(lamp);
+    fork.name = 'fork';
+    fork.userData.axis = { at: [0, WHEEL, front], tilt: Math.atan2(HEADSET_Z - front, HEADSET_Y - WHEEL) };
+    group.add(fork);
     return group;
   },
 };
 
+/** The headset's middle, which the steering turns about with the front hub. */
+const HEADSET_Y = 1.36;
+const HEADSET_Z = 0.45;
+
 /**
  * The front: a fender hugging the wheel, the steering column up to the
  * headset, a single-sided fork, and the headset with bars, grips, mirrors and
- * the lamp.
+ * the lamp. All but the column go on `steer`, which turns.
  */
 function addFront(
   ctx: TrafficContext,
-  group: Group,
+  steer: Group,
   draft: Group,
   paint: number,
   rubber: number,
@@ -174,28 +194,28 @@ function addFront(
     const plate = box(0.26, 0.07, arc * (to - from) + 0.04, paint);
     plate.rotation.x = mid;
     plate.position.set(0, WHEEL + arc * Math.cos(mid), front + arc * Math.sin(mid));
-    draft.add(plate);
+    steer.add(plate);
   }
   draft.add(strut(new V(0, WHEEL * 2 + 0.14, front - 0.1), new V(0, 1.1, 0.66), 0.13, paint));
   // The column on up from the legshield's top to the headset, raked back.
   draft.add(strut(new V(0, 1.06, 0.66), new V(0, 1.36, 0.45), 0.1, paint));
-  draft.add(strut(new V(0.11, WHEEL * 2 + 0.06, front - 0.04), new V(0.11, WHEEL, front), 0.06, metal));
+  steer.add(strut(new V(0.11, WHEEL * 2 + 0.06, front - 0.04), new V(0.11, WHEEL, front), 0.06, metal));
 
   // The headset: painted, the bars coming out of it into dark grips, the
   // lamp in its face and a mirror either side.
   const headset = solid({ color: paint, width: 0.3, foreWidth: 0.26, topWidth: 0.24, topForeWidth: 0.2, depth: 0.26, height: 0.14 });
   headset.position.set(0, 1.34, 0.42);
-  draft.add(headset);
-  draft.add(strut(new V(-0.27, 1.45, 0.4), new V(0.27, 1.45, 0.4), 0.06, metal));
+  steer.add(headset);
+  steer.add(strut(new V(-0.27, 1.45, 0.4), new V(0.27, 1.45, 0.4), 0.06, metal));
   for (const side of [-1, 1]) {
-    draft.add(strut(new V(side * 0.25, 1.45, 0.4), new V(side * 0.36, 1.45, 0.36), 0.08, rubber));
-    draft.add(strut(new V(side * 0.2, 1.47, 0.41), new V(side * 0.27, 1.53, 0.39), 0.035, metal));
+    steer.add(strut(new V(side * 0.25, 1.45, 0.4), new V(side * 0.36, 1.45, 0.36), 0.08, rubber));
+    steer.add(strut(new V(side * 0.2, 1.47, 0.41), new V(side * 0.27, 1.53, 0.39), 0.035, metal));
     const mirror = box(0.12, 0.06, 0.04, metal);
     mirror.position.set(side * 0.29, 1.5, 0.39);
-    draft.add(mirror);
+    steer.add(mirror);
   }
   const lamp = lit(column(0.08, 0.05, tone(metal, 1.3), 8));
   lamp.rotation.x = Math.PI / 2;
   lamp.position.set(0, 1.4, 0.54);
-  group.add(lamp);
+  steer.add(lamp);
 }

@@ -19,7 +19,7 @@ import * as THREE from 'three';
 console.log('\nwhich way is ahead:');
 {
   /** The craft made of a kit model, and the kit model. */
-  const KIT_OF: Record<string, string> = { hatchback: 'hatchback-sports', van: 'van', jeep: 'suv', pickup: 'truck', tractor: 'tractor', bus: 'bus' };
+  const KIT_OF: Record<string, string> = { hatchback: 'hatchback-sports', saloon: 'sedan', van: 'van', jeep: 'suv', pickup: 'truck', tractor: 'tractor', bus: 'bus', minibus: 'ambulance' };
   const kitByName = new Map(kit.map((model) => [model.name, model]));
   const colour = new THREE.Color();
   /** Mean z, about the middle, of every corner whose slot passes `test`; NaN if none does. */
@@ -70,17 +70,19 @@ console.log('\nwhich way is ahead:');
     if (Math.abs(seat.yaw) > 1e-6) fail(`${model.id}: the driver faces ${f(seat.yaw, 3)} rad off the bow`);
     const kitName = KIT_OF[model.id];
     if (kitName !== undefined && !kitByName.has(kitName)) fail(`${model.id}: no kit model '${kitName}' to find its front on`);
-    else if (kitName === 'bus') {
+    else if (kitName === 'bus' || kitName === 'ambulance') {
       const grille = meanZ(kitName, (slot) => slot === 'Details');
       const bumpers = meanZ(kitName, (slot) => slot === 'Bumper');
       said.push(`grille ${f(grille)}, bumpers ${f(bumpers)} (pack units)`);
-      if (!(grille > 0) || !(bumpers > 0)) fail(`${model.id}: its grille and bumpers are behind its middle, so it is built facing -Z and drives backwards`);
+      // The minibus's pack has no grille slot: its bumpers say it alone.
+      if (!(Number.isNaN(grille) || grille > 0) || !(bumpers > 0)) fail(`${model.id}: its grille and bumpers are behind its middle, so it is built facing -Z and drives backwards`);
     } else if (kitName !== undefined) {
       const ahead = meanZ(kitName, lamp);
       const behind = meanZ(kitName, tail);
       said.push(`headlamps ${f(ahead)}${Number.isNaN(behind) ? '' : `, tail-lamps ${f(behind)}`} (pack units)`);
       if (!(ahead > 0)) fail(`${model.id}: its headlamps are behind its middle, so it is built facing -Z and drives backwards`);
-      if (behind > 0) fail(`${model.id}: its tail-lamps are ahead of its middle`);
+      // Red is a tail-lamp and, on some, a seat or a stripe as well: the mean is held behind the headlamps.
+      if (behind >= ahead) fail(`${model.id}: its tail-lamps are not behind its headlamps`);
     } else if (seat.pose === 'ride' && model.kind !== 'horse') {
       said.push(`hands ${f(seat.grip![2])} ahead of the hip`);
       if (!(seat.grip![2] > 0)) fail(`${model.id}: the rider's hands are behind the hip, so the bars are at the tail`);

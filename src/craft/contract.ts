@@ -26,8 +26,7 @@
 import type * as THREE from 'three';
 import type { Honk } from '../../server/src/limits.ts';
 import type { WheelGrip } from '../cast.ts';
-import { AVATAR_HEIGHT } from '../stature.ts';
-import { RIDER_HEIGHT } from '../traffic/contract.ts';
+import { RIDDEN_SECTION } from '../traffic/contract.ts';
 
 /** What a vehicle moves over, which is what decides how it is driven. */
 export type Medium = 'road' | 'water' | 'air';
@@ -290,23 +289,18 @@ export const PLAYER_STATES = ['foot', 'swim', 'seated'] as const;
 export type PlayerState = (typeof PLAYER_STATES)[number];
 
 /**
- * The vehicles parked in a town that can be taken, by the traffic kit's
- * vehicle, and the craft that stands in for each once taken: the kit's
- * hatchback and saloon become the hatchback, its SUV the jeep, its panel van
- * and minibus the van, its pickups the pickup, and the bus, the tractor, the
- * bicycle, the scooter and the rickshaw their own. What is left (a lorry, a
- * hand-cart) stays parked and solid.
- *
- * The craft is larger than the vehicle it replaces, a car by a third, because
- * the kit's are fitted to a lane and a craft to the person inside it
- * (`cars.ts`); the bus is drawn at the traffic's own size.
+ * The traffic kit's vehicles and the craft each is once taken. Every vehicle
+ * the kit puts on a road or at a kerb is here: a town parks only what can be
+ * taken, and the traffic's vehicle and its craft are one model at one size
+ * (`Vehicle.section`), so nothing changes size or shape when it is boarded
+ * (`pnpm traffic` holds both).
  */
 export const PARKED_CRAFT: Readonly<Record<string, string>> = {
   hatchback: 'hatchback',
-  'saloon-car': 'hatchback',
+  'saloon-car': 'saloon',
   'boxy-suv': 'jeep',
   'panel-van': 'van',
-  minibus: 'van',
+  minibus: 'minibus',
   'pickup-truck': 'pickup',
   'city-bus': 'bus',
   'farm-tractor': 'tractor',
@@ -318,28 +312,12 @@ export const PARKED_CRAFT: Readonly<Record<string, string>> = {
 /**
  * How much larger the hero is than the rider the traffic's parts are built
  * round (`RIDER_HEIGHT`): the scale the scooter and the tuk-tuk are taken at
- * (`craft/traffic-craft.ts`).
+ * (`craft/traffic-craft.ts`), and the section the traffic places them at.
  */
-export const RIDE_SCALE = AVATAR_HEIGHT / RIDER_HEIGHT;
+export const RIDE_SCALE = RIDDEN_SECTION;
 
-/**
- * The traffic's vehicles that no craft stands in for, and the craft whose
- * lamps each borrows, scaled to it: a lorry has a van's, a kei truck a
- * pickup's. A hand-cart has none.
- */
-export const LAMPS_LIKE: Readonly<Record<string, string>> = {
-  ...PARKED_CRAFT,
-  'box-truck': 'van',
-  'kei-truck': 'pickup',
-};
-
-/**
- * The traffic kit's vehicles a town parks at `RIDE_SCALE` rather than at the
- * traffic's own section, so the one somebody gets on is the size it stood at:
- * the scooter and the auto-rickshaw. A car is not grown to its craft (two
- * would not pass in a town's street).
- */
-export const PARKED_AT_RIDE_SCALE: ReadonlySet<string> = new Set(['scooter', 'auto-rickshaw']);
+/** The traffic's vehicles by the craft whose lamps each borrows: its own. */
+export const LAMPS_LIKE: Readonly<Record<string, string>> = PARKED_CRAFT;
 
 /**
  * Where a town's parked cars start counting in a vehicle id: the fleet's own

@@ -64,7 +64,7 @@ export function createBoarding(
       const free = entry.model.seats.findIndex((_, i) => (seats[i] ?? null) === null || (rolling && i === 0 && seats[i] === link.self));
       if (free < 0) continue;
       bestGap = gap;
-      best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? takeLabel(entry.model.kind) : 'Get in', gap };
+      best = { vehicle: entry.id, seat: free, model: entry.model, label: free === 0 ? takeLabel(entry.model.kind) : 'Get in', gap, at: entry.group.position };
     }
     // And the cars parked in the towns, which are nobody's until one is taken.
     if (parked !== undefined) {
@@ -77,7 +77,7 @@ export function createBoarding(
         const gap = bay.position.distanceTo(player.position) - Math.max(model.size[0], model.size[1]) / 2;
         if (gap > BOARD_REACH || gap >= bestGap) continue;
         bestGap = gap;
-        best = { vehicle: bay.id, seat: 0, model, label: takeLabel(model.kind), gap };
+        best = { vehicle: bay.id, seat: 0, model, label: takeLabel(model.kind), gap, at: bay.position };
         state.promptBay = bay;
       }
     }

@@ -65,9 +65,33 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
         });
         return hero.group.worldToLocal(bone!.getWorldPosition(new THREE.Vector3()));
       };
+      // A finger's joints in its wrist's own frame, to see a hand close.
+      const boneNamed = (name: string): THREE.Object3D => {
+        let bone: THREE.Object3D | undefined;
+        hero.group.traverse((o) => {
+          if ((o as THREE.Bone).isBone && (o.name === name || o.name === name.replace('.', ''))) bone = o;
+        });
+        return bone!;
+      };
+      const inHand = (side: 'L' | 'R', name: string): THREE.Vector3 => {
+        hero.group.updateMatrixWorld(true);
+        return boneNamed(`Wrist.${side}`).worldToLocal(boneNamed(`${name}.${side}`).getWorldPosition(new THREE.Vector3()));
+      };
       for (let i = 0; i < 30; i++) hero.stride(0.05, 0, false);
       hero.group.updateMatrixWorld(true);
       const rest = [wristOf('L'), wristOf('R')];
+      // Open, standing: each middle fingertip's joint, and the side of the palm the thumb is on.
+      const openTip = (['L', 'R'] as const).map((side) => inHand(side, 'Middle4'));
+      const palmOf = (['L', 'R'] as const).map((side) => {
+        const along = inHand(side, 'Middle3').sub(inHand(side, 'Middle2'));
+        const palm = along.cross(inHand(side, 'Pinky2').sub(inHand(side, 'Index2'))).normalize();
+        return inHand(side, 'Thumb3').sub(inHand(side, 'Middle2')).dot(palm) < 0 ? palm.negate() : palm;
+      });
+      /** How far each hand's middle finger has closed: the tip's way towards the palm, as a share of its open reach. */
+      const closing = (): number[] => (['L', 'R'] as const).map((side, i) => {
+        const moved = inHand(side, 'Middle4').sub(openTip[i]!);
+        return moved.dot(palmOf[i]!) / openTip[i]!.length();
+      });
       for (const model of craft.values()) {
         const seat = model.seats[0]!;
         if (seat.wheel === undefined) continue;
@@ -80,10 +104,16 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
             worst = Math.max(worst, wristOf(name).distanceTo(wheelHand(hipAt, seat.wheel, turn, side, new THREE.Vector3())));
           }
         }
+        const closed = closing();
+        const resting = seat.wheel.rest?.side;
+        const holding = closed.filter((_, i) => resting !== (i === 0 ? 1 : -1));
+        if (holding.some((share) => share < 0.15)) fail(`${model.id}: the hands on the wheel are open (${closed.map((c) => f(c)).join(', ')} closed)`);
         for (let i = 0; i < 3; i++) hero.stride(0.05, 0, false);
         hero.group.updateMatrixWorld(true);
+        const opened = closing();
+        if (opened.some((share) => Math.abs(share) > 0.02)) fail(`${model.id}: getting out kept the hands closed (${opened.map((c) => f(c)).join(', ')})`);
         const left = Math.max(wristOf('L').distanceTo(rest[0]!), wristOf('R').distanceTo(rest[1]!));
-        console.log(`  at the wheel ${model.id.padEnd(9)} the wrists at most ${f(worst)} from their holds; off it, ${f(left)} from standing`);
+        console.log(`  at the wheel ${model.id.padEnd(9)} the wrists at most ${f(worst)} from their holds, the hands ${closed.map((c) => f(c)).join(' and ')} closed; off it, ${f(left)} from standing`);
         if (worst > AVATAR_HEIGHT * 0.06) fail(`${model.id}: the hands are ${f(worst)} off the wheel`);
         if (left > AVATAR_HEIGHT * 0.02) fail(`${model.id}: getting out kept the hands on the wheel (${f(left)} from standing)`);
       }
@@ -162,6 +192,9 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
     const DEG = 180 / Math.PI;
     for (let i = 0; i < 30; i++) hero.stride(0.05, 0, false);
     const standingWrists = ['Wrist.L', 'Wrist.R'].map(at);
+    /** How far each middle fingertip's joint reaches from its wrist: a closed hand's is shorter. */
+    const reach = (): number[] => ['L', 'R'].map((side) => at(`Middle4.${side}`).distanceTo(at(`Wrist.${side}`)));
+    const openReach = reach();
     const standingLean = leanOf();
     const UPRIGHT: Record<string, number> = { scooter: 18 / DEG };
     for (const id of ['scooter', 'bicycle', 'motorbike', 'tuk-tuk', 'jet-ski', 'horse']) {
@@ -172,6 +205,8 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
         hero.ride(0.05, seat, i * 0.3);
         if (i % 30 === 29) leans.push(leanOf());
       }
+      const gripped = reach().map((r, i) => r / openReach[i]!);
+      if (gripped.some((share) => share > 0.85)) fail(`${id}: the rider's hands are open on the grips (the fingers reach ${gripped.map((g) => f(g)).join(', ')} of open)`);
       const wound = Math.max(...leans) - Math.min(...leans);
       const lean = leans[leans.length - 1]!;
       hero.stride(0.05, 0, false);

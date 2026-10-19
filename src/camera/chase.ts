@@ -21,6 +21,7 @@ import type { Lens } from './lens.ts';
 import type { Heading } from './heading.ts';
 import type { FirstPerson } from './first-person.ts';
 import type { Placement } from './placement.ts';
+import { createFlightChase } from './flight.ts';
 
 export function createChase(
   core: CameraCore,
@@ -37,6 +38,7 @@ export function createChase(
   const { align } = carrying;
   const { cockpit, cockpitOn, eye, inTheHead, showBody } = eyes;
   const { aimAt, place, unclip } = placement;
+  const flight = createFlightChase(core);
 
   /** Chase the player. Call after `player.update`. */
   function follow(dt: number, player: CameraSubject, groundRadiusAt: (p: THREE.Vector3) => number): void {
@@ -82,7 +84,7 @@ export function createChase(
       // head and not from wherever first person began.
       orbit.copy(player.position).addScaledVector(player.up, pivotHeight(player));
       s.held = Infinity;
-      showBody(player, false);
+      showBody(player, true, true);
       eye(player);
       return;
     }
@@ -110,10 +112,12 @@ export function createChase(
       return;
     }
     // In a craft the lens is chased as it always was, and the pivot is
-    // kept where the body is for the step back ashore.
+    // kept where the body is for the step back ashore. An aircraft aloft is
+    // chased in its own frame.
     orbit.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
     s.held = Infinity;
-    place(player);
+    const aloft = flight.place(player, dt);
+    if (!aloft) place(player);
     desired.addScaledVector(travel, s.lead * trail);
     const walls = false;
     // The ground is answered where the camera wants to be, not where it has got
@@ -129,7 +133,8 @@ export function createChase(
     // cross the ground, or the building a lens swinging back out has left.
     unclip(camera.position, groundRadiusAt, walls);
     showBody(player, camera.position.distanceTo(pivot) > BODY_NEAR);
-    aimAt(player, lift);
+    if (aloft) flight.aim(player, lift);
+    else aimAt(player, lift);
   }
 
   return { follow };

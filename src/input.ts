@@ -34,6 +34,13 @@ export interface InputState {
   /** Held. In the air they are the altitude: Space climbs, C descends (and in an aircraft Shift too, `player.ts`). */
   climb: boolean;
   dive: boolean;
+  /**
+   * Held: a plane's stick, -1..1 each. `pitch` positive pulls the nose up,
+   * `roll` positive rolls right.
+   */
+  attitude: { pitch: number; roll: number };
+  /** Edge-triggered: a plane's flight switches between travel and aerobatics. */
+  flightMode: boolean;
   /** Edge-triggered: get into the vehicle beside you, or out of the one you are in. */
   use: boolean;
   /** Edge-triggered: swaps the third-person rig for the avatar's own eye. */
@@ -129,6 +136,7 @@ export function createInput(target: HTMLElement, options: InputOptions = {}): In
       state.jump = false;
       state.use = false;
       state.view = false;
+      state.flightMode = false;
     },
     dispose() {
       events.abort();

@@ -16,6 +16,8 @@ import './check-craft/models.ts';
 import './check-craft/ahead.ts';
 import './check-craft/motion.ts';
 import './check-craft/cabins.ts';
+import './check-craft/placeable.ts';
+import './check-craft/steering.ts';
 import './check-craft/hero.ts';
 import { failures } from './check-craft/setup.ts';
 

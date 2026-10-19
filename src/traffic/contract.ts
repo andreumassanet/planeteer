@@ -14,7 +14,7 @@ import type { RegionStyle, SceneryContext } from '../scenery/contract.ts';
  */
 
 export { SCENERY_SCALE, STOREY, AVATAR_HEIGHT } from '../scenery/contract.ts';
-export { PLACED_SECTION, PLACED_LENGTH_CAP, SEATED, RIDER_HEIGHT, RIDER_SCALE, RIDER, LEGIBLE_AT } from './contract/scale.ts';
+export { PLACED_SECTION, PLACED_LENGTH_CAP, RIDDEN_SECTION, SEATED, RIDER_HEIGHT, RIDER_SCALE, RIDER, LEGIBLE_AT } from './contract/scale.ts';
 export type { CrowdBody } from './contract/scale.ts';
 export { KINDS, VARIANTS, placedScale, placedSize } from './contract/kinds.ts';
 export type { KindSpec, Medium, VehicleKind } from './contract/kinds.ts';

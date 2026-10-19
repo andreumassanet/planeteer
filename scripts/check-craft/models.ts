@@ -75,7 +75,7 @@ function checkCraft(model: CraftModel): void {
   if (lamps.length > 0) {
     const drawn = model.build(0);
     drawn.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(drawn);
+    const box = new THREE.Box3().setFromObject(drawn, true);
     const triangle = new THREE.Triangle();
     const closest = new THREE.Vector3();
     const point = new THREE.Vector3();
@@ -142,18 +142,22 @@ for (const model of craft.values()) checkCraft(model);
 {
   /** The wheels a craft turns: the model's real count, and none for the pack's wheel-less bus. */
   const WHEELS: Record<string, number> = {
-    hatchback: 4, van: 4, jeep: 4, pickup: 4, tractor: 4, bus: 0,
+    hatchback: 4, saloon: 4, van: 4, jeep: 4, pickup: 4, tractor: 4, bus: 4, minibus: 4,
     bicycle: 2, motorbike: 2, scooter: 2, 'tuk-tuk': 3, 'light-plane': 3,
   };
   const { wheelsOf } = await import('../../src/craft/cars.ts');
   for (const model of craft.values()) {
     const group = model.build(0);
     group.updateMatrixWorld(true);
-    const wheels = group.children.filter((child) => child.name === 'wheel');
+    // Hung on a fork or not.
+    const wheels: THREE.Object3D[] = [];
+    group.traverse((child) => {
+      if (child.name === 'wheel') wheels.push(child);
+    });
     const wants = WHEELS[model.id] ?? 0;
     if (wheels.length !== wants) fail(`${model.id}: ${wheels.length} turning wheels, wants ${wants}`);
     for (const wheel of wheels) {
-      const own = new THREE.Box3().setFromObject(wheel);
+      const own = new THREE.Box3().setFromObject(wheel, true);
       const size = own.getSize(new THREE.Vector3());
       if (own.min.y > 0.01 * H) fail(`${model.id}: a turning wheel ${f(own.min.y)} off the ground, a spare`);
       // Round in its own plane: a spare's triangles taken into it make it tall or long.

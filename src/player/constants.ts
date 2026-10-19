@@ -11,6 +11,8 @@ import {
   BOAT_BOOST,
   BOAT_SPEED,
   BOAT_TURN,
+  PLANE_CRUISE_HIGH,
+  PLANE_ROTATE,
   ROAD_HANDLING,
   WATER_HANDLING,
 } from '../vehicles.ts';
@@ -66,6 +68,14 @@ export const STEP_DOWN = AVATAR_HEIGHT * 1.2;
  */
 export const STEP_UP = 0.6;
 export const CLIMB_SLOPE = 2.75;
+/**
+ * The longest step, seconds, the body on foot and a vehicle on the road are
+ * moved in: a longer frame is cut into equal steps no longer than this, so the
+ * riser test and the fall see the same travel at 10 frames a second as at 60.
+ * The riser test also measures its run as at least this step's travel, so a
+ * faster frame is no stricter than this one.
+ */
+export const MOVE_STEP = 1 / 60;
 /** A fall no steeper than this over the ground covered is followed exactly, as a rise is; a steeper one is smoothed. */
 export const FOLLOW_SLOPE = CLIMB_SLOPE;
 
@@ -156,6 +166,16 @@ export const SINK_RATE = 5;
 export const SWIM_OUT = 1.5;
 /** The highest bank a swimmer climbs out onto, over the water's surface. */
 export const SWIM_CLIMB_OUT = AVATAR_HEIGHT * 1.6;
+/**
+ * Wading: a body walks on the sea floor until the water is `SWIM_DEPTH` deep,
+ * where a swimmer's soles hang, so it swims without moving; it stands again
+ * where the floor comes back within `WADE_RISE` of that. Wading it slows, to
+ * `WADE_SLOW` of its pace at the deepest, and it jumps only in water shallower
+ * than `WADE_JUMP`.
+ */
+export const WADE_RISE = 0.45;
+export const WADE_SLOW = 0.45;
+export const WADE_JUMP = AVATAR_HEIGHT * 0.25;
 /** A landing that comes down at `LANDING_HARD` jumps' speed more than an ordinary jump is the hardest (1). */
 export const LANDING_HARD = 1.5;
 
@@ -210,6 +230,73 @@ export const AIR_LOW = AVATAR_HEIGHT;
  */
 export const PLANE_BOUNCE = 0.35;
 export const PLANE_WALL = 0.3;
+
+// ---- full control (`aerobatics.ts`) ------------------------------------------
+//
+// Speeds are given at the low air; aloft each one is scaled by `airAt`, which
+// rises by `AERO_THIN` at the ceiling, by the square of the share of it: the
+// plane is a little faster high up, never travel's ocean-crossing speed.
+
+export const AERO_THIN = 0.5;
+/** The physics' fixed step, seconds: a frame is cut into as many as it needs, all of this length or shorter. */
+export const AERO_STEP = 1 / 120;
+/** How fast the stick turns the plane at full authority, radians a second: pitch, roll, and the rudder's yaw. */
+export const AERO_PITCH_RATE = 1.5;
+export const AERO_ROLL_RATE = 2.4;
+export const AERO_YAW_RATE = 0.4;
+/** How fast the control surfaces follow the keys, per second: a key eases the rate in and out. */
+export const AERO_CONTROL_EASE = 6;
+/** The pull of gravity on a plane in full control, units a second squared: about one and a half the true one at this scale. */
+export const AERO_GRAVITY = 26;
+/**
+ * The thrust at full throttle, units a second squared, in the low air. The
+ * drag is the square of the airspeed, sized so that full throttle in level
+ * flight tops out at `PLANE_CRUISE_LOW * (1 + PLANE_THROTTLE_UP)`; no throttle
+ * key holds `AERO_NEUTRAL` of it, which settles at the cruise; `S` closes it
+ * to `AERO_IDLE`, a glide.
+ */
+export const AERO_THRUST = 60;
+export const AERO_NEUTRAL = 1 / 2.56;
+export const AERO_IDLE = 0.04;
+/** How fast the throttle follows `W` and `S`, per second. */
+export const AERO_THROTTLE_EASE = 1.5;
+/** Pulling hard bleeds speed: this much of the airspeed a second at full elevator. */
+export const AERO_PULL_DRAG = 0.15;
+/** No step changes the airspeed by more than this, units a second squared, whatever the forces say. */
+export const AERO_MAX_ACCEL = 160;
+/** The hard ceiling on the airspeed, units a second: the relay's own figure for the fastest plane. */
+export const AERO_MAX_SPEED = PLANE_CRUISE_HIGH * 2.2;
+/**
+ * The airspeed the wings carry the plane's whole weight at, in the low air
+ * (the take-off speed, `PLANE_ROTATE`); slower, the lift falls with the square
+ * of the speed. Under `AERO_STALL` of it the wing stalls, keeps only
+ * `AERO_STALL_LIFT` of what it had, and the nose drops at up to `AERO_STALL_DROP`
+ * radians a second.
+ */
+export const AERO_LIFT_SPEED = PLANE_ROTATE;
+export const AERO_STALL = 0.75;
+export const AERO_STALL_LIFT = 0.35;
+export const AERO_STALL_DROP = 1.1;
+/** The fastest gravity or the lift may turn the flight path, radians a second, and the least airspeed that turn is divided by. */
+export const AERO_PATH_RATE = 1.2;
+export const AERO_PATH_FLOOR = 30;
+/** A banked wing turns the plane about the vertical: this many radians a second on a knife edge with full lift. */
+export const AERO_BANK_TURN = 0.55;
+/** With the stick let go in a gentle bank (under `AERO_ASSIST_BANK`), the wings come back level at this rate per radian of bank. */
+export const AERO_LEVEL_ASSIST = 0.9;
+export const AERO_ASSIST_BANK = 0.9;
+/** The least share of the stick's authority left at no airspeed. */
+export const AERO_MIN_AUTHORITY = 0.3;
+/** Levelling off (`level`): how hard the wings and the nose are pulled back, and how near level counts as done, radians. */
+export const AERO_RECOVER_GAIN = 2.5;
+export const AERO_RECOVERED = 0.06;
+/** A touchdown in full control: the most bank and the most nose up or down the gear takes, radians. */
+export const AERO_LAND_BANK = 0.35;
+export const AERO_LAND_PITCH = 0.25;
+/** Where the plane turns about in full control, as a share of its height over its wheels. */
+export const AERO_PIVOT = 0.45;
+/** Knocked off the ground or a wall in full control: the nose this far up, wings level, radians. */
+export const AERO_KNOCK_NOSE = 0.2;
 /** How long a balloon takes to come round to the heading asked for, seconds: it has no rudder, only the wind. */
 export const BALLOON_TURN_TIME = 0.8;
 /** And a launch's rudder, over to its stop. */

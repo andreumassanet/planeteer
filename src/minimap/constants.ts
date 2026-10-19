@@ -63,10 +63,14 @@ export const TARGET_PIN_SCALE = 1.3;
 export const BEARING_DEADZONE = 120;
 
 /** Half-width of the disc at its tightest and widest, world units; the widest is nominal, times `WORLD_SCALE` on Earth. */
-export const MIN_VIEW = 220;
+export const MIN_VIEW = 55;
 export const MAX_VIEW = 4000;
 /** The disc round a walker, units, and the seconds of the way ahead it opens by with speed. */
-export const LOCAL_VIEW = 260;
+export const LOCAL_VIEW = 200;
+/** The disc round a walker inside a built town, units: a few blocks, so its streets read. */
+export const TOWN_VIEW = 70;
+/** How far out from a town's buildings, in its radii, the disc starts closing in on it. */
+export const TOWN_APPROACH = 1.8;
 export const SPEED_VIEW = 10;
 /** Time constant of the speed the zoom reads, seconds. */
 export const SPEED_EASE = 0.8;
@@ -84,4 +88,4 @@ export const ZOOM_TIME = 0.4;
  * half a pixel at the bottom of its band (world units of half-width); a single
  * fine set would trace tens of thousands of points when the framing opens in the air.
  */
-export const SHAPE_BANDS = [MIN_VIEW, 4000, 10000, 20000];
+export const SHAPE_BANDS = [220, 4000, 10000, 20000];

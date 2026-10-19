@@ -40,14 +40,36 @@ export function projectDiscs(ctx: MenuCtx): void {
   }
 }
 
+/**
+ * The body under a screen point. A point inside a drawn disc takes the
+ * frontmost such disc; otherwise the disc whose rim is nearest wins, within a
+ * reach that is generous for the small ones, so two bodies drawn close
+ * together are each the one the pointer is nearer to.
+ */
 export function bodyAt(ctx: MenuCtx, clientX: number, clientY: number): string | null {
   const { discs } = ctx;
-  let best: Disc | null = null;
+  let inside: Disc | null = null;
+  let near: Disc | null = null;
+  let nearGap = Infinity;
   for (const disc of discs) {
     if (!disc.visible || disc.entry.body.kind === 'star') continue;
-    const reach = Math.max(disc.r, 12) + 8;
-    if (Math.hypot(clientX - disc.x, clientY - disc.y) > reach) continue;
-    if (best === null || disc.depth < best.depth) best = disc;
+    const distance = Math.hypot(clientX - disc.x, clientY - disc.y);
+    if (distance <= disc.r) {
+      if (inside === null || disc.depth < inside.depth) inside = disc;
+      continue;
+    }
+    const reach = Math.max(disc.r, PICK_FLOOR) + PICK_MARGIN;
+    if (distance > reach) continue;
+    const gap = distance - disc.r;
+    if (gap < nearGap) {
+      nearGap = gap;
+      near = disc;
+    }
   }
-  return best?.entry.body.id ?? null;
+  return (inside ?? near)?.entry.body.id ?? null;
 }
+
+/** Smallest pick radius, px, round a body drawn as a speck. */
+const PICK_FLOOR = 18;
+/** Extra reach, px, past a body's drawn rim. */
+const PICK_MARGIN = 10;

@@ -13,6 +13,7 @@ import type { CraftKind } from '../craft/contract.ts';
 import { createNeighbourhood } from './site-hood.ts';
 import { createFieldSearch } from './site-fields.ts';
 import { createBoatSites } from './site-boats.ts';
+import { createHarbourSites } from './site-harbours.ts';
 import { createCarSites } from './site-cars.ts';
 import { createGateSites } from './site-gates.ts';
 import { createPlanes } from './site-planes.ts';
@@ -36,6 +37,7 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
   const { cars } = createCarSites(w);
   const { boats, moorings } = createBoatSites(w);
   const { gates } = createGateSites(w);
+  const { harbourBoats } = createHarbourSites(w, source);
 
   const perPlace: (readonly FleetSite[] | undefined)[] = new Array(places.length);
   const counts = { ...(Object.fromEntries(CRAFT_KINDS.map((kind) => [kind, 0])) as Record<CraftKind, number>), towns: 0 };
@@ -50,6 +52,7 @@ export function createSiteIndex(source: FleetSource): SiteIndex {
     out.push(...fieldsOf(p));
     gates(p, out);
     moorings(p, out);
+    harbourBoats(p, out);
     for (const entry of out) counts[entry.kind]++;
     counts.towns++;
     perPlace[p] = out;

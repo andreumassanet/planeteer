@@ -8,6 +8,7 @@ import {
   COCKPIT_RETURN_DELAY,
   COCKPIT_YAW,
   LOOK_DEADZONE,
+  RECENTRE_DELAY,
   RECENTRE_RATE,
   RETURN_DELAY,
   RETURN_EASE,
@@ -90,7 +91,9 @@ export function createLook(core: CameraCore, carrying: Heading, framer: Framing)
     // Mouse down raises the camera and points it down the way a head tilts.
     s.pitch += input.look.y;
 
-    const looked = Math.abs(input.look.x) > LOOK_DEADZONE;
+    // In a seat a tilt is a look too, since the pitch is eased back with the yaw.
+    const looked = Math.abs(input.look.x) > LOOK_DEADZONE
+      || (seated(player) && Math.abs(input.look.y) > LOOK_DEADZONE);
     if (looked) { s.sinceLook = 0; s.rushing = false; }
     else s.sinceLook += dt;
 
@@ -123,9 +126,14 @@ export function createLook(core: CameraCore, carrying: Heading, framer: Framing)
         s.riding = true;
       } else s.glance = wrap(s.glance - input.look.x);
       const trail = wrap(away + s.glance);
-      const settled = s.glance * (1 - approach(RECENTRE_RATE, dt));
+      // The mouse's share is held while it moves and for `RECENTRE_DELAY` after, then eased back:
+      // the yaw to the bow and the tilt to the vehicle's own framing, so a look
+      // down never leaves the lens resting low behind it.
+      const back = 1 - approach(RECENTRE_RATE, dt) * ramp(s.sinceLook, RECENTRE_DELAY, RECENTRE_DELAY + RETURN_EASE);
+      const settled = s.glance * back;
       heading.applyAxisAngle(player.up, trail * approach(1 / TURN_TRAIL, dt) + settled - s.glance).normalize();
       s.glance = settled;
+      s.pitch *= back;
     } else if (!s.firstPerson) {
       // The same swing, gated four ways, and in first person there is no
       // "behind" to swing to: the heading is the facing. See RETURN_GAIN.

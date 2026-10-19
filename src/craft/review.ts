@@ -115,7 +115,7 @@ const f = (value: number): string => value.toFixed(2);
 export function reviewCraft(model: CraftModel, variant = 0, group: THREE.Group = model.build(variant)): CraftReview {
   group.updateMatrixWorld(true);
   const problems: string[] = [];
-  const box = new THREE.Box3().setFromObject(group);
+  const box = new THREE.Box3().setFromObject(group, true);
   const built: [number, number, number] = [box.max.z - box.min.z, box.max.x - box.min.x, box.max.y - box.min.y];
   ['length', 'width', 'height'].forEach((name, i) => {
     const off = Math.abs(built[i]! - model.size[i]!) / model.size[i]!;

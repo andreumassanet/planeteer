@@ -1,4 +1,5 @@
 /** The HUD's public types. */
+import type { SpeedReading, SpeedUnit } from './speedometer.ts';
 import type { HintSet, TravelMode } from '../controls.ts';
 import type { Nearby } from '../places.ts';
 import type { PlanetSurface } from '../planet.ts';
@@ -81,6 +82,14 @@ export interface Hud {
   setMode(mode: TravelMode, airborne?: boolean, firstPerson?: boolean, stranded?: boolean): void;
   /** What `E` would do here — `Drive`, `Get in` — or null for nothing in reach. Cheap to call every frame. */
   setPrompt(label: string | null, iconName?: IconName): void;
+  /**
+   * Where the prompt stands this frame: over the thing it is about, at a
+   * screen point (CSS pixels, the tag's tip) and an opacity, or with `x` null
+   * back in its place over the bottom of the screen. Cheap to call every frame.
+   */
+  placePrompt(x: number | null, y: number, fade: number): void;
+  /** The speedometer: a reading while in a vehicle, null to put it away; the unit from the settings. */
+  setSpeed(reading: SpeedReading | null, unit: SpeedUnit, dt: number): void;
   /** A set of keys for a moment that is not a way of travelling — a rocket on its pad — or null to put it away. */
   showKeys(set: HintSet | null): void;
   /** Whether the keys are shown on boarding at all: the settings switch. */

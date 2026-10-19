@@ -16,7 +16,8 @@ export function foot(s: MotionState, dt: number, speed: number, airborne: boolea
   const stepping = airborne ? 0 : (1 - moving) * clamp(turning / TURN_STEP_RATE, 0, 1) * TURN_STEP_SHARE;
   if (s.gesture !== null && (airborne || speed > WALK_SPEED * GESTURE_MOVES)) s.gesture = null;
   const length = mix(WALK_STRIDE, RUN_STRIDE, running);
-  s.phase = (s.phase + (speed * dt) / length + stepping * TURN_CADENCE * dt) % 1;
+  const way = cues?.back === true ? -1 : 1;
+  s.phase = (((s.phase + (way * speed * dt) / length + stepping * TURN_CADENCE * dt) % 1) + 1) % 1;
   const up = airborne ? 1 : 0;
   // A jump starts its loop from the take-off, not wherever the clock left it.
   if (airborne && s.weights.air < 0.02) s.clips.air.time = 0;
