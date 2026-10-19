@@ -448,3 +448,33 @@ export function flattenWeightAt(x: number, y: number, z: number): number {
   ensureQueries();
   return padClaim(x, y, z, latOf(y), lonOf(x, z));
 }
+
+/**
+ * How far past its plan a pad's ground is laid as points for the mesh
+ * (`padPoints`): its level core and the curve of its skirt, past which the
+ * skirt runs straight and an edge across it is enough.
+ */
+const PAD_POINTS_PAST = PAD_MARGIN + 2 * SKIRT_LIP;
+
+/**
+ * Every pad as the land mesh lays points under it: its centre and how far out,
+ * in world units. A level pad cut into a slope sits inside a triangle whose
+ * edges all miss it, and `refine` only asks an edge, so without points of its
+ * own the drawn land is whatever the triangle's corners say.
+ */
+export function padPoints(): { lat: number; lon: number; reach: number }[] {
+  ensureQueries();
+  const directions = siteDirection;
+  const shapes = siteShape;
+  const reaches = siteReach;
+  if (directions === null || shapes === null || reaches === null) return [];
+  const out: { lat: number; lon: number; reach: number }[] = [];
+  for (let i = 0; i < shapes.length; i++) {
+    out.push({
+      lat: latOf(directions[i * 3 + 1]!),
+      lon: lonOf(directions[i * 3]!, directions[i * 3 + 2]!),
+      reach: planReach(shapes[i]!) + Math.min(reaches[i]!, PAD_POINTS_PAST),
+    });
+  }
+  return out;
+}

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { ShapeUtils } from 'three';
 import type { World } from '../geo.ts';
 import { insideRing } from '../geo.ts';
-import { SHORE_APRON, apronDepth, detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt, shoreAt, shoreSample } from '../terrain.ts';
+import { SHORE_APRON, apronDepth, detailWeightAt, flattenWeightAt, padPoints, prepareTerrain, reliefAt, shoreAt, shoreSample } from '../terrain.ts';
 import type { FlagLayer, LandFlagData, RingSpan } from '../land-flags.ts';
 import { latOf, lonOf } from '../sphere.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, onSphere } from './planet.ts';
@@ -245,6 +245,45 @@ function shoreSteiner(lattice: readonly number[], drops: readonly Lake[], outlin
   return out;
 }
 
+/** Spacing of the points laid under a monument's pad, world units. */
+const PAD_POINT_SPACING = 18;
+
+/**
+ * Points on a square lattice under every monument's pad that falls in this
+ * ring (`padPoints`), clear of its outline and of its lakes by
+ * `SHORE_POINT_CLEAR`, for `retriangulate` to put in with the ring's own.
+ */
+function padSteiner(outline: readonly number[][], wet: readonly Lake[]): number[] {
+  const out: number[] = [];
+  let w = Infinity;
+  let e = -Infinity;
+  let s = Infinity;
+  let n = -Infinity;
+  for (const [lon, lat] of outline) {
+    w = Math.min(w, lon!);
+    e = Math.max(e, lon!);
+    s = Math.min(s, lat!);
+    n = Math.max(n, lat!);
+  }
+  const ring = outline as number[][];
+  const c = SHORE_POINT_CLEAR;
+  for (const pad of padPoints()) {
+    const dLat = pad.reach / UNITS_PER_DEGREE;
+    const dLon = dLat / Math.max(0.05, Math.cos(pad.lat * (Math.PI / 180)));
+    if (pad.lat + dLat < s || pad.lat - dLat > n || pad.lon + dLon < w || pad.lon - dLon > e) continue;
+    const stepLat = PAD_POINT_SPACING / UNITS_PER_DEGREE;
+    const stepLon = stepLat / Math.max(0.05, Math.cos(pad.lat * (Math.PI / 180)));
+    for (let lat = pad.lat - dLat; lat <= pad.lat + dLat; lat += stepLat) {
+      for (let lon = pad.lon - dLon; lon <= pad.lon + dLon; lon += stepLon) {
+        const clear = [[0, 0], [c, 0], [-c, 0], [0, c], [0, -c]].every(([dx, dy]) => insideRing(ring, lon + dx!, clampLat(lat + dy!)));
+        if (!clear || wet.some((lake) => insideRing(lake.points, lon, clampLat(lat)))) continue;
+        out.push(lon, lat);
+      }
+    }
+  }
+  return out;
+}
+
 /** Triangulates a ring: ear clipper, Delaunay with interior points, relief refinement, a final flip pass. Null when it yields nothing. */
 function triangulateRing(build: LandBuild, cuts: RingCuts): RingSurface | null {
   const { holes, drops } = cuts;
@@ -269,7 +308,7 @@ function triangulateRing(build: LandBuild, cuts: RingCuts): RingSurface | null {
   // The same points in the plane they were triangulated in, where `refine`
   // takes its midpoints.
   const lonLat = all.flatMap(([lon, lat]) => [lon!, lat!]);
-  const lattice = steinerPoints([outline, ...holeOutlines]);
+  const lattice = steinerPoints([outline, ...holeOutlines]).concat(padSteiner(outline, [...holes, ...drops]));
   faces = retriangulate(unit, lonLat, faces, drops.length === 0 ? lattice : shoreSteiner(lattice, drops, outline), undefined, true);
   const relief = unit.map((p) => reliefAt(p.x, p.y, p.z));
   const scratch = new THREE.Vector3();

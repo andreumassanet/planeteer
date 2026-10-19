@@ -22,7 +22,7 @@ export { oceanDistance, shoreDistance } from './terrain/coast-field.ts';
 export type { ShoreSample } from './terrain/shore.ts';
 export { shoreAt, shoreSample } from './terrain/shore.ts';
 export type { FlattenSite } from './terrain/pads.ts';
-export { PAD_MARGIN, SHORE_CLEAR, flattenWeightAt, setFlattenSites } from './terrain/pads.ts';
+export { PAD_MARGIN, SHORE_CLEAR, flattenWeightAt, padPoints, setFlattenSites } from './terrain/pads.ts';
 export type { DetailSite } from './terrain/town-sites.ts';
 export { detailWeightAt, setDetailSites } from './terrain/town-sites.ts';
 export { reliefAt } from './terrain/relief.ts';
