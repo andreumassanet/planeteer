@@ -39,6 +39,7 @@ import {
   rampOf,
   rampReach,
   ribbonHalf,
+  carriageHalf,
   ribbonSection,
   ribbonStations,
   roadClearance,
@@ -215,8 +216,8 @@ export function checkRibbonLayers(roads: Road[], settled: Place[], world: World)
   {
     const markBegan = Date.now();
     const stationsM: number[] = [];
-    const nearM = Array.from({ length: 6 }, () => new Vector3());
-    const farM = Array.from({ length: 6 }, () => new Vector3());
+    const nearM = Array.from({ length: 8 }, () => new Vector3());
+    const farM = Array.from({ length: 8 }, () => new Vector3());
     const nL = new Vector3();
     const nR = new Vector3();
     const fL = new Vector3();
@@ -254,11 +255,14 @@ export function checkRibbonLayers(roads: Road[], settled: Place[], world: World)
         if (!close) continue;
         ribbonSection(world, course, path, ramp, half, s0, nearM);
         ribbonSection(world, course, path, ramp, half, s1, farM);
-        carriageEdges(nearM, ribbonHalf(ramp, half, s0, path.length - s0), half, nL, nR);
-        carriageEdges(farM, ribbonHalf(ramp, half, s1, path.length - s1), half, fL, fR);
+        const half0 = carriageHalf(ramp, half, s0, path.length - s0);
+        const half1 = carriageHalf(ramp, half, s1, path.length - s1);
+        carriageEdges(nearM, ribbonHalf(ramp, half, s0, path.length - s0), half0, nL, nR);
+        carriageEdges(farM, ribbonHalf(ramp, half, s1, path.length - s1), half1, fL, fR);
+        const laid = (half0 + half1) * 0.5;
         const length = s1 - s0;
         for (const [across, gives, dash] of [
-          [0.5, dashGives, true], [edgeLineAcross(half, false), edgeGives, false], [edgeLineAcross(half, true), edgeGives, false],
+          [0.5, dashGives, true], [edgeLineAcross(laid, false), edgeGives, false], [edgeLineAcross(laid, true), edgeGives, false],
         ] as const) {
           const runs = markingRuns(others, nL, nR, fL, fR, across, gives, runsM);
           for (let q = 0; q < runs.length; q += 2) {
@@ -272,7 +276,7 @@ export function checkRibbonLayers(roads: Road[], settled: Place[], world: World)
               for (const other of others) {
                 const on = nearestOn(other.path, painted);
                 if (on.pastCap) continue;
-                const deep = other.half - on.distance;
+                const deep = carriageHalf(other.ramp, other.half, on.s, other.path.length - on.s) - on.distance;
                 if (dash) {
                   if (other.front && deep > 0.05 + 0.02) dashInside++;
                 } else if (deep > (other.front ? 0.05 : EDGE_KEEP) + 0.02) {

@@ -14,6 +14,7 @@ import './check-life/scale.ts';
 import './check-life/streaming.ts';
 import './check-life/routes.ts';
 import './check-life/movers.ts';
+import './check-life/signals.ts';
 import './check-life/determinism.ts';
 import { failures } from './check-life/setup.ts';
 

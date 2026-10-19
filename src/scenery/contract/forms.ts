@@ -15,6 +15,7 @@ export function createForms(base: MonumentContext, kit: MeshKit): Forms {
     const { width, height, leaf, frame, sill = 0, step = frame, panels = true } = spec;
     const group = new THREE.Group();
     group.name = 'door';
+    group.userData.atlasDoorHeight = height;
     const inner = width / 2;
     const outer = inner + DOOR_JAMB;
     const lintel = sill + height;

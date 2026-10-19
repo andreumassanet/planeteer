@@ -6,6 +6,7 @@ import type { TownGrid } from '../../scenery/grid.ts';
 import type { Ground } from '../ground/build.ts';
 import { urbanityOf } from '../rules.ts';
 import type { Slot, SlotFloor } from '../types.ts';
+import { standStreetFolk } from './street-folk.ts';
 import { standBenches, standLamps, standParkedSteps, standPeople, standRackBikesSteps, standSignals } from './furniture.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
 import { commitTown, mergeSteps, swapNearTrees, townMeshSteps } from './merge.ts';
@@ -66,6 +67,7 @@ export function* raiseSteps(kit: RaiseKit, slot: Slot): Generator<void, void, vo
   }
   yield* hangOverSteps(kit, job, ground, band);
   yield* dressStreetsSteps(kit, job, ground, band);
+  if (job.peopled) standStreetFolk(kit, job, ground, job.shopDoors);
   yield* standRackBikesSteps(kit, job);
   yield;
   if (job.floor !== null) job.floor.solids = job.solids.length > 0 ? solidField(job.solids) : null;
@@ -86,6 +88,8 @@ function openRaise(kit: RaiseKit, slot: Slot, grid: TownGrid, placed: RaiseJob['
     parked: [],
     benches: [],
     bikeSlots: [],
+    signalHeads: [],
+    shopDoors: [],
     grid,
     placed,
     standing: [],

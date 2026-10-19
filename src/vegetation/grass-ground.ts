@@ -20,12 +20,25 @@ import { createGrassGather } from './grass-gather.ts';
 import { insideKeepout } from './keepouts.ts';
 import type { Keepouts } from './keepouts.ts';
 import type { VegetationCountry } from './country.ts';
+import { GRASS_EDGE, GRASS_OPEN } from './types.ts';
 import type { GrassGround, GrassSite, VegetationOptions } from './types.ts';
 
 /** How far off a landmark's plan the grass stops: the blades' own lean. */
 const GRASS_TO_PLAN = 0.4;
-/** How far a lawn in a town keeps off its streets and its walls. */
-const LAWN_MARGIN = 0.6;
+/**
+ * How far a lawn's blades keep off its streets and its walls: a blade's lean.
+ * The texels grow to the lawn's edge, and each carries how far the lawn goes
+ * on past it (`GrassSite.edge`), which the field lays between texels, so the
+ * blades stop at the kerb and the wall rather than half a texel short of them
+ * or past them.
+ */
+const LAWN_MARGIN = 0.15;
+/** Halvings of the margin a lawn's edge is found to: about a tenth of a unit over `GRASS_EDGE`. */
+const EDGE_STEPS = 5;
+/** Under this a lawn's edge is none: the blade's own spot is as far as it goes. */
+const EDGE_LEAST = 0.05;
+/** The corners and the middles of the sides of a unit square round a point. */
+const SQUARE = [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 /** Units past an airstrip's drawn edge the grass is mown: about a blade's lean. */
 const STRIP_GRASS_MARGIN = 0.8;
 /** The width of an airstrip's rim, where the grass has no ground, in texels of the field asking. */
@@ -148,6 +161,7 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
   const slopeA = new THREE.Vector3();
   const slopeB = new THREE.Vector3();
   const slopeN = new THREE.Vector3();
+  const edgeProbe = new THREE.Vector3();
 
   /**
    * The made ground's normal at `direction` (a town's edge slope, an outer
@@ -221,35 +235,58 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
   }
 
   /**
-   * Whether the ground steps between this texel and a neighbour: the second
-   * difference over the next texel either way, along either axis, past
-   * `RISER_FOLD`. A slope, or a fold in the land, is a fraction of that; a
-   * town's terrace riser or kerb is its height.
+   * How the ground steps between this texel and its neighbours: the second
+   * difference over the next texel either way, along either axis, the
+   * largest of them by size. Over `RISER_FOLD` the texel is at the foot of a
+   * step, under minus it at the top. A slope, or a fold in the land, is a
+   * fraction of that; a town's terrace riser or kerb is its height.
    */
-  function risesBetween(direction: THREE.Vector3, radius: number, spread: number): boolean {
+  function stepAt(direction: THREE.Vector3, radius: number, spread: number): number {
+    let step = 0;
     for (const along of [grassSet.across, grassSet.north]) {
       grassProbe.copy(direction).addScaledVector(along, (2 * spread) / PLANET_RADIUS).normalize();
       const ahead = groundUnder(grassProbe, 0);
       grassProbe.copy(direction).addScaledVector(along, (-2 * spread) / PLANET_RADIUS).normalize();
       const behind = groundUnder(grassProbe, 0);
       if (ahead === null || behind === null) continue;
-      if (Math.abs(ahead + behind - 2 * radius) > RISER_FOLD) return true;
+      const here = ahead + behind - 2 * radius;
+      if (Math.abs(here) > Math.abs(step)) step = here;
     }
-    return false;
+    return step;
   }
 
   /**
-   * Whether a town's lawn holds all round a texel, as far as its blades are
-   * laid (`spread` each way): the margin the town keeps off its streets is
-   * measured from the texel, and a corner of it can still reach a pavement.
+   * How far a town's ground goes on round `direction` before a street, a wall,
+   * a riser or a gate's mouth, past the blades' lean: the largest margin the
+   * town still answers to, halved down to `EDGE_STEPS`, up to `GRASS_EDGE`,
+   * then cut back until the square that far round is the town's ground at its
+   * corners and the middles of its sides too. A cell's margins reach only to
+   * its sides, and an edge slope's cell knows nothing of the paving past them.
    */
-  function swardRound(direction: THREE.Vector3, spread: number): boolean {
-    for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
-      grassProbe.copy(direction)
-        .addScaledVector(grassSet.across, (a * spread) / PLANET_RADIUS)
-        .addScaledVector(grassSet.north, (b * spread) / PLANET_RADIUS)
+  function lawnEdge(direction: THREE.Vector3): number {
+    let low = LAWN_MARGIN;
+    if (groundUnder(direction, GRASS_EDGE + LAWN_MARGIN) !== null) low = GRASS_EDGE + LAWN_MARGIN;
+    else {
+      let high = GRASS_EDGE + LAWN_MARGIN;
+      for (let step = 0; step < EDGE_STEPS; step++) {
+        const middle = (low + high) / 2;
+        if (groundUnder(direction, middle) !== null) low = middle;
+        else high = middle;
+      }
+    }
+    let edge = low - LAWN_MARGIN;
+    while (edge > EDGE_LEAST && !squareHolds(direction, edge)) edge *= 0.6;
+    return edge > EDGE_LEAST ? edge : 0;
+  }
+
+  /** Whether the town's ground goes on, `LAWN_MARGIN` clear, at the corners and the middles of the sides of a square `half` round `direction`. */
+  function squareHolds(direction: THREE.Vector3, half: number): boolean {
+    for (const [a, b] of SQUARE) {
+      edgeProbe.copy(direction)
+        .addScaledVector(grassSet.across, (a * half) / PLANET_RADIUS)
+        .addScaledVector(grassSet.north, (b * half) / PLANET_RADIUS)
         .normalize();
-      if (groundUnder(grassProbe, LAWN_MARGIN) === null) return false;
+      if (groundUnder(edgeProbe, LAWN_MARGIN) === null) return false;
     }
     return true;
   }
@@ -310,20 +347,21 @@ export function createGrassGround(deps: GrassGroundDeps): GrassGround {
         if (height <= 0) bare = true;
       }
     }
-    let radius = groundUnder(direction, LAWN_MARGIN + spread, shading);
+    let radius = groundUnder(direction, LAWN_MARGIN, shading);
     if (radius === null) return null;
     // Thinned across the band where the land draws its faces as rock, and
     // gone where it is all rock: no blade stands on a cliff.
     // A town's ground answers no drawn normal; where it is the land's own (an
     // edge slope) the town draws it as the land, so it is asked the same.
     const townGround = shading.lengthSq() === 0;
+    out.edge = townGround ? lawnEdge(direction) : GRASS_OPEN;
     if (townGround && !bare) madeNormal(direction, shading);
     const rock = shading.lengthSq() > 0 ? rockAt(shading, sitePoint.copy(direction).multiplyScalar(radius)) : 0;
     if (spread > 0) {
       // A riser between a texel and the next is no line a blade can be laid
       // on: bare either side of it, so the blades stop short of the step.
-      if (!bare && risesBetween(direction, radius, spread)) bare = true;
-      if (!bare && townGround && !swardRound(direction, spread)) bare = true;
+      const step = stepAt(direction, radius, spread);
+      if (Math.abs(step) > RISER_FOLD) bare = true;
       radius = lowered(direction, radius, spread);
     }
 

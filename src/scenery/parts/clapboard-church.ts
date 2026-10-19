@@ -1,5 +1,5 @@
 import type { ScenicPart } from '../contract.ts';
-import { buildingPaint, sceneryModel } from '../contract.ts';
+import { DOOR_HEIGHT, buildingPaint, sceneryModel } from '../contract.ts';
 import { isGlass } from '../../models.ts';
 
 /**
@@ -13,6 +13,8 @@ import { isGlass } from '../../models.ts';
 
 const ID = 'church-clapboard';
 const FOOTPRINT = 15.5;
+/** The church's west door in the model's own units, under the trim at its head: its slot is the roof's too. */
+const MODEL_DOOR = 0.19;
 
 export const clapboardChurch: ScenicPart = {
   id: 'clapboard-church',
@@ -28,6 +30,10 @@ export const clapboardChurch: ScenicPart = {
       { walls: rng.pick(style.walls), roofs: rng.pick(style.roofs), trim: rng.pick(style.trim) },
       isGlass,
     );
-    return ctx.fitted(ID, { height: rng.range(22, 30), radius: FOOTPRINT - 0.02, width: 9.5, length: 15, narrow: true, yaw: 0, windows: isGlass }, paint);
+    return ctx.fitted(
+      ID,
+      { door: DOOR_HEIGHT * rng.range(1.05, 1.2), modelDoor: MODEL_DOOR, lift: MODEL_DOOR * 1.5, radius: FOOTPRINT - 0.02, width: 9.5, length: 15, narrow: true, yaw: 0, windows: isGlass },
+      paint,
+    );
   },
 };

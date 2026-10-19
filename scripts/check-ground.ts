@@ -358,6 +358,80 @@ console.log('\nthe player on the drawn land');
   check(shoreNow.wetOverLand === 0 && shoreNow.underSea === 0, 'nobody swims over drawn land or stands under the sea on a shore', shoreNow.examples.join('; '));
   check(shoreNow.buried === 0, 'no foot is buried in a shore', `${shoreNow.buried} frames`);
 
+  // Wading: the same walks with the sea floor to stand on. Out into the water
+  // the body walks down the apron and wades before it swims, and back the same
+  // way: the body's base (its position less what it hangs by) and the
+  // camera's pivot never move further in a frame than a walk down the steepest
+  // apron would take them, and the swim begins and ends only in water about
+  // as deep as a swimmer hangs.
+  {
+    const { prepareSeaFloor, seaDepthAt } = await import('../src/sea-floor.ts');
+    const { SWIM_DEPTH, WADE_RISE } = await import('../src/player/constants.ts');
+    prepareSeaFloor(world);
+    const seaFloorAt = (point: Vector3): number => PLANET_RADIUS - seaDepthAt(point);
+    const wader = createPlayer(world, 0, 0, { groundAt, seaFloorAt });
+    /** The most a body's base may move along its up in a frame at a walk or a run down a shore, units. */
+    const BASE_STEP = 0.6;
+    let frames = 0;
+    let wadeFrames = 0;
+    let jumps = 0;
+    let worstJump = 0;
+    let swims = 0;
+    let shallowSwims = 0;
+    let stands = 0;
+    let deepStands = 0;
+    const jumped: string[] = [];
+    const run = (seconds: number, direction: Vector3, fast: boolean): void => {
+      let lastBase = wader.position.length() - wader.sink;
+      let lastState = wader.state;
+      for (let t = 0; t < seconds; t += 1 / 60) {
+        const up = wader.position.clone().normalize();
+        heading.copy(direction).projectOnPlane(up).normalize();
+        wader.update(1 / 60, { move: { x: 0, y: 1 }, run: fast, jump: false, heading });
+        direction.projectOnPlane(wader.position.clone().normalize()).normalize();
+        frames++;
+        const base = wader.position.length() - wader.sink;
+        const depth = PLANET_RADIUS + 0.5 - seaFloorAt(wader.position);
+        if (wader.state === 'foot' && !wader.airborne && isWater(drawnHere(wader.position)) && depth > 0.2) wadeFrames++;
+        if (wader.state !== lastState) {
+          if (wader.state === 'swim') {
+            swims++;
+            if (depth < SWIM_DEPTH - 0.6) shallowSwims++;
+          } else if (wader.state === 'foot' && lastState === 'swim') {
+            stands++;
+            if (depth > SWIM_DEPTH - WADE_RISE + 0.6) deepStands++;
+          }
+        }
+        // A cliff is a fall, not a step; only the shores' own transitions are asked.
+        if (!wader.airborne) {
+          const step = Math.abs(base - lastBase);
+          if (step > worstJump) worstJump = step;
+          if (step > BASE_STEP) {
+            jumps++;
+            if (jumped.length < 4) jumped.push(`${step.toFixed(2)} at ${latOf(up.y).toFixed(4)},${lonOf(up.x, up.z).toFixed(4)} (${lastState} to ${wader.state})`);
+          }
+        }
+        lastBase = base;
+        lastState = wader.state;
+      }
+    };
+    // Out at a run until the water is deep enough to swim, and back at a walk.
+    for (const sample of coastSamples.slice(0, 120)) {
+      const start = sample.at.clone().addScaledVector(sample.out, -10 / PLANET_RADIUS).normalize();
+      probe.prime(start.clone().multiplyScalar(PLANET_RADIUS));
+      put(wader, start);
+      run(7, sample.out.clone(), true);
+      run(14, sample.out.clone().negate(), false);
+    }
+    console.log(
+      `  wading: ${frames} frames, ${wadeFrames} wading; ${swims} swims begun, ${stands} stood up from; ` +
+      `the body's base moved at most ${worstJump.toFixed(2)} in a grounded frame`,
+    );
+    check(wadeFrames > frames * 0.05 && swims > 30 && stands > 30, 'walking into the sea wades before it swims, and back', `${wadeFrames} of ${frames} frames, ${swims} swims, ${stands} stood up from`);
+    check(shallowSwims === 0 && deepStands === 0, 'the swim begins and ends where the water is as deep as a swimmer hangs', `${shallowSwims} begun shallow, ${deepStands} ended deep`);
+    check(jumps <= frames * 0.001, 'in and out of the water the body never jumps', `${jumps} frames over ${BASE_STEP}${jumped.length > 0 ? `: ${jumped.join('; ')}` : ''}`);
+  }
+
   for (const [name, samples] of [['towns', townSamples], ['hillsides', hillSamples]] as const) {
     const walkNow = walkTally();
     const walkBefore = walkTally();
@@ -524,7 +598,7 @@ console.log('\nthe roads on the drawn land');
     const course = emptyCourse();
     const ramp = emptyRamp();
     const stations: number[] = [];
-    const section = Array.from({ length: 6 }, () => new Vector3());
+    const section = Array.from({ length: 8 }, () => new Vector3());
     let feet = 0;
     let feetOver = 0;
     let feetWorst = 0;
@@ -710,6 +784,46 @@ console.log('\nthe roads on the drawn land');
       const beyond = past(at);
       check(beyond !== stops, stops ? `a ${rise}-unit riser across the road stops a car` : `a ${rise}-unit kerb across it does not`, `${(at.clone().sub(line).dot(facing) * PLANET_RADIUS).toFixed(1)} units from the line`);
     }
+  }
+}
+
+/*
+ * The frame rate: a run at a riser across flat ground, and a jump, at 10 to
+ * 144 frames a second. A wall stops the body and a kerb does not at every rate,
+ * and the jump's top is the same height at every rate.
+ */
+console.log('\nthe body at any frame rate');
+{
+  const { createPlayer } = await import('../src/player.ts');
+  const { JUMP_HEIGHT } = await import('../src/player/constants.ts');
+  const { unitAt } = await import('../src/sphere.ts');
+  const FLOOR = PLANET_RADIUS + 60;
+  const start = unitAt(30, 100, new Vector3());
+  const north = new Vector3(0, 1, 0).projectOnPlane(start).normalize();
+  const line = start.clone().applyAxisAngle(new Vector3().crossVectors(start, north).normalize(), 30 / FLOOR);
+  const past = (point: Vector3): number => point.clone().normalize().sub(line).dot(north) * FLOOR;
+  const heading = new Vector3();
+  for (const fps of [10, 16, 30, 60, 144]) {
+    for (const [rise, stops] of [[3, true], [1.2, false]] as const) {
+      const player = createPlayer(world, 30, 100, {
+        groundAt: () => FLOOR,
+        madeHeightAt: (point) => (past(point) > 0 ? FLOOR + rise : 0),
+      });
+      for (let t = 0; t < 4; t += 1 / fps) {
+        heading.copy(north).projectOnPlane(player.position.clone().normalize()).normalize();
+        player.update(1 / fps, { move: { x: 0, y: 1 }, run: true, jump: false, heading });
+      }
+      const beyond = past(player.position) > 0;
+      check(beyond !== stops, `${fps} fps: a ${rise}-unit riser ${stops ? 'stops' : 'does not stop'} a running body`, `${past(player.position).toFixed(1)} units from it`);
+    }
+    const jumper = createPlayer(world, 30, 100, { groundAt: () => FLOOR });
+    heading.copy(north);
+    let top = 0;
+    for (let t = 0; t < 1.5; t += 1 / fps) {
+      jumper.update(1 / fps, { move: { x: 0, y: 0 }, run: false, jump: t < 0.2, heading });
+      top = Math.max(top, jumper.position.length() - FLOOR);
+    }
+    check(Math.abs(top - JUMP_HEIGHT) < 0.06, `${fps} fps: a jump tops out at its height`, `${top.toFixed(3)} against ${JUMP_HEIGHT.toFixed(3)}`);
   }
 }
 

@@ -28,7 +28,9 @@ export type { Whereabouts } from './music-score/regions.ts';
 export { pitchesOf, scaleOver, scaleAt, voiceChord } from './music-score/pitch.ts';
 export { ringOf } from './music-score/events.ts';
 export type { Role, NoteEvent, Mood, PhraseKind, Piece, Phrase } from './music-score/events.ts';
-export { moodOf, planPiece } from './music-score/plan.ts';
+export { moodOf, planPiece, barsOf } from './music-score/plan.ts';
+export { ATMOSPHERE, ATMOSPHERES, HOME, atmosphereBar, atmosphereOf, weatherCueOf } from './music-score/atmosphere.ts';
+export type { Atmosphere, AtmosphereSpec, WeatherCue } from './music-score/atmosphere.ts';
 
 export function composePhrase(piece: Piece, index: number, mood: Mood): Phrase {
   const style = piece.style;

@@ -38,7 +38,6 @@ const WALLS_OF: Readonly<Record<string, SurfaceName>> = {
   'ruin-wall': 'stone',
   'fishing-hut': 'timber',
   jetty: 'timber',
-  rowboat: 'timber',
   bench: 'timber',
   signpost: 'timber',
 };
@@ -116,8 +115,11 @@ export function createFlats(
     if (model === null) return null;
     let made: CountryFlat | null = null;
     try {
+      // Its cabin merged and its windows open: a tile has no see-through
+      // material, and the inside is to be seen.
+      const { glass: _open, ...arrays } = parkedArrays(model, variant, undefined, 1, true);
       made = {
-        ...parkedArrays(model, variant, undefined),
+        ...arrays,
         height: model.size[2],
         footprint: COUNTRY_PARTS[craft]?.footprint ?? Math.max(model.size[0], model.size[1]) * 0.5,
         tilt: 0,

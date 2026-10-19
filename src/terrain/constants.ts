@@ -69,6 +69,17 @@ export const SHORE_SPAN = 1.1;
 export const SHORE_LIP = 4;
 
 /**
+ * The apron: the beach carried on past the coastline and under the water, so
+ * the land meets the sea floor on a slope rather than a cliff. It falls in a
+ * straight line from `SHORE_LIP` over the sea at the coastline to `APRON_FOOT`
+ * under it `SHORE_APRON` units out, where the sea floor's own profile takes
+ * over (`sea-floor.ts`). The land mesh draws it in place of a wall
+ * (`globe/land-mesh.ts`), and a wader stands on it (`player/walk.ts`).
+ */
+export const SHORE_APRON = 12;
+export const APRON_FOOT = 1.2;
+
+/**
  * The shelf every ring stands on: `LAND_HEIGHT` in `geo.ts`, copied because
  * `geo.ts` imports this module (the cycle would leave it in its temporal dead
  * zone). `pnpm check` asserts the two agree.

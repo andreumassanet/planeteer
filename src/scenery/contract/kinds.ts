@@ -6,7 +6,7 @@ import { BODY_SCALE } from '../../stature.ts';
  * - `scatter` — rocks, bushes, stumps, the things that stop ground being empty.
  * - `tree` — one tree. A tree is a mark, not a model.
  * - `dwelling` — where one household lives: 1 to 3 storeys.
- * - `block` — the fabric of a town: 4 to 8 storeys, terraces and slabs.
+ * - `block` — the fabric of a town: 4 or 5 storeys, terraces and slabs.
  * - `civic` — the one building that tells you *where* you are: a church, a
  *   mosque, a pagoda. One per settlement, so it may cost twice a dwelling.
  * - `person` — somebody living there. Sized by `AVATAR_HEIGHT` rather than
@@ -47,8 +47,11 @@ export const KINDS: Record<PartKind, KindSpec> = {
   // them plus a course, an eave band, a ridge cap and a lintel at twelve apiece.
   // A cap is a ceiling: the median part is a two-storey house, which measures
   // 216 against the 264 it may spend.
-  dwelling: { height: 16, minHeight: 5, footprint: 9, triangles: 264, meshes: 30, colors: 5 },
-  block: { height: 34, minHeight: 13, footprint: 14, triangles: 456, meshes: 40, colors: 5 },
+  // The heights are `STOREY`'s: a three-storey flat-roofed house under its
+  // roof stair stands 20.6, and a five-storey tower under its mast 37.5, under
+  // the monuments' `building` tier of 40.
+  dwelling: { height: 22, minHeight: 5, footprint: 9, triangles: 264, meshes: 30, colors: 5 },
+  block: { height: 38, minHeight: 13, footprint: 14, triangles: 456, meshes: 40, colors: 5 },
   civic: { height: 38, minHeight: 11, footprint: 16, triangles: 624, meshes: 52, colors: 6 },
   // A person is built of soft shapes (`src/soft.ts`). Triangles: `pnpm people`
   // over 840 builds measures a median of 700 and a worst of 1,024, so the cap is

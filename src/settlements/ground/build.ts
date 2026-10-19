@@ -58,7 +58,7 @@ export function createGroundBuilder(
     gateMouths(job);
     markLawns(job, pavedCells);
     placeLamps(job, urbanity);
-    placeSignals(job, urbanity);
+    placeSignals(job);
     collectEmitters(job, litPlots);
     yield* pavingSteps(job, pavedCells);
     yield* wallSteps(job);

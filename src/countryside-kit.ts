@@ -6,10 +6,9 @@ import type { Rng } from './scenery/random.ts';
 import type { BodyKind } from './scenery/occupancy.ts';
 import { solidTree, treeForm } from './scenery/tree-forms.ts';
 import type { TreeForm } from './scenery/tree-forms.ts';
-import { bodyPaint, isGlass } from './models.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
 import { buildBench } from './bench.ts';
-import { parkedModel, unfurnish } from './craft/parked.ts';
+import { parkedModel, unglaze } from './craft/parked.ts';
 import { PALETTE } from './theme.ts';
 
 /**
@@ -239,8 +238,8 @@ const tractor: CountryPart = {
     const model = parkedModel('tractor');
     if (model === null) throw new Error("countryside: the fleet's tractor needs the traffic kit registered");
     const holder = new THREE.Group();
-    // As its tile stands it: its cabin left out and its glass opaque (`unfurnish`).
-    holder.add(unfurnish(model.build(rng.int(model.variants))));
+    // As its tile stands it: its cabin in and its windows open (`unglaze`).
+    holder.add(unglaze(model.build(rng.int(model.variants))));
     return holder;
   },
 };
@@ -787,18 +786,6 @@ const jetty: CountryPart = {
   },
 };
 
-/** A rowing boat moored off the jetty: Kenney's (Watercraft Kit, CC0). */
-const rowboat: CountryPart = {
-  id: 'rowboat',
-  footprint: 1.8,
-  afloat: true,
-  build(ctx, rng) {
-    const body = rng.pick([PALETTE.white, PALETTE.skyBlue, PALETTE.red, PALETTE.green]);
-    // A little longer than the person who rows it.
-    return ctx.fitted('boat-row-small', { radius: AVATAR_HEIGHT * 0.58, sink: 0.35 }, bodyPaint(sceneryModel('boat-row-small'), body, isGlass));
-  },
-};
-
 /** A cairn: stones stacked by walkers, smaller up the pile. */
 const cairn: CountryPart = {
   id: 'cairn',
@@ -920,7 +907,7 @@ export const COUNTRY_PARTS: Readonly<Record<string, CountryPart>> = Object.fromE
     windmill, turbine, lighthouse,
     waysideCross, chapel, torii, roadShrine, chorten, prayerFlags, spiritHouse, marabout, hinduShrine,
     standingStone, ruinColumn, ruinWall,
-    tent, ger, nomadTent, campfire, fishingHut, jetty, rowboat, cairn,
+    tent, ger, nomadTent, campfire, fishingHut, jetty, cairn,
     bench, signpost, rocks, palm, olive,
   ].map((part) => [part.id, part]),
 );

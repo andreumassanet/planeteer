@@ -47,7 +47,7 @@ export {
 } from './roads/crown.ts';
 export type { RoadRamp } from './roads/crown.ts';
 export {
-  PAVEMENT_RUN, SHOULDER_STRIP, bankRun, crownFall, onPavement, ribbonHalf, ribbonReach, ribbonSection, ribbonStations,
+  PAVEMENT_RUN, SHOULDER_STRIP, bankRun, carriageHalf, crownFall, onPavement, ribbonHalf, ribbonReach, ribbonSection, ribbonStations,
   surfaceLift,
 } from './roads/section.ts';
 export { MAX_ROAD_LENGTH, bendFor, builtGraph, pairKey, proximityGraph } from './roads/graph.ts';
@@ -102,7 +102,7 @@ export function createRoads(world: World, places: readonly Place[], data: RoadDa
     }
     return found;
   };
-  const ribbons = createRibbonCache({ world, roads, geometry, caches, readMiddle: summary.readMiddle, regionId });
+  const ribbons = createRibbonCache({ world, places, roads, geometry, caches, readMiddle: summary.readMiddle, regionId });
   const streamer = createRoadStreamer({ roads, summary, tiles, caches, ribbons, material, propsMaterial, reach, group });
   const height = createRibbonHeight({ world, places, roads, geometry, rampFor: caches.rampFor });
 

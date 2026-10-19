@@ -13,6 +13,10 @@
  *   surface reads as a box, and tones are free against the colour budget.
  * - No two colours in one plane (`fightsIn`): a merged town would z-fight on
  *   it whenever the camera moves.
+ * - Doors: every variant of a `dwelling`, `block` or `civic` part opens a
+ *   door (`doorHeights`), and its shortest, shrunk by a town's `FIT_SCALE`,
+ *   still stands `DOOR_LEAST` (1.15 of the person): the people are drawn
+ *   larger than life, and a door under that is a doll's house.
  * - The tables agree with the files: every id a region or biome names exists,
  *   and every part that is not a person is named somewhere.
  *
@@ -26,9 +30,12 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Object3D } from 'three';
 import {
+  DOOR_LEAST,
+  FIT_SCALE,
   KINDS,
   VARIANTS,
   createSceneryContext,
+  doorHeights,
   measure,
   paletteName,
   validatePart,
@@ -185,6 +192,8 @@ interface Worst {
   shapes: number;
   /** And the fewest distinct colour sets. */
   palettes: number;
+  /** The shortest door of any variant, for a building. */
+  door: number;
 }
 
 let builds = 0;
@@ -203,7 +212,8 @@ for (const part of parts) {
   let fighting = 0;
   let partBuilds = 0;
   const fights: { where: string; fight: Fight }[] = [];
-  const w: Worst = { triangles: 0, meshes: 0, colors: 0, tones: 0, fewestTones: Infinity, margin: Infinity, reach: 0, low: Infinity, high: 0, shapes: Infinity, palettes: Infinity };
+  const w: Worst = { triangles: 0, meshes: 0, colors: 0, tones: 0, fewestTones: Infinity, margin: Infinity, reach: 0, low: Infinity, high: 0, shapes: Infinity, palettes: Infinity, door: Infinity };
+  const building = part.kind === 'dwelling' || part.kind === 'block' || part.kind === 'civic';
   for (const style of styles) {
     const measurements: Measurements[] = [];
     for (let variant = 0; variant < VARIANTS; variant++) {
@@ -218,6 +228,18 @@ for (const part of parts) {
       const problems = validatePart(part, group);
       const nan = firstNaN(group);
       if (nan) problems.push(nan);
+      if (building) {
+        const doors = doorHeights(group);
+        if (doors.length === 0) problems.push('opens no door: mark it `atlasDoorHeight`, as `ctx.door` does');
+        const least = Math.min(...doors);
+        w.door = Math.min(w.door, least);
+        if (least * FIT_SCALE < DOOR_LEAST) {
+          problems.push(
+            `a door ${least.toFixed(2)} tall, ${(least * FIT_SCALE).toFixed(2)} shrunk to its cell, ` +
+              `under ${DOOR_LEAST.toFixed(2)} (1.15 of the person)`,
+          );
+        }
+      }
       for (const problem of problems) {
         if (seen.has(problem)) continue;
         seen.add(problem);
@@ -260,7 +282,7 @@ for (const part of parts) {
       }
     }
   }
-  if (part.kind === 'dwelling' || part.kind === 'block' || part.kind === 'civic') {
+  if (building) {
     if (w.margin < TONE_MARGIN) {
       fail(
         `${part.id}: its leanest variant draws only ${w.margin} more tones than it has colours — ` +
@@ -290,6 +312,7 @@ for (const part of parts) {
       `   ${w.colors}/${kind.colors} colours in ${String(w.fewestTones).padStart(2)}..${String(w.tones).padStart(2)} tones` +
       `   ${w.low.toFixed(1).padStart(5)}..${w.high.toFixed(1).padStart(5)} tall` +
       `   reach ${w.reach.toFixed(2).padStart(5)}` +
+      (building ? `   door ${w.door.toFixed(2)}` : '') +
       `   shapes ${Number.isFinite(w.shapes) ? w.shapes : '-'}/${VARIANTS}`,
   );
 }

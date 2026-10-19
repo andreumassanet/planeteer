@@ -6,7 +6,7 @@ import { streetFlights } from './floor/crossings.ts';
 import { flightDepth, flightHeight, flightRect, flightRun } from './floor/flight.ts';
 import type { Flight } from './floor/flight.ts';
 
-export { EDGE_FOOT, apronCorner, edgeSink, touchesPaving } from './floor/edge-slope.ts';
+export { EDGE_FOOT, MOUTH_GRADE, apronCorner, edgeSink, touchesPaving } from './floor/edge-slope.ts';
 export type { EdgeApron } from './floor/edge-slope.ts';
 export {
   FLIGHT_INSET,

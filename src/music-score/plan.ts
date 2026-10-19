@@ -5,12 +5,17 @@ import type { Chord, Style, StyleId } from './style-types.ts';
 import { ch } from './styles.ts';
 import { same, scaleAt } from './pitch.ts';
 import type { Mood, NoteEvent, PhraseKind, Piece, Role } from './events.ts';
+import { ATMOSPHERE, NIGHT_DAYLIGHT, atmosphereOf } from './atmosphere.ts';
+import type { WeatherCue } from './atmosphere.ts';
 
-export function moodOf(style: StyleId, town: boolean, daylight: number): Mood {
-  const night = daylight < 0.25;
-  let energy = 0.45 + (town ? 0.3 : 0) - (night ? 0.2 : 0);
+export function moodOf(style: StyleId, town: boolean, daylight: number, weather: WeatherCue = 'clear'): Mood {
+  const night = daylight < NIGHT_DAYLIGHT;
+  const atmosphere = atmosphereOf(daylight, weather);
+  const spec = ATMOSPHERE[atmosphere];
+  // Night's own softening is the night atmosphere's energy; weather over the dark softens it the same.
+  let energy = 0.45 + (town ? 0.3 : 0) + spec.energy + (night && atmosphere !== 'night' ? ATMOSPHERE.night.energy : 0);
   if (style === 'sky' || style === 'sea' || style === 'polar') energy = Math.min(energy, 0.35);
-  return { energy: Math.min(0.9, Math.max(0.15, energy)), drums: town, night };
+  return { energy: Math.min(0.9, Math.max(0.15, energy)), drums: town && spec.drums, night, atmosphere };
 }
 
 /**
@@ -19,7 +24,8 @@ export function moodOf(style: StyleId, town: boolean, daylight: number): Mood {
  */
 export function planPiece(style: Style, seed: number, mood: Mood, hour: number, seconds: number): Piece {
   const rng = rngFrom('music', style.id, seed);
-  const bpm = Math.round(rng.range(style.bpm[0], style.bpm[1]) * (mood.night ? 0.93 : 1));
+  const bend = ATMOSPHERE[mood.atmosphere];
+  const bpm = Math.round(rng.range(style.bpm[0], style.bpm[1]) * bend.tempo * (mood.night && mood.atmosphere !== 'night' ? 0.95 : 1));
   const main = rng.pick(style.progressions);
   const rest = style.progressions.filter((p) => p !== main);
   const other = rest.length > 0 ? rng.pick(rest) : main;
@@ -39,7 +45,7 @@ export function planPiece(style: Style, seed: number, mood: Mood, hour: number, 
     other,
     kit,
     form,
-    density: style.lead.density * (0.85 + 0.3 * mood.energy) * (mood.night ? 0.85 : 1),
+    density: style.lead.density * (0.85 + 0.3 * mood.energy) * bend.density,
     contrastByAnswer: style.answer !== null && rng.chance(0.5),
   };
 }

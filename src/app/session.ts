@@ -22,6 +22,7 @@ import { createMapPaper } from './map-paper.ts';
 import { createOverlay } from './overlay.ts';
 import { renderDistanceWords } from './render-distance.ts';
 import { createRockets } from './rockets.ts';
+import { createTrainRide } from './train-ride.ts';
 import { createTimeOfDay } from './time-of-day.ts';
 import { createWalls } from './walls.ts';
 import { createWorldSettings } from './world-settings.ts';
@@ -50,6 +51,7 @@ export async function startSession(app: App): Promise<void> {
   Object.assign(app, createJumps(app));
   app.gestures = createGestures(app);
   app.rockets = createRockets(app);
+  app.trainRide = createTrainRide(app);
   app.map = await createPlanetMap(app);
   app.playerList = await createWorldPlayerList(app);
   app.names = await createWorldNames(app);

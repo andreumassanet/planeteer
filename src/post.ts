@@ -21,6 +21,8 @@ export interface Post {
   draw: (scene: THREE.Scene, camera: THREE.Camera) => void;
   /** Exposure before the tone map; 1 is neutral. */
   exposure: number;
+  /** How dark the frame's corners go, 0 to 1. */
+  vignette: number;
   /** How far toward night the grade has gone, 0 to 1: bluer, flatter and less saturated. */
   night: number;
   bloom: UnrealBloomPass;
@@ -34,6 +36,12 @@ export interface Post {
    * another world is never blurred by a subject that is not there.
    */
   focused: boolean;
+  /**
+   * Photo mode's lens and look, neutral by default: a focus distance in world
+   * units (null keeps the far blur on the subject) with its blur strength,
+   * and a filter.
+   */
+  photo: PhotoLook;
   /** Whether the chain runs at all; off, the scene is drawn straight to the canvas. */
   enabled: boolean;
   /**
@@ -46,6 +54,25 @@ export interface Post {
   /** What the last frame ran: `shafts` is 1 when the shaft passes drew. */
   stats: { shafts: number };
 }
+
+/** The grade's photo filters. */
+export type PhotoFilter = 'none' | 'warm' | 'cool' | 'mono' | 'vintage';
+
+export interface PhotoLook {
+  focus: number | null;
+  /** The blur's strength while `focus` is set, 0 to 4. */
+  blur: number;
+  filter: PhotoFilter;
+}
+
+/** Each filter as the grade's tint, black and white, sepia and fade. */
+const FILTERS: Record<PhotoFilter, [number, number, number, number, number, number]> = {
+  none: [1, 1, 1, 0, 0, 0],
+  warm: [1.07, 1.0, 0.86, 0, 0, 0],
+  cool: [0.88, 0.98, 1.1, 0, 0, 0],
+  mono: [1, 1, 1, 1, 0, 0.04],
+  vintage: [1.03, 0.98, 0.9, 0, 0.55, 0.6],
+};
 
 /** The nearest the far blur focuses, world units: a camera pulled in to the head still keeps the street sharp. */
 const DOF_NEAREST = 10;
@@ -118,6 +145,12 @@ function gradeUniforms(scene: THREE.Texture, ao: THREE.Texture, shafts: THREE.Te
     uAOColor: { value: new THREE.Vector3(0.06, 0.07, 0.14) },
     uDof: { value: 0 },
     uFocus: { value: 12 },
+    uFocusBand: { value: new THREE.Vector2(4, 24) },
+    uDofNear: { value: 0 },
+    uFilterTint: { value: new THREE.Vector3(1, 1, 1) },
+    uFilterMono: { value: 0 },
+    uFilterSepia: { value: 0 },
+    uFilterFade: { value: 0 },
     tShafts: { value: shafts },
     tDepth: { value: depth },
     uShafts: { value: 0 },
@@ -190,6 +223,12 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     set exposure(value: number) {
       uniforms.uExposure.value = value;
     },
+    get vignette() {
+      return uniforms.uVignette.value;
+    },
+    set vignette(value: number) {
+      uniforms.uVignette.value = value;
+    },
     get night() {
       return uniforms.uNight.value;
     },
@@ -204,6 +243,7 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     ao: 1,
     dof: 1,
     focused: false,
+    photo: { focus: null, blur: 1, filter: 'none' },
     enabled: true,
     shafts: { direction: new THREE.Vector3(0, 1, 0), color: new THREE.Color(1, 1, 1), strength: 0, subject: 0 },
     stats: { shafts: 0 },
@@ -230,12 +270,23 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
       }
       renderShafts(camera);
       const lens = camera as THREE.PerspectiveCamera;
-      uniforms.uDof.value = lens.isPerspectiveCamera === true && post.focused ? post.dof : 0;
+      const chosen = post.photo.focus;
+      const perspective = lens.isPerspectiveCamera === true;
+      uniforms.uDof.value = !perspective ? 0 : chosen !== null ? post.photo.blur : post.focused ? post.dof : 0;
       post.focused = false;
       if (uniforms.uDof.value > 0) {
         uniforms.uCamera.value.set(lens.near, lens.far);
-        uniforms.uFocus.value = Math.max(post.shafts.subject, DOF_NEAREST);
+        uniforms.uFocus.value = chosen ?? Math.max(post.shafts.subject, DOF_NEAREST);
+        // A chosen focus is a lens: a narrow band in focus, blur both sides of it.
+        if (chosen !== null) uniforms.uFocusBand.value.set(1.15, 3);
+        else uniforms.uFocusBand.value.set(4, 24);
+        uniforms.uDofNear.value = chosen !== null ? 1 : 0;
       }
+      const look = FILTERS[post.photo.filter];
+      uniforms.uFilterTint.value.set(look[0], look[1], look[2]);
+      uniforms.uFilterMono.value = look[3];
+      uniforms.uFilterSepia.value = look[4];
+      uniforms.uFilterFade.value = look[5];
       if (bloom.enabled && bloom.strength > 0) bloom.render(renderer, scratch, target, 0, false);
       uniforms.uFrame.value = frame = (frame + 1) % 1000;
       renderer.setRenderTarget(null);

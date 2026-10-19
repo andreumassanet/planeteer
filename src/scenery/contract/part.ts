@@ -186,6 +186,24 @@ export function doorClashes(group: THREE.Object3D): string[] {
   return problems;
 }
 
+/**
+ * The height of every door a built variant opens, in the variant's units: what
+ * `ctx.door` and a part's own doorway or a fitted model's door mark as
+ * `atlasDoorHeight`, through the scale above the mark.
+ */
+export function doorHeights(group: THREE.Object3D): number[] {
+  group.updateMatrixWorld(true);
+  const heights: number[] = [];
+  const scale = new THREE.Vector3();
+  group.traverse((object) => {
+    const height = object.userData.atlasDoorHeight;
+    if (typeof height !== 'number') return;
+    object.getWorldScale(scale);
+    heights.push(height * scale.y);
+  });
+  return heights;
+}
+
 export interface Variety {
   /** Distinct silhouettes across the sample, by height and width to a tenth of a unit. */
   shapes: number;

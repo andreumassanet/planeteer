@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../../globe.ts';
-import { MAX_CUT, SIDEWALK, TERRACE_STEP, pavementOf } from '../ground.ts';
+import { MAX_CUT, TERRACE_STEP, pavementOf } from '../ground.ts';
 
 /**
  * A town's square as pure functions of its built radius (`radiusOf`): its
@@ -37,37 +37,38 @@ export function streetBand(grid: TownGrid, street: number): number {
 }
 
 /**
- * How far into a gate's cells its mouth runs, in world units: where the
- * town's street widens or narrows to the road's. Short, because a ramp keeps
- * off it; never more than half a cell.
+ * How far in from the kerb a ramp across a riser keeps off a gate's street,
+ * in world units: never more than half a cell.
  */
 export function gateFlare(pitch: number): number {
   return Math.min(pitch * 0.5, 2);
 }
 
-/** Half the carriageway of every road between the towns, in world units (`ROAD_CLASSES` in `roads.ts`). */
-export const CARRIAGEWAY_HALF = 3.6;
+/**
+ * Half the carriageway of every road between the towns, in world units
+ * (`ROAD_CLASSES` in `roads.ts`): an avenue's at the nominal cell, 6 less
+ * `pavementOf(6)`. A road eases to its gate's own street over its approach
+ * (`carriageHalf` in `roads/section.ts`).
+ */
+export const CARRIAGEWAY_HALF = 4.2;
 
-/** Where a road meets a town's street: the street's section at the gate, and the road's, which the mouth flares between. */
+/** Where a road meets a town's street: the street's section at the gate, which the road arrives with. */
 export interface GateMouth {
   /** The street's half-width at the gate — half the cell on an avenue, the band on a boundary — and its pavement. */
   street: number;
   walk: number;
-  /** The road's carriageway half-width, which it keeps to the kerb. */
+  /** The street's carriageway half-width, which the road narrows or widens to at the kerb. */
   carriage: number;
-  /** Where the road's pavement ends, from the street's centre line, at the kerb. */
+  /** Where the pavement ends, from the street's centre line, at the kerb: the street's own edge. */
   edge: number;
-  /** How far in from the kerb the town's street takes to become its own again. 0 where there is no street. */
+  /** How far in from the kerb the town's street differs from its own section: 0, since the road arrives as the street. */
   flare: number;
 }
 
 /**
- * The mouth of a gate. The road keeps its width and a pavement to the kerb,
- * and over `gateFlare` of the gate's cells the town's carriageway runs from
- * the road's half-width to its own, and its pavement's outer edge from `edge`
- * to the street's. On a band that widens the street into the plots either side
- * (`rectOf` in `settlements/`); an avenue's mouth narrows the carriageway and
- * widens the pavement instead. A one-cell square has no street.
+ * The mouth of a gate: the street's own section, carriageway, pavement and
+ * edge, which the road takes on at the kerb so the two meet with no seam. A
+ * one-cell square has no street, and the road keeps its own carriageway.
  */
 export function gateMouth(grid: TownGrid, gate: Gate, band: number): GateMouth {
   if (grid.cells < 2) {
@@ -76,10 +77,7 @@ export function gateMouth(grid: TownGrid, gate: Gate, band: number): GateMouth {
   const avenue = gate.cells.length < 2;
   const street = avenue ? grid.pitch * 0.5 : band;
   const walk = pavementOf(street);
-  const edge = avenue
-    ? Math.min(street, CARRIAGEWAY_HALF + SIDEWALK)
-    : Math.max(street, CARRIAGEWAY_HALF + walk);
-  return { street, walk, carriage: CARRIAGEWAY_HALF, edge, flare: gateFlare(grid.pitch) };
+  return { street, walk, carriage: street - walk, edge: street, flare: 0 };
 }
 
 export interface TownGrid {

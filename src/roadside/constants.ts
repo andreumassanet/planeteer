@@ -8,8 +8,8 @@ const M = SCENERY_SCALE;
 
 /** Pole spacing: 47 m, a country line's span. */
 export const POLE_SPACING = 60;
-/** Pole offset from the centre line; its arm's far tip stays inside `roadClearance` (6.48). */
-export const POLE_LATERAL = 5.1;
+/** Pole offset from the centre line, 0.9 past the shoulder's edge; its arm's far tip stays inside `roadClearance` (7.56). */
+export const POLE_LATERAL = 5.7;
 export const POLE_HEIGHT = 7.5 * M;
 export const POLE_WIDTH = 0.26 * M;
 export const ARM_LENGTH = 1.8 * M;
@@ -66,8 +66,8 @@ export const LIMITS = [50, 60, 70, 80, 90] as const;
 export const NAME_AT = 44;
 /** And to the speed sign for traffic leaving it. */
 export const SPEED_AT = 62;
-/** The furthest a sign's board reaches from the centre line: inside `roadClearance` (6.48). */
-export const SIGN_REACH = 6.3;
+/** The furthest a sign's board reaches from the centre line: inside `roadClearance` (7.56). */
+export const SIGN_REACH = 6.9;
 
 /** Bridge railing post spacing and rail height. */
 export const BRIDGE_POST_SPACING = 3;

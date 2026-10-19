@@ -44,7 +44,7 @@ import {
 import { SKY_DISTANCE, createSky, sunDirection } from '../src/sun.ts';
 import { varnish } from '../src/gloss.ts';
 import { latLonOf, unitAt } from '../src/sphere.ts';
-import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, seasonOf, strikeCandidate, weatherAt, weatherSample } from '../src/weather.ts';
+import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, WET_STEP_MS, seasonOf, strikeCandidate, weatherAt, weatherSample, wetnessAt } from '../src/weather.ts';
 import type { Strike, WeatherSample } from '../src/weather.ts';
 import { BOLT_VERTICES, MAX_DROPS, PRESETS, RAIN_BOX, SNOW_BOX, dropGeometry, dropOffset, overcastOf, writeBolt } from '../src/weather-view.ts';
 import { SHAFT_FLOOR, SHAFT_SKY, shaftStrength, sunOnScreen } from '../src/shafts.ts';
@@ -142,6 +142,53 @@ console.log('\ncontinuity');
   check(worstCover < 0.15, 'and the cloud overhead', `worst ${worstCover.toFixed(3)}`);
   check(worstTick < 0.05, 'a second moves the rain by a sliver', `worst ${worstTick.toFixed(3)}`);
   check(worstTemp < 0.1, 'and the temperature by under a tenth of a degree', `worst ${worstTemp.toFixed(3)} C`);
+}
+
+console.log('\nwet ground');
+{
+  // The ground's wetness is the rain's recent history read off the model:
+  // the same answer however it is asked, continuous, wet only after rain,
+  // and drying whenever no rain is falling.
+  let differ = 0;
+  let worstTick = 0;
+  let worstStep = 0;
+  let rose = 0;
+  let wetCases = 0;
+  let dryWithoutRain = 0;
+  let wetWithoutRain = 0;
+  let notDrying = 0;
+  for (let i = 0; i < 400; i++) {
+    const lat = Math.asin(2 * ((i * 0.618034) % 1) - 1) * (180 / Math.PI) * 0.9;
+    const lon = ((i * 0.7548776) % 1) * 360 - 180;
+    const t = Math.floor((YEAR0 + ((i * 0.3819) % 1) * 365 * DAY) / WET_STEP_MS) * WET_STEP_MS;
+    const e = elevationAt(lat, lon);
+    const w = wetnessAt(lat, lon, e, t);
+    for (let k = 0; k < 20; k++) weatherAt(-lat, lon + k, 5, t - k * 999, b);
+    if (wetnessAt(lat, lon, e, t) !== w) differ++;
+    for (const m of [0.5, 4.5, 9.5]) worstTick = Math.max(worstTick, Math.abs(wetnessAt(lat, lon, e, t + (m + 1) * 60_000) - wetnessAt(lat, lon, e, t + m * 60_000)));
+    worstStep = Math.max(worstStep, Math.abs(wetnessAt(lat + 0.004, lon, e, t) - w));
+    // A step on, the reads are the same moved by one and the rain at `t` is
+    // the new one: with none falling then, the ground can only have dried.
+    weatherAt(lat, lon, e, t, a);
+    const next = wetnessAt(lat, lon, e, t + WET_STEP_MS);
+    const rainNow = a.precipitation * (1 - a.snow);
+    if (rainNow === 0 && next > w + 1e-9) notDrying++;
+    if (rainNow > 0.2 && next > w) rose++;
+    if (rainNow > 0.2) wetCases++;
+    let any = 0;
+    for (let k = 1; k <= 20; k++) {
+      weatherAt(lat, lon, e, t - k * WET_STEP_MS, b);
+      any = Math.max(any, b.precipitation * (1 - b.snow));
+    }
+    if (any === 0 && w > 0) wetWithoutRain++;
+    if (any === 0) dryWithoutRain++;
+  }
+  check(differ === 0, 'the same place and instant give the same wetness, whatever was asked between', `${differ} differ`);
+  check(worstTick < 0.1, 'a minute moves the wetness by a sliver', `worst ${worstTick.toFixed(3)} over 400 places`);
+  check(worstStep < 0.12, 'and so does a step across the ground', `worst ${worstStep.toFixed(3)}`);
+  check(wetWithoutRain === 0 && dryWithoutRain > 0, 'no rain in three hours is dry ground', `${dryWithoutRain} dry places, ${wetWithoutRain} wet`);
+  check(notDrying === 0, 'with no rain falling the ground only dries', `${notDrying} got wetter`);
+  check(wetCases === 0 || rose > 0, 'and under rain it wets', `${rose} of ${wetCases} rainy cases wetter`);
 }
 
 console.log('\nthe clouds are the weather');

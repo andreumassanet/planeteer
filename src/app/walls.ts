@@ -14,7 +14,7 @@ type FreeSpot = (point: THREE.Vector3, radius: number, out: THREE.Vector3) => bo
 export interface Walls {
   /**
    * The highest made surface here (a town's floor, a road's carriageway, a
-   * monument's steps, a railway's bed), or 0 off all of them. The player
+   * monument's steps, a railway's bed, a harbour's deck), or 0 off all of them. The player
    * takes the higher of this and the ground.
    */
   madeHeightAt(point: THREE.Vector3): number;
@@ -31,8 +31,8 @@ export interface Walls {
 }
 
 export function createWalls(app: App): Walls {
-  const { settlements, roads, monuments, railway, vegetation, launchPads, townsfolk, life, personRadius } = app;
-  const stillWalls = [settlements, monuments, vegetation, launchPads] as const;
+  const { settlements, roads, monuments, railway, vegetation, launchPads, harbours, townsfolk, life, personRadius } = app;
+  const stillWalls = [settlements, monuments, vegetation, launchPads, harbours] as const;
   let vehicleWalls: Collide | null = null;
   let vehicleSpot: FreeSpot | null = null;
   const vehiclePush = new THREE.Vector3();
@@ -42,7 +42,10 @@ export function createWalls(app: App): Walls {
 
   return {
     madeHeightAt: (point) =>
-      Math.max(settlements.madeHeightAt(point), roads.ribbonHeightAt(point), monuments.madeHeightAt(point), railway?.bedHeightAt(point) ?? 0),
+      Math.max(
+        settlements.madeHeightAt(point), roads.ribbonHeightAt(point), monuments.madeHeightAt(point), railway?.bedHeightAt(point) ?? 0,
+        harbours.madeHeightAt(point),
+      ),
 
     // A person gives no way, being where their town or route puts them; the body walking into them is pushed out.
     collide: (point, radius, push) => {
@@ -64,6 +67,7 @@ export function createWalls(app: App): Walls {
         hit = true;
       }
       const folkHit = townsfolk.collide(point, radius, push);
+      if (folkHit) townsfolk.startle(point, false);
       const walkerHit = life.collide(point, radius, personRadius, push);
       return hit || folkHit || walkerHit;
     },

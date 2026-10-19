@@ -104,8 +104,8 @@ export interface SeatFrameData {
   pose?: 'sit' | 'stand' | 'ride';
   /** Astride, its grip and footrests; seated, how the legs fold and the wheel the hands are on (`SeatedPose`). */
   seat?: AstrideSeat & SeatedPose;
-  /** The vehicle's motion: a crank's phase, and its steering wheel's turn. */
-  motion?: { readonly phase: number; readonly steer?: number };
+  /** The vehicle's motion: a crank's phase, its steering wheel's turn, and the grip carried round with its bars. */
+  motion?: { readonly phase: number; readonly steer?: number; turned?<T extends AstrideSeat>(seat: T): AstrideSeat };
 }
 
 /**

@@ -37,7 +37,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Color, Vector3 } from 'three';
+import { Vector3 } from 'three';
 import { loadLakes, loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, buildLand } from '../src/globe.ts';
 import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
@@ -152,8 +152,7 @@ const { GRASS_FIELDS, GRASS_SPREAD } = await import('../src/grass.ts');
 // vehicle standing still is held to.
 const { craftFrom } = await import('../src/craft/index.ts');
 const { modelsFrom } = await import('../src/kit.ts');
-const { fleetVariant, MACHINE_BED, OPAQUE_GLASS } = await import('../src/craft/parked.ts');
-const { craftMaterial } = await import('../src/craft/build.ts');
+const { fleetVariant, MACHINE_BED } = await import('../src/craft/parked.ts');
 const { mergeMeshes } = await import('../src/merge.ts');
 const fleetCraft = craftFrom(await modelsFrom(readFileSync(resolve(here, '../public/models/traffic/kit.bin'))));
 type ParkedCar = import('../src/settlements.ts').ParkedCar;
@@ -258,24 +257,15 @@ const machineSeen = new Set<string>();
 
 /**
  * The colours the fleet draws the vehicle with this id in, as `fleet.ts`
- * builds it, less what the buffer it stands in cannot carry: a town draws a
- * closed craft's glass apart (`glazed`), and a tile leaves its cabin out and
- * paints its glass the opaque slate (`parkedArrays` in `craft/parked.ts`).
+ * builds it, less what the buffer it stands in cannot carry: its glass, which
+ * a town draws apart and a tile leaves open (`parkedArrays` in `craft/parked.ts`).
  */
-function fleetColours(id: string, glazed: boolean): Float32Array | null {
+function fleetColours(id: string): Float32Array | null {
   const model = fleetCraft.get(id.slice(0, id.indexOf(':')));
   if (model === undefined) return null;
   const paint = settlements.parkedPaint(id);
   const group = model.build(fleetVariant(id, model.variants), paint ?? undefined);
-  const leave = glazed ? ['glass'] : ['cabin', 'steer', 'needle'];
-  for (const name of leave) for (let part = group.getObjectByName(name); part !== undefined; part = group.getObjectByName(name)) part.removeFromParent();
-  const glass = group.getObjectByName('glass') as import('three').Mesh | undefined;
-  if (glass !== undefined) {
-    const colour = glass.geometry.getAttribute('color');
-    const opaque = new Color(OPAQUE_GLASS);
-    for (let i = 0; i < colour.count; i++) colour.setXYZ(i, opaque.r, opaque.g, opaque.b);
-    glass.material = craftMaterial();
-  }
+  for (let glass = group.getObjectByName('glass'); glass !== undefined; glass = group.getObjectByName('glass')) glass.removeFromParent();
   return mergeMeshes(group).color;
 }
 
@@ -283,6 +273,60 @@ function fleetColours(id: string, glazed: boolean): Float32Array | null {
  * The towns standing round a place: every vehicle that can be taken, merged,
  * against the fleet's own; and no other vertex in a town marked as one.
  */
+// --- the street life: who sits on a town's seats, and who walks its crossing ------------
+
+type FolkAnchor = import('../src/folk.ts').FolkAnchor;
+type Bench = import('../src/bench.ts').Bench;
+const streetFolk = { sitters: 0, unseated: 0, worstSeat: 0, keepers: 0, crossers: 0, crossOff: 0, lights: 0, badLights: 0, unseatedAt: '' };
+const folkSeen = new Set<string>();
+
+/** Every sitter on a seat of its town, facing its way, on the floor; every crosser's corners on the paving; every light's lamps finite. */
+function measureStreetFolk(centre: Vector3): void {
+  const viewer = centre.clone().multiplyScalar(PLANET_RADIUS + 2);
+  const anchors: FolkAnchor[] = [];
+  settlements.folkNear(viewer, 4000, anchors);
+  const benches: Bench[] = [];
+  const facing = new Vector3();
+  for (const anchor of anchors) {
+    if (folkSeen.has(anchor.key)) continue;
+    folkSeen.add(anchor.key);
+    if (anchor.key.includes('|keeper|')) streetFolk.keepers++;
+    if (anchor.seated === true) {
+      streetFolk.sitters++;
+      benches.length = 0;
+      settlements.benchesNear(anchor.position, 0.05, benches);
+      facing.set(0, 0, 1).applyQuaternion(anchor.quaternion);
+      const seat = benches.find((bench) => bench.position.distanceTo(anchor.position) < 1e-3 && bench.facing.dot(facing) > 0.999);
+      const floor = settlements.madeHeightAt(anchor.position.clone().normalize());
+      const gap = floor > 0 ? anchor.position.length() - floor : 0;
+      streetFolk.worstSeat = Math.max(streetFolk.worstSeat, Math.abs(gap));
+      if (seat === undefined || Math.abs(gap) > 0.05) {
+        streetFolk.unseated++;
+        streetFolk.unseatedAt = `${anchor.key} ${at(anchor.position)}`;
+      }
+    }
+    if (anchor.crossing !== undefined) {
+      streetFolk.crossers++;
+      for (const corner of anchor.crossing.corners) {
+        const floor = settlements.madeHeightAt(corner.clone().normalize());
+        if (floor <= 0 || Math.abs(corner.length() - floor) > 0.05) streetFolk.crossOff++;
+      }
+    }
+  }
+  settlements.signalsNear(viewer, 4000, (_town, heads) => {
+    for (let i = 0; i + 11 <= heads.length; i += 11) {
+      streetFolk.lights++;
+      let ok = heads[i + 10]! > 0 && (heads[i + 9] === 0 || heads[i + 9] === 1);
+      for (let k = 0; k < 9; k++) ok &&= Number.isFinite(heads[i + k]!);
+      // The red lamp over the amber over the green, along the town's up.
+      const up = new Vector3(heads[i]!, heads[i + 1]!, heads[i + 2]!).normalize();
+      const red = new Vector3(heads[i]!, heads[i + 1]!, heads[i + 2]!).dot(up);
+      const green = new Vector3(heads[i + 6]!, heads[i + 7]!, heads[i + 8]!).dot(up);
+      if (!ok || !(red > green)) streetFolk.badLights++;
+    }
+  });
+}
+
 function measureParked(centre: Vector3): void {
   const viewer = centre.clone().multiplyScalar(PLANET_RADIUS + 2);
   const bays: ParkedCar[] = [];
@@ -293,7 +337,7 @@ function measureParked(centre: Vector3): void {
     machineSeen.add(bay.id);
     const town = places[Number(bay.id.split(':')[1])]!;
     const meshes = settlements.group.children.filter((child) => child.name === `town:${town.name}`) as import('three').Mesh[];
-    const expected = fleetColours(bay.id, true);
+    const expected = fleetColours(bay.id);
     let matched = false;
     for (const mesh of meshes) {
       const color = mesh.geometry.getAttribute('color').array as Float32Array;
@@ -330,7 +374,7 @@ function measureTileMachines(lat: number, lon: number): void {
   for (const machine of list) {
     if (machineSeen.has(machine.id)) continue;
     machineSeen.add(machine.id);
-    const expected = fleetColours(machine.id, false);
+    const expected = fleetColours(machine.id);
     let ok = expected !== null && machine.count * 3 === expected.length && wind !== undefined;
     for (let i = 0; ok && i < expected!.length; i++) ok = Math.abs(color[machine.start * 3 + i]! - Math.round(Math.min(1, Math.max(0, expected![i]!)) * 255)) <= 1;
     for (let v = machine.start; ok && v < machine.start + machine.count; v++) ok = wind![v * 4 + 2] === MACHINE_BED;
@@ -418,8 +462,10 @@ interface Field {
   density: Float64Array;
   /** 1 where the ground goes on, grass or none. */
   ground: Uint8Array;
+  /** How far it goes on past the texel (`GrassSite.edge`). */
+  edge: Float64Array;
 }
-const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1 };
+const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1, edge: 0 };
 const texelDirection = new Vector3();
 let bakeMs = 0;
 let bakeTexels = 0;
@@ -427,7 +473,7 @@ const push = new Vector3();
 const inside = new Vector3();
 function bake(frame: Frame, texel: number, size: number): Field {
   const i0 = -size / 2;
-  const field: Field = { texel, size, i0, height: new Float64Array(size * size), density: new Float64Array(size * size), ground: new Uint8Array(size * size) };
+  const field: Field = { texel, size, i0, height: new Float64Array(size * size), density: new Float64Array(size * size), ground: new Uint8Array(size * size), edge: new Float64Array(size * size) };
   grass.gather(frame.up, size * texel * 0.71 + texel * 2);
   const began = performance.now();
   for (let j = 0; j < size; j++) {
@@ -439,6 +485,7 @@ function bake(frame: Frame, texel: number, size: number): Field {
       field.height[j * size + i] = found.radius - PLANET_RADIUS;
       field.density[j * size + i] = found.density;
       field.ground[j * size + i] = 1;
+      field.edge[j * size + i] = Math.max(0, found.edge);
     }
   }
   bakeMs += performance.now() - began;
@@ -469,8 +516,11 @@ function lookup(field: Field, x: number, z: number, out: number[]): number {
   let h = 0;
   let hw = 0;
   let d = 0;
+  // The shader's reach: a growing texel's edge less how far off it the point is, square.
+  let edge = -Infinity;
   for (const [i, j, w] of corners) {
     const at = j * field.size + i;
+    if (field.density[at]! >= 1e-4) edge = Math.max(edge, field.edge[at]! - Math.max(Math.abs(gx - i), Math.abs(gz - j)) * field.texel);
     if (field.ground[at] === 1) {
       h += w * field.height[at]!;
       hw += w;
@@ -480,9 +530,9 @@ function lookup(field: Field, x: number, z: number, out: number[]): number {
     ws += w;
     d += w * density;
   }
-  if (ws < 0.5) return 0;
+  if (ws < 0.5 || edge <= 0) return 0;
   out[0] = h / Math.max(hw, 1e-4);
-  out[1] = (d / ws) * smoothstep(0.5, 0.85, ws);
+  out[1] = (d / ws) * smoothstep(0.5, 0.85, ws) * smoothstep(0, 0.35, edge);
   return 1;
 }
 function smoothstep(a: number, b: number, x: number): number {
@@ -551,6 +601,7 @@ for (const where of WHERE) {
   probe.prime(centre);
   standTowns(centre);
   measureParked(centre);
+  measureStreetFolk(centre);
   const before = { trees: trees.count, rocks: rocks.count, blades: blades.count, stray: bladesStray, paved: bladesPaved };
   const floatBefore = { trees: trees.floating, rocks: rocks.floating, blades: blades.floating };
   // The herds round the place, as they stand a few seconds after arriving.
@@ -629,6 +680,7 @@ for (const where of WHERE) {
     probe.prime(town);
     standTowns(town);
     measureParked(town);
+    measureStreetFolk(town);
     measureGrass(town, Math.min(300, radiusOf(nearest.place) + 20), 60_000, `${where.name}: ${nearest.place.name}`);
   }
   console.log(
@@ -701,6 +753,11 @@ check(
   `${machines.towns} in towns, ${machines.tiles} in tiles (${[...machines.kinds].sort().join(', ')}); ${machines.strayMarks} other vertices marked${machines.wrong.length > 0 ? `; not the fleet's: ${machines.wrong.join('; ')}` : ''}`,
 );
 check(onRelief === 0, 'no plant seated on the relief with the land gathered under it', `${onRelief}; ${provisional} tiles provisional`);
+console.log('\nthe street life:');
+check(streetFolk.sitters > 0 && streetFolk.unseated === 0, 'every sitter on a seat of its town, facing its way, on the floor',
+  `${streetFolk.sitters} sitters, ${streetFolk.unseated} not${streetFolk.unseatedAt ? ` (${streetFolk.unseatedAt})` : ''}; worst ${streetFolk.worstSeat.toFixed(3)} off the floor; ${streetFolk.keepers} keepers`);
+check(streetFolk.crossOff === 0, "every crosser's corners on its crossing's paving", `${streetFolk.crossers} crossers, ${streetFolk.crossOff} corners off it`);
+check(streetFolk.badLights === 0, "every traffic light's lamps published, red over green", `${streetFolk.lights} lights, ${streetFolk.badLights} wrong`);
 console.log('\nthe grass:');
 console.log(`  the bake: ${bakeTexels.toLocaleString()} texels at ${((bakeMs * 1000) / Math.max(1, bakeTexels)).toFixed(1)} microseconds each`);
 check(blades.floating <= blades.count * MAX_FLOATING_BLADES, 'blades rooted on the surface under them', describe(blades));
@@ -730,7 +787,7 @@ console.log('\nthe airstrips:');
       break;
     }
   }
-  const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1 };
+  const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1, edge: 0 };
   const point = new Vector3();
   let onStrip = 0;
   let mown = 0;
@@ -800,7 +857,7 @@ console.log('\nthe airstrips:');
 console.log('\nthe camps:');
 {
   const planner = wood.countryside!;
-  const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1 };
+  const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1, edge: 0 };
   const fire = new Vector3();
   const point = new Vector3();
   const north = new Vector3();

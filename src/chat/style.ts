@@ -15,10 +15,10 @@ export const WHO_LIST = 12;
 export const STYLE = `
 .atlas-chat {
   position: fixed;
-  left: 24px;
-  bottom: 24px;
+  left: var(--hud-left, 24px);
+  bottom: var(--hud-bottom, 24px);
   z-index: 6;
-  width: min(380px, calc(100vw - 48px));
+  width: min(380px, calc(100vw - 2 * var(--hud-left, 24px)));
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -29,7 +29,7 @@ export const STYLE = `
 /* Over the prompt and a vehicle's keys, which are centred along the bottom,
    once the window is too narrow for the two to stand side by side. */
 @media (max-width: 1180px) {
-  .atlas-chat { bottom: 140px; }
+  .atlas-chat { bottom: calc(var(--hud-bottom, 24px) + 116px); }
 }
 /*
  * A finger's chat. Shut, a few short lines over the stick. Open, it goes to

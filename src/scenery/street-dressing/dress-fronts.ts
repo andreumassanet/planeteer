@@ -42,7 +42,7 @@ export function* dressFrontsSteps(d: Dresser): Generator<void, number, void> {
       (front.kind === 'block'
         ? rng.chance(style.shops * (0.55 + 0.45 * central))
         : rng.chance(style.houseShops * (0.3 + 0.7 * central) * (0.5 + 0.5 * input.urbanity)));
-    if (shop) dressShop(d, front, facade, rng, got);
+    const door = shop ? dressShop(d, front, facade, rng, got) : NaN;
     let wrote = got.length > 0;
     if (dressWindows(d, front, facade, rng, shop, got)) wrote = true;
     if (!wrote) continue;
@@ -53,12 +53,21 @@ export function* dressFrontsSteps(d: Dresser): Generator<void, number, void> {
     }
     dressed++;
     for (const kind of got) d.count(kind);
+    // Where the shopkeeper may stand: on the doorstep under the awning, facing the street.
+    if (!Number.isNaN(door)) sink.anchor('shop', door, facade.wall + SHOPKEEPER_OUT, 0, 1);
   }
   return dressed;
 }
 
-/** A shop's ground floor: an awning over each opening, else a sign board, else a blade sign. */
-function dressShop(d: Dresser, front: DressFront, facade: Facade, rng: Rng, got: string[]): void {
+/** How far in front of its wall a shop's keeper stands, in world units. */
+const SHOPKEEPER_OUT = 0.7;
+
+/**
+ * A shop's ground floor: an awning over each opening, else a sign board, else
+ * a blade sign. Returns the middle of the first awning, where the keeper
+ * stands, or NaN where there is none.
+ */
+function dressShop(d: Dresser, front: DressFront, facade: Facade, rng: Rng, got: string[]): number {
   const { sink, style } = d;
   const height = front.flat.height;
   // The awning's lowest edge clears a head (`AVATAR_HEIGHT`), and its top
@@ -73,6 +82,7 @@ function dressShop(d: Dresser, front: DressFront, facade: Facade, rng: Rng, got:
   const fabric = rng.pick(style.fabrics);
   const reach = Math.min(0.75 * M, 1.6);
   let awned = false;
+  let door = NaN;
   for (const [a0, a1] of front.kind === 'block' || style.houseAwnings ? spans : []) {
     const x0 = Math.max(facade.minX + 0.1, a0);
     const x1 = Math.min(facade.maxX - 0.1, a1);
@@ -85,6 +95,7 @@ function dressShop(d: Dresser, front: DressFront, facade: Facade, rng: Rng, got:
     // The roller box stands 0.16 over the awning's top: it too stays under the windows.
     if (top + 0.2 > ceiling) continue;
     awning(sink, x0, x1, facade.wall, top, reach, drop, valance, fabric);
+    if (!awned) door = (x0 + x1) / 2;
     awned = true;
     got.push('awning');
   }
@@ -111,6 +122,7 @@ function dressShop(d: Dresser, front: DressFront, facade: Facade, rng: Rng, got:
       got.push('blade');
     }
   }
+  return door;
 }
 
 /**

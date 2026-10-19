@@ -18,6 +18,10 @@ export const VOICES_KEY = 'atlas.voices.v1';
 export const EFFECTS_KEY = 'atlas.effects.v1';
 /** Whether a crash shakes the camera: `'1'` or `'0'`; unset follows `prefers-reduced-motion`. */
 export const SHAKE_KEY = 'atlas.shake.v1';
+/** The speedometer's unit: `'kmh'`, `'mph'` or `'kn'`; unset follows the browser's locale. */
+export const SPEED_UNIT_KEY = 'atlas.speed-unit.v1';
+/** `'1'` when boats and aircraft read in knots whatever the speedometer's unit. */
+export const NAUTICAL_KEY = 'atlas.nautical.v1';
 /** `'0'` when the weather is off. */
 export const WEATHER_KEY = 'atlas.weather.v1';
 /** Whether the map layer (flags, borders, names) is wanted. */

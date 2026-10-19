@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { CABIN_REACH } from '../craft/cabin.ts';
 import { glassMaterial } from '../craft/build.ts';
 import type { Folk } from '../folk.ts';
+import { signalStopOf } from '../signals.ts';
 import { PLANET_RADIUS } from '../globe.ts';
 import type { ViewCone } from '../view.ts';
 import type { LifeStats } from './api.ts';
@@ -15,7 +16,7 @@ import type { HerdAnimator } from './herd-animate.ts';
 import { moving, settleUnseen, settledHerd } from './herd-behaviour.ts';
 import type { Herding } from './herd-types.ts';
 import { emptyFrame, insideKeyOf, phaseKeyOf } from './mover.ts';
-import type { Mover } from './mover.ts';
+import type { Mover, Way } from './mover.ts';
 import type { Pool, Pooled } from './pool.ts';
 import { HERD_ANIMATED_REACH, HERD_HOLD_REACH, HERD_HOME_REACH, LANE_CHANGE, WALK_PHASES } from './tuning.ts';
 import { walkPhase } from './walkers.ts';
@@ -52,6 +53,20 @@ export function createMoverDrawer(deps: DrawDeps): MoverDrawer {
   const herdsShown: Herding[] = [];
 
 
+  /** How far ahead of the vehicle's front the stop line of a city's lights is, where its drive meets one (`signals.ts`). */
+  function holdFor(way: Way): void {
+    way.hold = Infinity;
+    const street = drives.street;
+    if (street.legs === null) return;
+    const line = drives.signalLine(street.town);
+    if (Number.isNaN(line)) return;
+    const stop = signalStopOf(street.legs, street.back, way.halfLength, line);
+    if (stop === null || stop.q < street.q) return;
+    way.hold = stop.q - street.q;
+    way.holdTown = street.town;
+    way.holdAxis = stop.axis;
+  }
+
   /** Places a mover on its route at its own clock, and a road vehicle across its lane while it passes. */
   function placeMover(mover: Mover, clock: number): void {
     drives.resetPart();
@@ -60,6 +75,7 @@ export function createMoverDrawer(deps: DrawDeps): MoverDrawer {
     if (way !== undefined) {
       way.part = drives.part;
       way.shown = false;
+      holdFor(way);
       way.facing.copy(frame.forward).projectOnPlane(frame.dir).normalize();
       if (way.shift !== 0) {
         // Out across its own left to pass, and turned towards where it is going.

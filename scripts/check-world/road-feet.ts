@@ -20,6 +20,7 @@ import {
   RIBBON_LIFT,
   ROAD_CLASSES,
   BRIDGE_LAND,
+  carriageHalf,
   courseOf,
   coursePath,
   coursePoint,
@@ -37,6 +38,7 @@ import {
 } from '../../src/roads.ts';
 import type { CoursePath, Road, RoadCourse, RoadData, RoadRamp } from '../../src/roads.ts';
 import { layRoadside } from '../../src/roadside.ts';
+import { checkRoadMouths } from './road-mouths.ts';
 import {
   offsetDirection,
   } from '../../src/scenery/grid.ts';
@@ -56,6 +58,7 @@ export function checkBakedRoads(bakedNetwork: RoadData, placesRaw: Place[], worl
    * laying the same thing.
    */
   checkRoadsideKeepouts(pruned, placesRaw, world, course, ramp, pathDistance);
+  checkRoadMouths(bakedNetwork, pruned, placesRaw, world);
 }
 
 /** Every baked road's surface under a foot: the crown, the ramps, the kerbs and the grade. */
@@ -409,8 +412,9 @@ function checkRoadsideKeepouts(pruned: Road[], placesRaw: Place[], world: World,
       // the relief's: into a gate cut down a hillside the road runs in a
       // cutting, and a lamp's arm five units over the tarmac is under the
       // ground either side.
-      if (away < half - 0.05) {
-        nearestOnPath(path, vertexAt, ownNearest);
+      // The carriageway is the street's in a built town's approach, narrower or wider than the class's.
+      if (away < half + 1) nearestOnPath(path, vertexAt, ownNearest);
+      if (away < half + 1 && away < carriageHalf(ramp, half, ownNearest.s, path.length - ownNearest.s) - 0.05) {
         const sOwn = ownNearest.s;
         site.surface(sOwn, 0, surfaceAt, surfaceAhead, surfaceSide);
         const lateral = vertexAt.dot(surfaceSide) * PLANET_RADIUS;
@@ -429,7 +433,7 @@ function checkRoadsideKeepouts(pruned: Road[], placesRaw: Place[], world: World,
         for (const other of others) {
           nearestOnPath(other.path, vertexAt, sideNearest);
           const overOther = radius - othersRoofline([other], vertexAt, world);
-          if (sideNearest.distance < other.half - 0.05 && overOther < 4.5 && overOther > -0.5) {
+          if (sideNearest.distance < carriageHalf(other.ramp, other.half, sideNearest.s, other.path.length - sideNearest.s) - 0.05 && overOther < 4.5 && overOther > -0.5) {
             inOther++;
             const pair = `${placesRaw[road.a]!.name}-${placesRaw[road.b]!.name}`;
             if (otherNames.length < 4 && !otherNames.includes(pair)) otherNames.push(pair);

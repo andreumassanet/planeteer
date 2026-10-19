@@ -74,7 +74,7 @@ export function createBodies(core: PeersCore) {
     else if (pose === 'ride' && data.seat !== undefined) {
       peer.holder.updateMatrixWorld(true);
       hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));
-      poseAstride(body.limbs, peer.holder, hipAt, data.seat, data.motion?.phase ?? 0);
+      poseAstride(body.limbs, peer.holder, hipAt, data.motion?.turned?.(data.seat) ?? data.seat, data.motion?.phase ?? 0);
     }
     peer.holder.updateMatrixWorld(true);
     hipAt.copy(peer.holder.worldToLocal(body.limbs.hips.getWorldPosition(hipAt)));

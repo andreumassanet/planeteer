@@ -51,8 +51,9 @@ export function createBuilders({ ctx, traffic, registry, folk }: BuilderDeps): B
 
     // Near, a closed vehicle is glazed with a cabin and a driver (`CABIN_REACH`).
     // One with nothing to glaze is refused, and the far build stands in.
+    const scale = placedScale(entry);
     if (inside) {
-      const drivers = glazeTraffic(built, findSceneryModel, rightHand);
+      const drivers = glazeTraffic(built, findSceneryModel, rightHand, scale[0]);
       if (drivers.length === 0) {
         disposeBuilt(built);
         return null;
@@ -80,7 +81,6 @@ export function createBuilders({ ctx, traffic, registry, folk }: BuilderDeps): B
       if (object.name === 'glass' && (object as THREE.Mesh).isMesh) panes.push(object);
     });
     for (const pane of panes) pane.removeFromParent();
-    const scale = placedScale(entry);
     built.scale.set(scale[0], scale[1], scale[2]);
     const merged = mergeMeshes(built);
     const geometry = geometryOf(merged);

@@ -20,8 +20,10 @@ export { RAMP_GRADE };
  * What a road's two ends ask of its height, worked out once per road: `rise`,
  * how far the gate's paving stands over the ordinary crown at the kerb;
  * `level`, how far out the section levels its cross-slope (the approach);
- * `walk`, the pavement carried out of the gate (`gateMouth`); `kerb`, the
- * paving's radius. An end whose town is not built asks for nothing (0).
+ * `walk`, the pavement carried out of the gate (`gateMouth`); `carriage`,
+ * the gate street's carriageway half-width, which the road eases to at the
+ * kerb; `kerb`, the paving's radius. An end whose town is not built asks for
+ * nothing (0).
  */
 export interface RoadRamp {
   riseA: number;
@@ -30,6 +32,8 @@ export interface RoadRamp {
   levelB: number;
   walkA: number;
   walkB: number;
+  carriageA: number;
+  carriageB: number;
   kerbA: number;
   kerbB: number;
   /** The bridge's wet span along the path (both 0 for none), and the crown's elevation where each ramp leaves the land. */
@@ -40,7 +44,7 @@ export interface RoadRamp {
 }
 
 export function emptyRamp(): RoadRamp {
-  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, walkA: 0, walkB: 0, kerbA: 0, kerbB: 0, bridgeFrom: 0, bridgeTo: 0, deckA: 0, deckB: 0 };
+  return { riseA: 0, riseB: 0, levelA: 0, levelB: 0, walkA: 0, walkB: 0, carriageA: 0, carriageB: 0, kerbA: 0, kerbB: 0, bridgeFrom: 0, bridgeTo: 0, deckA: 0, deckB: 0 };
 }
 
 /**

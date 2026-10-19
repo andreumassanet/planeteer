@@ -18,6 +18,7 @@ import type { TravelMode } from '../../controls.ts';
 import type { Geography } from '../../system/geography.ts';
 import { bearingTo } from '../../cartography.ts';
 import { latLonOf } from '../../sphere.ts';
+import { unitFor } from '../../app/speed-units.ts';
 import { createEar } from './ear.ts';
 import { createInteraction } from './interact.ts';
 import { MODE_OF, smoothstep } from './tables.ts';
@@ -96,6 +97,18 @@ export function createShellFrame(deps: FrameDeps): ShellFrame {
     names.update(fade, rig.camera, standingIn);
   }
 
+  /** The dial while in a craft, as on Earth: its speed against its top, and the gear or the altitude. */
+  function speedometer(dt: number): void {
+    const craft = player.craft;
+    if (craft === null) {
+      hud.setSpeed(null, 'kmh', dt);
+      return;
+    }
+    const road = craft.kind === 'rover';
+    const altitude = Math.max(0, craft.position.length() - world.surface.radius - world.groundAt(craft.position));
+    hud.setSpeed({ speed: craft.speed, top: craft.top, air: !road, road, altitude }, unitFor(road ? 'road' : 'air'), dt);
+  }
+
   function update(dt: number): void {
     const state = input.state;
     // Time runs on, faster under the lapse.
@@ -105,6 +118,7 @@ export function createShellFrame(deps: FrameDeps): ShellFrame {
 
     const mode: TravelMode = player.craft === null ? 'foot' : MODE_OF[player.craft.kind];
     hud.setMode(mode, player.craft?.airborne ?? false, rig.firstPerson);
+    speedometer(dt);
     hud.setPaused(
       !input.looking && !map.open && !settings.open && !(host.traveller?.open ?? false) && !chat.open && !passportCard.open,
       input.dragging,

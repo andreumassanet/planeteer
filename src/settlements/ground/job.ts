@@ -245,6 +245,11 @@ export function* openGround(
   }
   if (shores.size > 0) field.shores = shores;
   out.field = field;
+  /** Whether the coast cuts within `margin` of a point: the point, and a step that far each way, past it. */
+  const wetNear = (x: number, z: number, margin: number): boolean =>
+    frame.wetAt(x, z) ||
+    (margin > 0 &&
+      (frame.wetAt(x - margin, z) || frame.wetAt(x + margin, z) || frame.wetAt(x, z - margin) || frame.wetAt(x, z + margin)));
   const cuts = new Map<number, ShoreCut>();
   const lineEnd: number[] = [0, 0, 0];
   const lineEnd2: number[] = [0, 0, 0];
@@ -315,7 +320,7 @@ export function* openGround(
       style.yard !== 'earth' && (cells < OUTSKIRT_MIN_CELLS || outskirtScore(grid, slot.seed, col, row) > OUTSKIRT_RING),
     cutFor,
     spotAt(x, z, into, yaw, clearance = 0) {
-      if (frame.blocked(x, z) || frame.wetAt(x, z)) return false;
+      if (frame.blocked(x, z) || wetNear(x, z, clearance)) return false;
       const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
       if (level === undefined) return false;
       if (flightAt(field, x, z, clearance) !== null) return false;
@@ -326,7 +331,7 @@ export function* openGround(
     pavingAt,
     standable: (x, z, level) =>
       !frame.blocked(x, z) &&
-      !frame.wetAt(x, z) &&
+      !wetNear(x, z, CLEAR_FOLK) &&
       levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z))) === level &&
       flightAt(field, x, z, CLEAR_FOLK) === null,
   };

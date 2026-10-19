@@ -29,7 +29,7 @@ export interface Footprint {
  * four shapes, the planter and the hydrant their CC0 models.
  */
 export const FOOTPRINTS: Record<Furniture | 'postbox' | 'kiosk' | 'clock' | 'bollard', Footprint> = {
-  cafe: { width: 2.3 * M, depth: 1.1 * M, cost: 380, solid: { hx: 0.4 * M, hz: 0.4 * M, height: 0.76 * M } },
+  cafe: { width: 2.3 * M, depth: 1.1 * M, cost: 460, solid: { hx: 0.4 * M, hz: 0.4 * M, height: 0.76 * M } },
   // Walked through, as a fence is: its slots are where the fleet's bicycles
   // stand, and each of those is a wall of its own (`Fleet.collide`).
   rack: { width: 1.8 * M, depth: 1.75 * M, cost: 160, solid: null },

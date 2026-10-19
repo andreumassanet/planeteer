@@ -336,7 +336,8 @@ export const STYLE = `
   position: fixed;
   z-index: 11;
   left: 50%;
-  top: 38%;
+  /* High enough that its caption clears the pause card centred on the screen. */
+  top: max(110px, calc(50% - 250px));
   width: 240px;
   height: 180px;
   margin: -90px 0 0 -120px;

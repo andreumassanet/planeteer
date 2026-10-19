@@ -148,8 +148,19 @@ test('a town counts once, inside it and on the ground', () => {
   assert.deepEqual(passport.data.towns, ['ESP:Palma', 'ESP:Inca']);
 });
 
-test('the date is the sky clock\'s calendar day', () => {
-  assert.equal(stampDate(new Date(Date.UTC(2026, 11, 31, 23, 59))), '2026-12-31');
+test('the date is the sky clock\'s calendar day on the player\'s own calendar', () => {
+  const zone = process.env['TZ'];
+  try {
+    // Half past midnight on New Year's Day in Auckland is still the old year in UTC.
+    process.env['TZ'] = 'Pacific/Auckland';
+    assert.equal(stampDate(new Date(Date.UTC(2026, 11, 31, 11, 30))), '2027-01-01');
+    // And late on New Year's Eve in Honolulu is already the new year there.
+    process.env['TZ'] = 'Pacific/Honolulu';
+    assert.equal(stampDate(new Date(Date.UTC(2027, 0, 1, 9, 30))), '2026-12-31');
+  } finally {
+    if (zone === undefined) delete process.env['TZ'];
+    else process.env['TZ'] = zone;
+  }
   assert.equal(stampDateText('2026-09-05'), '05 SEP 2026');
 });
 

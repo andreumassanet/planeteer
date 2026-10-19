@@ -1,9 +1,9 @@
-import { PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
+import { DOOR_HEAD, DOOR_HEIGHT, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
  * Terrace block: the fabric of a European street, the part that makes a town
- * rather than a village. Four to seven storeys, a shopfront on the ground
+ * rather than a village. Four or five storeys, a shopfront on the ground
  * floor in a different colour, a mansard or a cornice on top, and two chimney
  * pots.
  *
@@ -39,7 +39,7 @@ export const terraceBlock: ScenicPart = {
   name: 'Terrace block',
   kind: 'block',
   footprint: 8.4,
-  note: 'Four to seven storeys of bays over a shopfront, under a mansard or a cornice. The street, not the house.',
+  note: 'Four or five storeys of bays over a shopfront, under a mansard or a cornice. The street, not the house.',
 
   build(ctx, rng, style) {
     const { THREE, box, panes, tone, lit, rim, roof, windows } = ctx;
@@ -58,8 +58,9 @@ export const terraceBlock: ScenicPart = {
     const width = rng.range(9, 12.8);
     const depth = rng.range(6.8, 8.6);
     // A block is at least four storeys whatever the region says: below that it
-    // is a house, and the kit already has houses.
-    const storeys = rng.between(Math.max(4, style.storeys[0]), Math.max(5, style.storeys[1] + 2));
+    // is a house, and the kit already has houses. Five at most keeps the
+    // mansard's chimney pots under the `block` kind's 38.
+    const storeys = Math.min(5, rng.between(Math.max(4, style.storeys[0]), Math.max(5, style.storeys[1] + 2)));
     const bays = width > 11 ? 3 : 2;
 
     group.add(box(width + 0.4, PLINTH, depth + 0.4, course));
@@ -91,17 +92,17 @@ export const terraceBlock: ScenicPart = {
     shopGlass.position.set(-width * 0.08, PLINTH + STOREY * 0.24, front + PROUD);
     group.add(shopGlass);
     const shopDoor = ctx.door({
-      width: 1.3,
-      height: STOREY * 0.66,
+      width: 1.4,
+      height: DOOR_HEIGHT,
       leaf: doorPaint(rng, style, wall),
       frame: fascia,
       sill: PLINTH,
       step: course,
     });
-    shopDoor.position.set(width / 2 - 1.1, 0, front);
+    shopDoor.position.set(width / 2 - 1.15, 0, front);
     group.add(shopDoor);
     const board = panes(1, width - 0.4, 0.5, 0, fascia, PROUD * 3);
-    board.position.set(0, PLINTH + STOREY * 0.8, front + PROUD * 1.5);
+    board.position.set(0, PLINTH + DOOR_HEIGHT + DOOR_HEAD + 0.1, front + PROUD * 1.5);
     group.add(board);
 
     // --- the bays: piers standing proud of the render, in a lighter tone ---

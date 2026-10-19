@@ -13,6 +13,7 @@ import type { RegionStyle } from '../scenery/contract.ts';
 import { mainStreetHalf } from '../scenery/grid.ts';
 import { groundStyleFor } from '../scenery/ground.ts';
 import { rngFrom } from '../scenery/random.ts';
+import { stopLineOf, townHasSignals } from '../signals.ts';
 import { driveThrough, streetCost, turnInTown } from '../through.ts';
 import type { StreetLeg } from '../through.ts';
 import type { LifeOptions } from './api.ts';
@@ -106,13 +107,25 @@ function hopGround(hop: DriveHop, q: number): number {
 export const driveAt = (drive: Drive, phase: number, speed: number, clock: number): number =>
   wrap(phase + (clock * speed) / drive.total) * drive.total;
 
+/** A vehicle on a town's streets: the town, the drive, how far into it, and which way. */
+export interface StreetAt {
+  town: number;
+  legs: readonly StreetLeg[] | null;
+  q: number;
+  back: boolean;
+}
+
 export interface Drives {
   driveFor(first: number, key: string, lane: number): Drive;
   /** Where a drive puts a vehicle at `at` units of its loop. */
   driveFrame(drive: Drive, at: number, lane: number, out: Frame, ground: boolean): void;
   /** What the last `driveFrame` put the vehicle on: 0 a road, 1 a town street, 2 a turn in a town, 3 a turn on the carriageway. */
   readonly part: number;
+  /** Where on a town's streets the last `driveFrame` put the vehicle; `legs` null when it was not on one. */
+  readonly street: StreetAt;
   resetPart(): void;
+  /** How far from a town's middle its traffic stops for its lights, or NaN where it has none (`signals.ts`). */
+  signalLine(town: number): number;
   /** Lets `paved` check one more drive this frame. */
   beginFrame(): void;
   /** Forgets which drives are paved: the towns standing have changed. */
@@ -132,6 +145,14 @@ export function createDrives({ world, places, routes, regionAt, streets }: Drive
   const { streetFrame, paved, ...towns } = createTownDrive(world, places, streets);
   const drives = new Map<string, Drive>();
   let drivePart = 0;
+  const signalLines = new Map<number, number>();
+  const street: StreetAt = { town: 0, legs: null, q: 0, back: false };
+  const onStreet = (town: number, legs: readonly StreetLeg[], q: number, back: boolean): void => {
+    street.town = town;
+    street.legs = legs;
+    street.q = q;
+    street.back = back;
+  };
   const turnFrame = emptyFrame();
   const turnLeft = new THREE.Vector3();
 
@@ -259,7 +280,9 @@ export function createDrives({ world, places, routes, regionAt, streets }: Drive
       if (hop.through !== null && along < hop.throughCost) {
         drivePart = 1;
         // Driven home, the drive through the town starts from its other end.
-        streetFrame(hop.town, hop.through, back ? hop.throughCost - along : along, back, hop.key, out, ground);
+        const q = back ? hop.throughCost - along : along;
+        onStreet(hop.town, hop.through, q, back);
+        streetFrame(hop.town, hop.through, q, back, hop.key, out, ground);
         return;
       }
       along -= hop.throughCost;
@@ -270,6 +293,7 @@ export function createDrives({ world, places, routes, regionAt, streets }: Drive
   function turnRound(turn: DriveTurn, q: number, lane: number, out: Frame, ground: boolean): void {
     drivePart = turn.legs !== null ? 2 : 3;
     if (turn.legs !== null) {
+      onStreet(turn.town, turn.legs, q, false);
       streetFrame(turn.town, turn.legs, q, false, turn.key, out, ground);
       return;
     }
@@ -304,8 +328,21 @@ export function createDrives({ world, places, routes, regionAt, streets }: Drive
     get part(): number {
       return drivePart;
     },
+    street,
+    signalLine(town) {
+      let line = signalLines.get(town);
+      if (line === undefined) {
+        const place = places[town]!;
+        const grid = townOf(place).grid;
+        line = townHasSignals(grid, regionAt(town), place.pop) ? stopLineOf(grid) : NaN;
+        if (signalLines.size > 4000) signalLines.clear();
+        signalLines.set(town, line);
+      }
+      return line;
+    },
     resetPart(): void {
       drivePart = 0;
+      street.legs = null;
     },
     beginFrame: towns.beginFrame,
     clearPaved: towns.clearPaved,

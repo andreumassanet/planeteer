@@ -44,6 +44,7 @@
     "sea": "node scripts/check-sea.ts",
     "passport": "node scripts/check-passport.ts",
     "fleet": "node scripts/check-fleet.ts",
+    "flight": "node scripts/check-flight.ts",
     "sky": "node scripts/check-sky.ts",
     "railway": "node scripts/check-rails.ts",
     "ground": "node scripts/check-ground.ts",

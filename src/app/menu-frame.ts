@@ -1,17 +1,18 @@
 /**
  * What the world does while the menu draws it. The menu's camera is anywhere
  * from a few thousand units to a million away, so the fog, sky, clouds and
- * sea are re-aimed at it every frame; at the country and town stages the
- * world's streamers also build round it. When the player arrives, the world
- * gets its sky back.
+ * sea are re-aimed at it every frame. The world's streamers (towns, wood,
+ * roads, landmarks) do not build for the menu: from its height they would not
+ * read, and building them made the first seconds after a pick stutter. They
+ * build behind the curtain on arrival. When the player arrives, the world gets
+ * its sky back.
  */
 import * as THREE from 'three';
 import { HAZE_RADIUS, PLANET_RADIUS } from '../globe.ts';
 import { surfaceQuality } from '../graphics-quality.ts';
 import { setSunDirection } from '../lights.ts';
-import { beginFrameBuild, endFrameBuild, fogFar } from '../view.ts';
+import { fogFar } from '../view.ts';
 import type { App } from './context.ts';
-import { STREAM_FLOOR } from './frame/haze.ts';
 
 /** Time constant, s, of the cloud deck fading out at the country and town stages and back. */
 const VEIL_LAG = 0.3;
@@ -82,33 +83,23 @@ export function installMenuSky(app: App): SkyDiscs {
 }
 
 /**
- * At the country and town stages, runs the world's streamers round the
- * menu's camera under the frame's build allowance, so the dive lands on the
- * towns, landmarks, roads and wood the menu showed. The camera never comes
- * below `STREAM_FLOOR`, so no town is built at near detail.
+ * At the country and town stages, keeps the far-field city lights current
+ * over the menu's globe. Nothing else streams for the menu: the towns, wood,
+ * roads and landmarks are built behind the arrival's curtain instead.
  */
 export function installMenuStreamers(app: App): void {
-  const { menu, settlements, monuments, roads, vegetation, cityLights, renderer, sky } = app;
+  const { menu, cityLights, renderer } = app;
   let failed = false;
   const skyFrame = menu.beforeRender;
   menu.beforeRender = (camera) => {
     skyFrame?.(camera);
-    if (menu.body !== 'earth' || (menu.stage !== 'site' && menu.stage !== 'region')) return;
-    const altitude = Math.max(STREAM_FLOOR, camera.position.length() - PLANET_RADIUS);
-    const viewer = camera.position;
-    beginFrameBuild();
+    if (failed || menu.body !== 'earth' || (menu.stage !== 'site' && menu.stage !== 'region')) return;
     try {
-      settlements.update(viewer, altitude, camera);
-      monuments.update(viewer, altitude, camera, sky.state.time);
-      roads.update(viewer, altitude, camera);
-      vegetation.update(viewer, altitude, camera);
       cityLights.update(renderer);
     } catch (error) {
-      // The menu goes on drawing the bare land.
-      if (!failed) console.error('atlas: the menu\'s streamers failed', error);
+      console.error('atlas: the menu\'s city lights failed', error);
       failed = true;
     }
-    endFrameBuild();
   };
 }
 

@@ -2,7 +2,10 @@
 import * as THREE from 'three';
 import { PALETTE } from '../theme.ts';
 import { birdGeometry } from '../life.ts';
-import { MAX_BUTTERFLIES, MAX_FISH, MAX_GULLS, MAX_LEAVES, MAX_LITTER, MAX_POINTS } from './constants.ts';
+import {
+  CASTLE_TRIANGLES, CRAB_TRIANGLES, MAX_BUTTERFLIES, MAX_CASTLES, MAX_CRABS, MAX_FISH, MAX_GULLS, MAX_LEAVES, MAX_LITTER,
+  MAX_POINTS, MAX_SHELLS, SHELL_TRIANGLES,
+} from './constants.ts';
 import { bodyMaterial, lightMaterial, litterMaterial } from './materials.ts';
 import type { AmbientState, Buffers, Writer } from './types.ts';
 
@@ -40,7 +43,8 @@ export function createBuffers(): Buffers {
   const gull = birdGeometry(PALETTE.bone, PALETTE.white);
   const gullVertices = gull.position.length / 3;
   const MAX_VERTICES =
-    MAX_BUTTERFLIES * 4 * 3 + MAX_LEAVES * 2 * 3 + MAX_FISH * 3 * 3 + MAX_GULLS * gullVertices;
+    MAX_BUTTERFLIES * 4 * 3 + MAX_LEAVES * 2 * 3 + MAX_FISH * 3 * 3 + MAX_GULLS * gullVertices +
+    (MAX_SHELLS * SHELL_TRIANGLES + MAX_CASTLES * CASTLE_TRIANGLES + MAX_CRABS * CRAB_TRIANGLES) * 3;
   const bodyPosition = new Float32Array(MAX_VERTICES * 3);
   const bodyNormal = new Float32Array(MAX_VERTICES * 3);
   const bodyColor = new Float32Array(MAX_VERTICES * 3);

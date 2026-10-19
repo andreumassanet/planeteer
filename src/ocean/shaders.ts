@@ -13,8 +13,10 @@ import {
   FOAM_SWING,
   FOAM_WAVELENGTH,
   FOAM_WAVELENGTH_2,
+  LIFT_COAST,
 } from './constants.ts';
 import { FOAM_COLOR } from './water-colour.ts';
+import { apronReachAt } from '../terrain.ts';
 import { WAVES_NORMAL_GLSL, WAVES_PARS_GLSL, WAVES_SKY_GLSL, waveUniforms, wavesFieldGLSL } from './waves.ts';
 
 /** The surf's clock, shared by the ribbon and the water laid over the sea floor near the player. */
@@ -25,11 +27,14 @@ export const seaClock: THREE.IUniform<number> = { value: 0 };
  * `shore` units from the coast and `phase` units along it wears, 0 to
  * `FOAM_STRENGTH`. Two swells run along the shoreline at different rates, so the
  * surf is a phase travelling down a beach; the wash is solid to two thirds of
- * its reach and feathers out over the last third. Reads `uTime`, which must be
- * `seaClock`; declared once per shader, after `uTime`.
+ * its reach and feathers out over the last third. `shore` is counted from the
+ * coastline and the wash from where the apron goes under the water drawn at
+ * the coast (`apronReachAt`). Reads `uTime`, which must be `seaClock`; declared
+ * once per shader, after `uTime`.
  */
 export const FOAM_GLSL = `
 float atlasFoam(float shore, float phase) {
+  shore -= ${apronReachAt(LIFT_COAST).toFixed(2)};
   float a = sin(phase * ${(2 * Math.PI / FOAM_WAVELENGTH).toFixed(8)} - uTime * ${(2 * Math.PI / FOAM_PERIOD).toFixed(6)});
   float b = sin(phase * ${(2 * Math.PI / FOAM_WAVELENGTH_2).toFixed(8)} + uTime * ${(2 * Math.PI / FOAM_PERIOD_2).toFixed(6)} + 1.7);
   float reach = ${FOAM_REACH.toFixed(1)} + ${FOAM_SWING.toFixed(1)} * clamp(0.5 + 0.34 * a + 0.16 * b, 0.0, 1.0);

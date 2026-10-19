@@ -1,10 +1,10 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { DOOR_HEIGHT, PROUD, STOREY, TONES } from '../contract.ts';
 import type { Mesh, ScenicPart } from '../contract.ts';
 
 /**
  * Tower block: the tallest thing the kit is allowed to build.
  *
- * Capped at seven storeys and about 31 units: nothing generated may reach the
+ * Capped at five storeys and 38 units: nothing generated may reach the
  * `building` monument tier's 40 units. A city here is a mat of fabric with a
  * modelled landmark standing out of it, and a procedural slab that out-tops the
  * Colosseum would repeal the tier system by accident.
@@ -33,7 +33,7 @@ import type { Mesh, ScenicPart } from '../contract.ts';
  * capping the body at `CEILING` instead put a seven-storey tower's aerial at
  * 32.7, which is a number nothing in this file claimed.
  */
-const CEILING = 31;
+const CEILING = 38;
 const PLANT = 5.6;
 
 export const towerBlock: ScenicPart = {
@@ -41,7 +41,7 @@ export const towerBlock: ScenicPart = {
   name: 'Tower block',
   kind: 'block',
   footprint: 8.2,
-  note: 'Five to seven storeys of panes and floor bands over a dark ground floor, with balconies and a core.',
+  note: 'Four or five storeys of panes and floor bands over a dark ground floor, with balconies and a core.',
 
   build(ctx, rng, style) {
     const { THREE, box, panes, tone, lit, rim, column, windows } = ctx;
@@ -64,7 +64,7 @@ export const towerBlock: ScenicPart = {
 
     const width = rng.range(8, 10.6);
     const depth = width * rng.range(0.75, 1);
-    const storeys = rng.between(5, 7);
+    const storeys = rng.between(4, 5);
     // The ground floor is a shade taller than the ones over it, which is what a
     // building with a lobby in it does, and it is also the only floor an avatar
     // walking past can see into.
@@ -95,14 +95,18 @@ export const towerBlock: ScenicPart = {
     // `PROUD` in front of the glass; at `PROUD * 2` both lay on the core's own
     // face and z-fought it.
     const front = depth / 2;
-    const jambs = panes(5, width * 0.035, podiumHeight * 0.6, width * 0.145, accent, PROUD * 4);
-    jambs.position.set(0, 0.4 + podiumHeight * 0.14, front + PROUD * 2);
+    // The glazed doors are a door's height at least, and the canopy clears them.
+    const doorway = Math.max(DOOR_HEIGHT, podiumHeight * 0.55);
+    const doorSill = 0.4 + podiumHeight * 0.1;
+    const jambs = panes(5, width * 0.035, doorway + 0.4, width * 0.145, accent, PROUD * 4);
+    jambs.position.set(0, doorSill - 0.2, front + PROUD * 2);
     group.add(jambs);
-    const entrance = lit(panes(4, width * 0.15, podiumHeight * 0.55, width * 0.03, ctx.glass), 0.9);
-    entrance.position.set(0, 0.4 + podiumHeight * 0.16, front + PROUD * 3);
+    const entrance = lit(panes(4, width * 0.15, doorway, width * 0.03, ctx.glass), 0.9);
+    entrance.position.set(0, doorSill, front + PROUD * 3);
+    entrance.userData.atlasDoorHeight = doorway;
     group.add(entrance);
     const canopy = box(width * 0.66, 0.24, 1.5, accent);
-    canopy.position.set(0, 0.4 + podiumHeight * 0.78, front + 0.75);
+    canopy.position.set(0, doorSill + doorway + 0.3, front + 0.75);
     group.add(canopy);
 
     // --- the floors: four panes a face, and a band of wall between them ---

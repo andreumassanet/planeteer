@@ -10,6 +10,7 @@ import { bakeNight } from '../landmark-lights.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
 import { seeThrough } from '../see-through.ts';
 import { buildSetting } from '../landmark-setting.ts';
+import { buildFoundation } from '../landmark-foundation.ts';
 import { regionFor } from '../scenery/regions.ts';
 import { drawSurfaces } from '../surfaces.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
@@ -93,9 +94,19 @@ export function createBuilder(
       broken.push(`${id}: ${String(error)}`);
       return null;
     }
-    // The square is the world's and not the model's, so it is added after the
-    // contract has passed the model.
-    const square = addSquare(model, slot.placement);
+    // The square and the foundation are the world's and not the model's, so
+    // they are added after the contract has passed the model; the foundation is
+    // measured off the model's own base, before the square's posts are there.
+    const footing = buildFoundation(ctx, model, slot.placement);
+    let square: THREE.Object3D | null = addSquare(model, slot.placement);
+    if (footing !== null) {
+      // Left flat and out of the night's measure with the square: it is ground.
+      const ground = new THREE.Group();
+      if (square !== null) ground.add(square);
+      ground.add(footing);
+      model.add(ground);
+      square = ground;
+    }
     const pieces: MergePiece[] = [];
     const merged = mergeMeshes(model, pieces);
     // Its night, in bytes beside the merge and kept with it (`landmark-lights.ts`).

@@ -33,10 +33,10 @@ import { latLonOf, unitAt } from './sphere.ts';
 import { setWeatherHaze } from './view.ts';
 import { SCENERY_SCALE } from './stature.ts';
 import { proxyOf } from './warm.ts';
-import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, classify, seasonOf, strikeCandidate, weatherAt, weatherSample } from './weather.ts';
+import { STRIKE_CELL, STRIKE_ODDS, STRIKE_SLOT_MS, classify, seasonOf, seasonTurn, strikeCandidate, weatherAt, weatherSample, wetnessAt } from './weather.ts';
 import type { Strike, WeatherKind } from './weather.ts';
 import type { WeatherView } from './weather-view/types.ts';
-import { BOLT_TOP, DRYING, FLAKE, FLASH_DISTANT, FLASH_FAR, FLASH_NEAR, JUMP, LAYER_SPEED, MAX_DROPS, MELTING, PRESETS, RAIN_BOX, RAIN_DRIFT, RAIN_FALL, REBASE, SAMPLE_EVERY, SETTLING, SNOW_BOX, SNOW_DRIFT, SNOW_FALL, SNOW_SHARE, SOUND_SPEED, STREAK, STREAK_WIDTH, STRIKE_GAP_MS, STRIKE_REACH, WETTING, clamp01, easeState, follow, mod, overcastOf, smoothstep } from './weather-view/constants.ts';
+import { BOLT_TOP, DRYING, FLAKE, FLASH_DISTANT, FLASH_FAR, FLASH_NEAR, JUMP, LAYER_SPEED, MAX_DROPS, MELTING, PRESETS, RAIN_BOX, RAIN_DRIFT, RAIN_FALL, REBASE, SAMPLE_EVERY, SETTLING, SNOW_BOX, SNOW_DRIFT, SNOW_FALL, SNOW_SHARE, SOUND_SPEED, STREAK, STREAK_WIDTH, STRIKE_GAP_MS, STRIKE_REACH, WET_EASE, WET_SAMPLE_EVERY, WETTING, clamp01, easeState, follow, mod, overcastOf, smoothstep } from './weather-view/constants.ts';
 import { Y, createBoltMesh, writeBolt } from './weather-view/bolt.ts';
 import { createDropLayer } from './weather-view/drops.ts';
 import { continentalTexture } from './weather-view/ground.ts';
@@ -62,6 +62,11 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
   const state = weatherSample();
   const target = weatherSample();
   let wetGround = 0;
+  /** The model's wetness at the last read (`wetnessAt`), or null while the weather is forced or off. */
+  let wetModel: number | null = null;
+  /** Seconds to the next wetness read, and the rings' clock. */
+  let wetClock = 0;
+  let rainClock = 0;
   let freshSnow = 0;
   let lying = 0;
   let sampleClock = 0;
@@ -119,6 +124,11 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
     weatherAt(here.lat, here.lon, elevation, time, target);
     cloudShadeAt(player, sky.state.sun, time, shadeHere);
     lying = target.lying;
+    wetClock -= SAMPLE_EVERY;
+    if (forced === null && enabled && (wetClock <= 0 || wetModel === null)) {
+      wetClock = WET_SAMPLE_EVERY;
+      wetModel = wetnessAt(here.lat, here.lon, elevation, time);
+    } else if (forced !== null || !enabled) wetModel = null;
     if (forced !== null) {
       Object.assign(target, PRESETS[forced]);
       if (forced === 'snow') target.temperatureC = Math.min(target.temperatureC, -3);
@@ -262,7 +272,7 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
         sample(now, player, ground);
         if (jumped) {
           Object.assign(state, target);
-          wetGround = target.precipitation > 0.1 && target.snow < 0.5 ? 1 : 0;
+          wetGround = wetModel ?? (target.precipitation > 0.1 && target.snow < 0.5 ? 1 : 0);
           freshSnow = target.precipitation > 0.1 && target.snow >= 0.5 ? 0.8 : 0;
           sampled = true;
         }
@@ -273,7 +283,10 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
 
       const raining = state.precipitation > 0.05 && state.snow < 0.5;
       const snowing = state.precipitation > 0.05 && state.snow >= 0.5;
-      wetGround += ((raining ? 1 : 0) - wetGround) * follow(dt, raining ? WETTING : DRYING);
+      // The model's wetness, eased between reads; a forced sky wets and dries on the wall clock.
+      if (wetModel !== null) wetGround += (wetModel - wetGround) * follow(dt, WET_EASE);
+      else wetGround += ((raining ? 1 : 0) - wetGround) * follow(dt, raining ? WETTING : DRYING);
+      rainClock = (rainClock + dt) % 600;
       const melt = state.temperatureC > 1;
       const settle = snowing ? Math.min(1, state.precipitation * 1.5) : melt ? 0 : freshSnow;
       freshSnow += (settle - freshSnow) * follow(dt, snowing ? SETTLING : MELTING);
@@ -298,8 +311,11 @@ export function createWeatherView(sky: Sky, clouds: Clouds): WeatherView {
 
       // The ground.
       groundWeather.atlasWet.value = wetGround;
+      groundWeather.atlasRain.value = raining ? clamp01(state.precipitation * 1.4) * (1 - above) : 0;
+      groundWeather.atlasRainClock.value = rainClock;
       groundWeather.atlasFresh.value = freshSnow;
       groundWeather.atlasSeason.value = seasonOf(now);
+      groundWeather.atlasSeasonTurn.value = seasonTurn(now);
       groundWeather.atlasWeatherAt.value.copy(player);
 
       // The drops.

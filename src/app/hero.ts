@@ -39,6 +39,8 @@ export async function createHero(app: App): Promise<Player> {
       } else if (event === 'steep-refused') {
         app.announce('Too steep to land here — find flatter ground', rotor ? 'heli' : 'plane');
         audio.cue('ui-error');
+      } else if (event === 'travel' || event === 'aerobatics') {
+        app.announce(event === 'travel' ? 'Travel flight — climb to see the map' : 'Aerobatics — I K pitch, J L roll', 'plane');
       } else if (event === 'landed' || event === 'foundered') audio.cue('land');
       // A car into a wall: the landing's thud, and the camera knocked.
       else if (event === 'crashed') {

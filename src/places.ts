@@ -293,7 +293,12 @@ export function setProminenceRadius(value: number): number {
  * The capital clause keeps the promise independent of a bake having been run.
  */
 export function isShown(place: Place): boolean {
-  return place.capital === true || place.prominence >= radius;
+  return shownAt(place, radius);
+}
+
+/** Whether a place is built at a prominence radius of `at` units; `isShown` is this at the live knob. */
+export function shownAt(place: Place, at: number): boolean {
+  return place.capital === true || place.prominence >= at;
 }
 
 /**

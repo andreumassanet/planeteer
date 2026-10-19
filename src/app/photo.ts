@@ -4,7 +4,7 @@ import type { App } from './context.ts';
  * Saves the canvas as a PNG named for where it was taken. Called in the same
  * task as the draw, before the browser clears the buffer, so no
  * `preserveDrawingBuffer` is needed. The country names are HTML over the
- * canvas, so they are painted into the copy.
+ * canvas, so they are painted into the copy unless the overlay is hidden.
  */
 export function savePhoto(app: App, canvas: HTMLCanvasElement): void {
   const place = app.places.nearest(app.player.position).place.name;
@@ -19,7 +19,8 @@ export function savePhoto(app: App, canvas: HTMLCanvasElement): void {
     return;
   }
   context.drawImage(canvas, 0, 0);
-  app.names.drawTo(context, canvas.width / innerWidth);
+  // Hidden with the overlay, the names stay out of the picture too.
+  if (!app.hud.hidden) app.names.drawTo(context, canvas.width / innerWidth);
   photo.toBlob((blob) => {
     if (blob === null) {
       app.announce('The photo could not be saved', 'camera');

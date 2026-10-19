@@ -52,6 +52,7 @@ export const K_GULL = 320;
 export const K_CELL = 384;
 export const K_ANCHOR = 448;
 export const K_LITTER = 512;
+export const K_BEACH = 576;
 
 // --- the creatures' own numbers
 
@@ -138,3 +139,37 @@ export const WATER_LINE = PLANET_RADIUS - 0.4;
 /** A firefly's glow and a mote's, in world units across. */
 export const FIREFLY_SIZE = 0.5;
 export const MOTE_SIZE = 0.14;
+
+// --- the beach
+
+/**
+ * Where a small cell is a beach: on dry land, at most `BEACH_RISE` over the
+ * sea and with the shore fallen at least `BEACH_FALL` of the way to the water
+ * (`shoreAt`), on loose ground (`BEACH_SAND` of it), and not in a cold biome.
+ */
+export const BEACH_FALL = 0.8;
+export const BEACH_SAND = 0.5;
+export const BEACH_RISE = 9;
+export const BEACH_BIOMES: readonly BiomeId[] = ['temperate', 'grassland', 'steppe', 'savanna', 'desert', 'tropical'];
+/** Spots tried a beach cell; and of them, the share a sandcastle and a crab (warm beaches only). */
+export const BEACH_TRIES = 6;
+export const CASTLE_ODDS = 0.035;
+export const CRAB_ODDS = 0.12;
+export const CRAB_BIOMES: readonly BiomeId[] = ['savanna', 'desert', 'tropical', 'temperate'];
+/** What a beach cell keeps a spot as: kind, unit direction, ground radius, seed. */
+export const BEACH_STRIDE = 6;
+export const MAX_SHELLS = 40;
+export const MAX_CASTLES = 4;
+export const MAX_CRABS = 8;
+/** A shell's half size, a sandcastle's base and a crab's half width, in units. */
+export const SHELL_SIZE = 0.16;
+export const CASTLE_SIZE = 0.5;
+export const CRAB_SIZE = 0.2;
+/** How far a crab scuttles each way from its home, how long a run and rest takes, and how near a body sends it off. */
+export const CRAB_RUN = 1.6;
+export const CRAB_PERIOD = 7;
+export const CRAB_SHY = 4.5;
+/** Triangles each is drawn with, for the body buffer's size. */
+export const SHELL_TRIANGLES = 3;
+export const CASTLE_TRIANGLES = 61;
+export const CRAB_TRIANGLES = 16;

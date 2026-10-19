@@ -54,6 +54,9 @@ export const EASE = { cover: 10, precipitation: 8, storm: 15, fog: 12, snow: 5, 
 export const WETTING = 25;
 export const DRYING = 180;
 export const SETTLING = 40;
+/** Seconds between two reads of the ground's wetness (`wetnessAt`, sixteen model reads), and the ease between them. */
+export const WET_SAMPLE_EVERY = 2;
+export const WET_EASE = 3;
 export const MELTING = 200;
 
 type Preset = Partial<Pick<WeatherSample, 'cover' | 'depth' | 'precipitation' | 'snow' | 'storm' | 'fog' | 'windSpeed'>>;

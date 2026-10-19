@@ -18,7 +18,7 @@ import {
   tilePoint,
 } from '../sea-floor.ts';
 import type { SeaZone, TileLife, TileLifeJob } from '../sea-floor.ts';
-import { fbm } from '../terrain.ts';
+import { SHORE_APRON, fbm } from '../terrain.ts';
 import { hash3 } from '../weather.ts';
 import { latOf } from '../sphere.ts';
 import { GRID, SIDE } from './constants.ts';
@@ -38,6 +38,13 @@ const SAND: Readonly<Record<SeaZone, readonly [number, number]>> = {
 };
 const LAKE_BED: readonly [number, number] = [new THREE.Color(PALETTE.tan).lerp(new THREE.Color(PALETTE.brown), 0.4).getHex(), PALETTE.darkOlive];
 const PATCH_FREQUENCY = 140;
+/**
+ * How far the drawn floor is tucked under the apron's line, units, fading out
+ * over `TUCK_RUN` past the apron's foot: the land mesh draws the apron, and a
+ * floor laid on the same line in coarser quads would fight it.
+ */
+const TUCK = 0.6;
+const TUCK_RUN = 10;
 
 export type TileState = 'building' | 'ready' | 'skipped';
 
@@ -152,11 +159,12 @@ export function createTileBuilder(): TileBuilder {
     } else distance = COLOUR_REACH;
     const depth = depthAtDistance(point.x, point.y, point.z, Math.min(distance, SEA_REACH));
     const o = v * 3;
-    const floorRadius = PLANET_RADIUS - depth;
+    const tucked = depth + TUCK * (1 - smoothstep(SHORE_APRON, SHORE_APRON + TUCK_RUN, distance));
+    const floorRadius = PLANET_RADIUS - tucked;
     tile.floor[o] = point.x * floorRadius;
     tile.floor[o + 1] = point.y * floorRadius;
     tile.floor[o + 2] = point.z * floorRadius;
-    tile.floorDepth[v] = depth;
+    tile.floorDepth[v] = Math.max(0, depth);
 
     // The sand, patched: rubble, weed or rock by the zone, and a few percent
     // of mosaic a vertex, which with flat shading is the facet the eye sees.
@@ -188,7 +196,7 @@ export function createTileBuilder(): TileBuilder {
     tile.waterNormal[o + 2] = Math.round(point.z * 127);
     tile.waterShore[v * 2] = distance;
     tile.waterShore[v * 2 + 1] = phase;
-    tile.waterDepth[v] = depth + surfaceLift(distance);
+    tile.waterDepth[v] = Math.max(0, depth + surfaceLift(distance));
   }
 
   /** Works on a tile until the deadline; true once it is ready to stand. */

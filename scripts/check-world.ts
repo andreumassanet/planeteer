@@ -18,6 +18,7 @@ import { checkFacts, checkFlags, checkLakes, checkPlaces, checkQueryCost } from 
 import { checkMesh } from './check-world/mesh.ts';
 import { checkShore, checkShoreRamp, printElevations } from './check-world/sea.ts';
 import { checkMonumentModels, checkMonuments } from './check-world/monuments.ts';
+import { checkFoundations } from './check-world/monument-foundations.ts';
 import { checkSettlements } from './check-world/towns.ts';
 import { checkBiomes } from './check-world/biomes.ts';
 import { checkRoads } from './check-world/roads.ts';
@@ -42,6 +43,7 @@ checkShoreRamp(ctx);
 printElevations(ctx);
 
 await checkMonuments(ctx);
+await checkFoundations(ctx);
 checkMonumentModels();
 checkSettlements(ctx);
 checkBiomes(ctx);

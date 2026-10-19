@@ -1,4 +1,5 @@
-import { EDGE_RUN, GROUND_LIFT, KERB_DROP, cellKey } from '../ground.ts';
+import { EDGE_RUN, GROUND_LIFT, KERB_DROP, RAMP_GRADE, cellKey } from '../ground.ts';
+import { SIDES } from '../grid/square.ts';
 import type { FloorField, FloorPlan, FloorStats } from '../floor.ts';
 
 /**
@@ -24,6 +25,14 @@ export const EDGE_FOOT = 1.0;
 export function edgeSink(pitch: number): number {
   return Math.max(EDGE_FOOT, GROUND_LIFT * (pitch / EDGE_RUN - 1));
 }
+
+/**
+ * The least fall a unit out of the slope a road comes in over, past the
+ * ground's own fall: steeper than a road's climb to its kerb (`RAMP_GRADE`),
+ * so the slope stays under the ribbon from the kerb out and never shows
+ * through it as a band of land across the road's mouth.
+ */
+export const MOUTH_GRADE = RAMP_GRADE + 0.2;
 
 /**
  * One cell of the edge slope. Every corner touching the paving stands at
@@ -142,7 +151,36 @@ export function edgeSlope(plan: FloorPlan, stats: FloorStats): { aprons: Map<num
       if (byEdge) stats.embankment = Math.max(stats.embankment, (top - foot) / pitch);
     }
   }
+  underMouths(plan, aprons, feet);
   return { aprons, feet };
+}
+
+/**
+ * Lays the slope outside each gate a road comes in by under the road's ribbon:
+ * each of its outer corners at least `MOUTH_GRADE` a unit under the paving's
+ * top, more where the ground falls away from the kerb, which the ribbon falls
+ * with.
+ */
+function underMouths(plan: FloorPlan, aprons: ReadonlyMap<number, EdgeApron>, feet: Map<number, number>): void {
+  if (plan.mouths === undefined) return;
+  const pitch = plan.grid.pitch;
+  for (const mouth of plan.mouths) {
+    const gateCell = Math.floor(mouth / 4);
+    const [ox, oz] = SIDES[mouth % 4]!;
+    const col = colOf(gateCell) + ox;
+    const row = rowOf(gateCell) + oz;
+    const apron = aprons.get(cellKey(col, row));
+    if (apron === undefined) continue;
+    for (const [i, j] of [[col, row], [col + 1, row], [col + 1, row + 1], [col, row + 1]] as const) {
+      const key = cellKey(i, j);
+      const foot = feet.get(key);
+      if (foot === undefined || touchesPaving(plan.terraces, i, j)) continue;
+      const outer = plan.cornerGround(i, j);
+      const kerb = plan.cornerGround(i - ox, j - oz);
+      const fall = outer === null || kerb === null ? 0 : Math.min(0, outer - kerb);
+      feet.set(key, Math.min(foot, apron.top - MOUTH_GRADE * pitch + fall));
+    }
+  }
 }
 
 /**

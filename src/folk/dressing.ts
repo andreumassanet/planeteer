@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { coloursOf, wardrobeOf, type Appearance } from '../appearance.ts';
 import { AVATAR_HEIGHT } from '../avatar.ts';
-import { OUTFITS, castMaterial, castSkin, foldLegs, holdWheel, limbsOf, loadCast, paintWith, reachArms, type Cast, type Person, type WheelGrip } from '../cast.ts';
+import { OUTFITS, castMaterial, castSkin, foldLegs, holdWheel, closeHand, limbsOf, loadCast, paintWith, reachArms, type Cast, type Person, type WheelGrip } from '../cast.ts';
 import { bakeSkin } from '../models.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
 import { lookFor } from '../scenery/dress.ts';
@@ -116,6 +116,7 @@ export function createFolk(ctx: MonumentContext): Folk {
         frame.updateMatrixWorld(true);
         const hip = frame.worldToLocal(limbs.hips.getWorldPosition(new THREE.Vector3()));
         reachArms(limbs, frame, pose.grip.clone().add(hip));
+        for (const hand of limbs.hands) closeHand(hand);
       }
       frame.updateMatrixWorld(true);
       const hip = frame.worldToLocal(limbs.hips.getWorldPosition(new THREE.Vector3()));

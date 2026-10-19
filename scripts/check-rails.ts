@@ -47,6 +47,14 @@ import {
 import type { TrainState } from '../src/rails.ts';
 import { unitAt } from '../src/sphere.ts';
 import { createRailTrial } from './rail-trial.ts';
+import { callAt, timetableOf } from '../src/rails/trains.ts';
+import type { Call } from '../src/rails/trains.ts';
+import {
+  CARRIAGE, SEATS_PER_CAR, carFrame, carMiddle, carriagesOf, emptyCarFrame, inCar, insideCarriage, passengerOn, seatRoot, toCar,
+} from '../src/rails/ride.ts';
+import { emptyStation, lineStation, stationPoint } from '../src/rails/stations.ts';
+import { PLATFORM_FROM, PLATFORM_INNER, PLATFORM_LENGTH, PLATFORM_RISE } from '../src/rails/line.ts';
+import { glassFaults, probeOfMeshes } from './cabin-contract.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 let failures = 0;
@@ -216,6 +224,7 @@ console.log('\ndrawn:');
   const { modelsFrom } = await import('../src/kit.ts');
   const { createRailway } = await import('../src/railway.ts');
   const { MeshToonMaterial, PerspectiveCamera, Matrix4, Mesh } = await import('three');
+  const timetableTravel = (length: number, cars: number): number => timetableOf(length, cars).travel;
   const models = await modelsFrom(readFileSync(resolve(here, '../public/models/rail/kit.bin')));
   const kit = new Map(models.map((model) => [model.name, model]));
   const needed = new Set(Object.values(CONSISTS).flatMap((c) => [c.ends, ...c.middle]));
@@ -465,6 +474,133 @@ console.log('\ndrawn:');
     walled = railway.collide(point.clone(), 1, push) && push.length() > 0;
   });
   check(walled, 'a train\'s car pushes a body out of it');
+
+  // Riding: board a carriage standing at A, ride to B and on back, get off.
+  {
+    const call: Call = { standing: false, arrives: 0, departs: 0 };
+    const ride = [...lines.keys()].find((i) => {
+      const consist = consistOf(lines[i]!, places, network.path(i).length);
+      return carriagesOf(consist.kind, consist.cars.length).length > 0 && network.path(i).length > 600;
+    })!;
+    const line = lines[ride]!;
+    const length = network.path(ride).length;
+    const consist = consistOf(line, places, length);
+    const cars = consist.cars.length;
+    const phase = phaseOf(line);
+    // The board agrees with the timetable: a call says when the train stands at each end, and it does.
+    let disagree = 0;
+    for (let t = T0; t < T0 + 3000; t += 7.3) {
+      const s = trainAt(length, cars, phase, t, { head: 0, direction: 1, speed: 0, standing: true });
+      for (const end of [0, 1] as const) {
+        callAt(length, cars, phase, t, end, call);
+        const here = s.standing && (s.direction > 0 ? 0 : 1) === end;
+        if (call.standing !== here) disagree++;
+        if (!call.standing) {
+          const then = trainAt(length, cars, phase, t + call.arrives + 0.05, { head: 0, direction: 1, speed: 0, standing: true });
+          if (!then.standing || (then.direction > 0 ? 0 : 1) !== end) disagree++;
+          if (trainAt(length, cars, phase, t + call.arrives - 0.05, { head: 0, direction: 1, speed: 0, standing: true }).standing) disagree++;
+        } else if (!trainAt(length, cars, phase, t + call.departs - 0.05, { head: 0, direction: 1, speed: 0, standing: true }).standing) disagree++;
+      }
+    }
+    check(disagree === 0, 'a platform\'s board says when the train stands there, and it does', `${places[line.a]!.name} - ${places[line.b]!.name}`);
+    // Board at A: the next standing there, a free seat in its first carriage.
+    callAt(length, cars, phase, T0, 0, call);
+    const boardAt = T0 + call.arrives + 1;
+    const car = carriagesOf(consist.kind, cars)[0]!;
+    let seat = 0;
+    while (passengerOn(ride, car, seat)) seat++;
+    check(seat < SEATS_PER_CAR, 'a carriage has a free seat', `seat ${seat} of car ${car}`);
+    const frame = emptyCarFrame();
+    const local = new Vector3();
+    const root = new Vector3();
+    const last = new Vector3();
+    const lastZ = new Vector3();
+    const state: TrainState = { head: 0, direction: 1, speed: 0, standing: true };
+    let outside = 0;
+    let jumps = 0;
+    let turned = 0;
+    let reachedB = false;
+    let leftB = false;
+    let alightAt = 0;
+    callAt(length, cars, phase, boardAt, 0, call);
+    const tripEnd = boardAt + call.departs + 2 * timetableTravel(length, cars) + 3 * DWELL;
+    for (let t = boardAt, k = 0; t < tripEnd; t += 0.1, k++) {
+      trainAt(length, cars, phase, t, state);
+      carFrame(network, ride, state, cars, car, frame);
+      inCar(frame, seatRoot(seat, local), root);
+      if (!insideCarriage(toCar(frame, root, local))) outside++;
+      if (k > 0 && root.distanceTo(last) > TRAIN_SPEED * 0.1 + 0.05) jumps++;
+      if (k > 0 && frame.z.dot(lastZ) < 0.9) turned++;
+      last.copy(root);
+      lastZ.copy(frame.z);
+      const atB = state.standing && state.direction < 0;
+      if (atB && !reachedB) {
+        reachedB = true;
+        alightAt = t;
+      }
+      if (reachedB && !state.standing) leftB = true;
+    }
+    check(reachedB && leftB, 'the ride reaches the far station and runs on back', `${(tripEnd - boardAt).toFixed(0)} s`);
+    check(outside === 0, 'a rider stays in the carriage the whole way', `${outside} steps outside`);
+    check(jumps === 0 && turned === 0, 'and moves with it smoothly, never turned round at a terminus', `${jumps} jumps, ${turned} turns`);
+    // Get off at B: beside the carriage on the platform, which stands to be stood on.
+    trainAt(length, cars, phase, alightAt, state);
+    const station = lineStation(line, 1, places, emptyStation());
+    const z = Math.min(PLATFORM_FROM + PLATFORM_LENGTH - 2, Math.max(PLATFORM_FROM + 2, length - carMiddle(state, cars, car)));
+    const spot = stationPoint(station, PLATFORM_INNER + 0.9, z, new Vector3());
+    const level = network.crown(ride).levelB;
+    const eyeB = spot.clone().multiplyScalar(level + 30);
+    const cameraB = new PerspectiveCamera(45, 1.6, 1, 50000);
+    cameraB.position.copy(eyeB);
+    cameraB.up.copy(spot);
+    cameraB.lookAt(spot.clone().multiplyScalar(level));
+    cameraB.updateMatrixWorld(true);
+    for (let k = 0; k < 30; k++) railway.update({ dt: 0.5, seconds: alightAt + k * 0.01, camera: cameraB, player: spot.clone().multiplyScalar(level), fogFar: 1400 });
+    const deck = spot.clone().multiplyScalar(level + PLATFORM_RISE);
+    const hit = railway.platformAt(deck);
+    check(hit !== null && hit.line === ride && hit.end === 1, 'getting off puts the rider on that station\'s platform', hit === null ? 'off it' : `line ${hit.line}, end ${hit.end}, ${hit.x.toFixed(1)} out`);
+    check(Math.abs(railway.bedHeightAt(deck) - (level + PLATFORM_RISE)) < 0.01, 'and the platform is underfoot there');
+    // The carriage: drawn round a rider whose eye is in it, the shell hidden, the cabin contract kept.
+    railway.setRider({ line: ride, car, seat });
+    // The seated eye over the seat's root: `SIT_EYE` of a body.
+    const seatedEye = new Vector3();
+    carFrame(network, ride, state, cars, car, frame);
+    inCar(frame, local.copy(seatRoot(seat, local)).setY(CARRIAGE.floor + 2.7), seatedEye);
+    cameraB.position.copy(seatedEye);
+    cameraB.up.copy(frame.y);
+    cameraB.lookAt(seatedEye.clone().add(frame.z));
+    cameraB.updateMatrixWorld(true);
+    railway.update({ dt: 0.016, seconds: alightAt + 0.3, camera: cameraB, player: seatedEye, fogFar: 1400 });
+    const carriage = railway.group.getObjectByName('carriage');
+    check(carriage !== undefined && railway.eyeInside && carriage.visible, 'a rider\'s carriage stands round the seated eye');
+    if (carriage !== undefined) {
+      const glass = carriage.getObjectByName('glass') as InstanceType<typeof Mesh>;
+      const cabin = carriage.getObjectByName('cabin') as InstanceType<typeof Mesh>;
+      const faults = glassFaults(glass);
+      check(faults.length === 0, 'its windows are the cabin contract\'s glass', faults.join('; '));
+      check(carriage.parent !== null && !(carriage.parent.children.find((c) => c !== carriage) as InstanceType<typeof Mesh>).visible, 'and the car\'s own shell is hidden while the eye is in it');
+      carriage.updateMatrixWorld(true);
+      const probe = probeOfMeshes([cabin, glass], carriage);
+      const eyeLocal = carriage.worldToLocal(seatedEye.clone());
+      let escaped = 0;
+      const rays = 400;
+      for (let i = 0; i < rays; i++) {
+        const y = 1 - (2 * (i + 0.5)) / rays;
+        const r = Math.sqrt(1 - y * y);
+        const a = Math.PI * (3 - Math.sqrt(5)) * i;
+        if (!Number.isFinite(probe.cast(eyeLocal.x, eyeLocal.y, eyeLocal.z, Math.cos(a) * r, y, Math.sin(a) * r))) escaped++;
+      }
+      check(escaped === 0, 'and it is closed: from the seat every way meets the lining or a pane', `${escaped} of ${rays} rays out`);
+      let improper = 0;
+      carriage.traverse((part) => {
+        if (part.matrixWorld.determinant() <= 0) improper++;
+      });
+      check(improper === 0, 'every part of it is placed by a proper rotation');
+    }
+    railway.setRider(null);
+    railway.update({ dt: 0.016, seconds: alightAt + 0.4, camera: cameraB, player: seatedEye, fogFar: 1400 });
+    check(railway.group.getObjectByName('carriage') === undefined, 'getting off takes the carriage away');
+  }
   void Matrix4;
   began = performance.now();
   for (let k = 0; k < 100; k++) railway.update({ dt: 1 / 60, seconds: T0 + 400 + k / 60, camera, player, fogFar: 1400 });

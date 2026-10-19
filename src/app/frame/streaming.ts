@@ -14,7 +14,7 @@ import type { Tick } from './tick.ts';
 const MAP_TILES_MS = 4;
 
 export function createStreaming(app: App): (tick: Tick) => void {
-  const { guard, player, rig, sky, fog, settlements, monuments, roads, vegetation, grass, countryMotion, life, airTraffic, railway, mapTiles, weather, sea } = app;
+  const { guard, player, rig, sky, fog, settlements, monuments, roads, vegetation, grass, countryMotion, life, airTraffic, railway, mapTiles, weather, sea, harbours } = app;
   /** What the player parts the grass with, rewritten each frame (`pressOf`). */
   const grassPress = { forward: new THREE.Vector3(), length: 0, width: 0 };
   const countryEye = new THREE.Vector3();
@@ -24,6 +24,7 @@ export function createStreaming(app: App): (tick: Tick) => void {
     // After the settlements: a landmark stands on its town's floor, re-seated the frame the floor is raised.
     guard('monuments', () => monuments.update(player.position, altitude, rig.camera, sky.state.time));
     guard('roads', () => roads.update(player.position, altitude, rig.camera));
+    guard('harbours', () => harbours.update(dt, player.position, altitude));
     // Last, and the first to give ground when a frame is short.
     guard('vegetation', () => vegetation.update(player.position, altitude, rig.camera));
     // After the vegetation, whose keepouts it asks; hidden under the sea.
@@ -53,7 +54,8 @@ export function createStreaming(app: App): (tick: Tick) => void {
     );
     if (railway !== null) {
       guard('railway', () =>
-        railway.update({ dt, seconds: sky.state.time.getTime() / 1000, camera: rig.camera, player: player.position, fogFar: fog.far }),
+        // A rider's train is drawn at the clock the rider was seated by.
+        railway.update({ dt, seconds: app.trainRide.clock ?? sky.state.time.getTime() / 1000, camera: rig.camera, player: player.position, fogFar: fog.far }),
       );
     }
     // The disc's tiles out of the near allowance, the rest out of the far share's turn.

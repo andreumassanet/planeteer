@@ -161,9 +161,15 @@ export function serialisePassport(data: PassportData): string {
   return JSON.stringify({ version: 1, stamps: data.stamps, towns: data.towns });
 }
 
-/** The in-game date a stamp carries: the sky's clock, as a calendar day in UTC. */
+/**
+ * The date a stamp carries: the sky's clock as a calendar day on the player's
+ * own calendar, so a landing late in their evening is dated that evening's day
+ * and not, east of Greenwich, yesterday's or, west of it, tomorrow's.
+ */
 export function stampDate(time: Date): string {
-  return time.toISOString().slice(0, 10);
+  const month = String(time.getMonth() + 1).padStart(2, '0');
+  const day = String(time.getDate()).padStart(2, '0');
+  return `${time.getFullYear()}-${month}-${day}`;
 }
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];

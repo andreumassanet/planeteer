@@ -104,6 +104,8 @@ export function raiseRibbons(
   /** And its class, which the dissolve reads its reach by. */
   const classes = new Uint8Array(vertices);
   const marks = new Int8Array(vertices * 2);
+  /** Each vertex's place in its end town's plane, and its share of the town's paint (`Ribbon.surface`). */
+  const surfaces = new Float32Array(vertices * 3);
   /** Each vertex's light and its hour, the two bytes a town's floor carries. */
   const glow = new Uint8Array(vertices * 2);
   let v = 0;
@@ -120,6 +122,7 @@ export function raiseRibbons(
     }
     colors.set(ribbon.color, v * 3);
     marks.set(ribbon.mark, v * 2);
+    surfaces.set(ribbon.surface, v * 3);
     layers.fill(road.layer, v, v + count);
     classes.fill(road.cls, v, v + count);
     v += count;
@@ -131,6 +134,7 @@ export function raiseRibbons(
   buffer.setAttribute('roadLayer', new THREE.BufferAttribute(layers, 1));
   buffer.setAttribute('roadClass', new THREE.BufferAttribute(classes, 1));
   buffer.setAttribute('roadMark', new THREE.BufferAttribute(marks, 2));
+  buffer.setAttribute('roadSurf', new THREE.BufferAttribute(surfaces, 3));
   // Normalised, so the shader reads 0..1 out of each byte, as it does a town's.
   buffer.setAttribute('atlasLit', new THREE.BufferAttribute(glow, 2, true));
   buffer.computeVertexNormals();
@@ -144,7 +148,7 @@ export function raiseRibbons(
   group.add(mesh);
   tile.mesh = mesh;
   tile.triangles = vertices / 3;
-  tile.bytes = (positions.length * 2 + layers.length) * 4 + glow.length + classes.length + marks.length;
+  tile.bytes = (positions.length * 2 + layers.length + surfaces.length) * 4 + glow.length + classes.length + marks.length;
   return mesh.position;
 }
 

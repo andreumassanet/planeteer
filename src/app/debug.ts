@@ -130,7 +130,8 @@ export function exposeDebug(app: App): void {
       /**
        * How near a much bigger town hides this one, units (`PROMINENCE_RADIUS`).
        * Live for towns, trees and herds; the road network is baked against
-       * the default, so changing it needs `pnpm roads`.
+       * the default, so changing it needs `pnpm roads`, and the fleet's sites
+       * keep to the default, which every client and the relay share.
        */
       prominence(radius?: number) {
         if (radius !== undefined) setProminenceRadius(radius);

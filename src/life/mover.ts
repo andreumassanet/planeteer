@@ -104,6 +104,14 @@ export interface Way {
   keep: number;
   /** Who goes first when two block each other. */
   rank: number;
+  /**
+   * A city's lights ahead on its streets, as drawn last frame: route units
+   * from its front to the stop line (Infinity where there is none ahead), the
+   * town, and the street it came in by (`signals.ts`).
+   */
+  hold: number;
+  holdTown: number;
+  holdAxis: 0 | 1;
 }
 
 export function wayFor(key: string, lane: number, keep: number): Way {
@@ -115,6 +123,7 @@ export function wayFor(key: string, lane: number, keep: number): Way {
     facing: new THREE.Vector3(0, 0, 1), shown: false, part: 0,
     // Until its geometry is there: about a placed car.
     sized: null, halfLength: 3.3, halfWidth: 1.2, lane, keep, rank,
+    hold: Infinity, holdTown: -1, holdAxis: 0,
   };
 }
 

@@ -15,7 +15,8 @@ import { scale } from './terrain/scale.ts';
 import { buildShoreIndex } from './terrain/shore.ts';
 import { buildValleys } from './terrain/town-sites.ts';
 
-export { MAX_RELIEF, RELIEF_DETAIL, SHORE_LIP } from './terrain/constants.ts';
+export { APRON_FOOT, MAX_RELIEF, RELIEF_DETAIL, SHORE_APRON, SHORE_LIP } from './terrain/constants.ts';
+export { SHORE_WATERLINE, apronDepth, apronReachAt } from './terrain/apron.ts';
 export { fbm } from './terrain/noise.ts';
 export { oceanDistance, shoreDistance } from './terrain/coast-field.ts';
 export type { ShoreSample } from './terrain/shore.ts';

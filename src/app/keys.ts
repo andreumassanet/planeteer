@@ -11,6 +11,7 @@ import type { HornChorus, HornKey } from '../horn.ts';
 import { cleanHonk, cleanHonkOn } from '../../server/src/limits.ts';
 import type { Honk } from '../../server/src/limits.ts';
 import type { App } from './context.ts';
+import { photoModeOf, photoModeOn } from './photo-mode.ts';
 
 /** How far another player's horn carries, units: twice a traffic horn, since it is meant to be heard. */
 const HORN_REACH = 240;
@@ -36,10 +37,14 @@ export function listenForSettingKeys(app: App): void {
     // Not kept across a reload: an empty screen after one looks broken.
     else if (action === 'hud') app.announce(app.hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
     else if (action === 'photo') app.photoWanted = true;
+    else if (action === 'photoMode') photoModeOf(app).toggle();
     else if ((action === 'wave' || action === 'dance') && !app.gestures.gesture(action)) app.announce('Only standing on the ground', 'walk');
-    else if (action === 'horn') {
+    else if (action === 'horn' && !photoModeOn()) {
       const voice = app.horns.inHand();
-      if (voice !== null) app.horns.key.press(voice, performance.now());
+      if (voice !== null) {
+        app.horns.key.press(voice, performance.now());
+        app.townsfolk.startle(app.player.position, true);
+      }
     }
   });
 }

@@ -45,11 +45,9 @@ check(
   byLength.every((entry) => placedSize(entry)[0] <= PLACED_LENGTH_CAP + 1e-6),
   'no placed vehicle is longer than the cap',
 );
-// A car roof at a person's shoulder: 1.5 m against 1.75, which is where it is
-// in life. A person is drawn at 1.7 times the world's scale and the kit
-// placed at 1.35 times it (`PLACED_SECTION`), so the Kenney
-// hatchback's roof is 2.57 against a chest at about 2.46 and a crown at 3.77:
-// just over the chest, lower than life by the ratio of the two scales.
+// A car roof between a person's chest and crown. The hatchback is placed as
+// the craft that takes it (`Vehicle.section`), the least size at which the
+// hero sits under its roof: about 3.3 against a crown at 3.77.
 const hatchback = vehicles.find((entry) => entry.id === 'hatchback');
 check(
   hatchback !== undefined && placedSize(hatchback)[2] > FIGURE.chestY && placedSize(hatchback)[2] < FIGURE.height,

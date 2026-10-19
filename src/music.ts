@@ -15,6 +15,13 @@
  * the parts are fuller; in open country the street drums are silent and weak
  * strokes thin out; at night everything slows and softens.
  *
+ * Over the style, the atmosphere (`music-score/atmosphere.ts`): night, rain,
+ * a storm or snow, from the sky's daylight and the weather where you stand,
+ * held a few seconds like the style. It bends the piece (tempo, density) and
+ * plays a quiet layer of its own on a bus of its own, a bar at a time on the
+ * piece's own beat and chord, and on alone between pieces; a change of
+ * atmosphere crossfades the old layer out and the new one in.
+ *
  * The scheduler is the lookahead one (Chris Wilson's "A Tale of Two Clocks"):
  * every frame, whatever falls in the next quarter second is handed to Web Audio
  * at its exact `currentTime`, so a slow frame cannot make it stagger. A phrase
@@ -30,8 +37,8 @@
  * compressor, so its volume is independent. This module is imported only after
  * the gesture that opens the sound, so none of it is in the first load.
  */
-import { STYLES, STYLE_IDS, composePhrase, moodOf, planPiece, styleAt } from './music-score.ts';
-import type { Mood, StyleId, Whereabouts } from './music-score.ts';
+import { ATMOSPHERE, HOME, STYLES, STYLE_IDS, atmosphereBar, barsOf, composePhrase, moodOf, planPiece, scaleAt, styleAt } from './music-score.ts';
+import type { Atmosphere, Chord, Mood, NoteEvent, StyleId, WeatherCue, Whereabouts } from './music-score.ts';
 import { seedOf } from './scenery/random.ts';
 import { createChain } from './music/chain.ts';
 import { HOLD, LOOKAHEAD, MUSIC_LEVEL, SKY_DOWN, SKY_UP } from './music/constants.ts';
@@ -63,7 +70,29 @@ export interface MusicMoment {
    * one from. Earth leaves it out and the map decides.
    */
   style?: StyleId;
+  /** The weather where you stand, as the music hears it; clear when left out. */
+  weather?: WeatherCue;
 }
+
+/** The atmosphere's layer: its bus, and the bar being played. */
+interface Layer {
+  atmosphere: Atmosphere;
+  bus: Bus;
+  seed: number;
+  bar: number;
+  /** Context time the bar started, seconds a beat, beats in it. */
+  start: number;
+  spb: number;
+  beats: number;
+  events: NoteEvent[];
+  cursor: number;
+}
+
+/** The layer's bus at full, under the piece's. */
+const LAYER_LEVEL = 0.85;
+/** Seconds the old atmosphere fades over, and the new one comes in over. */
+const LAYER_OUT = 5;
+const LAYER_IN = 4;
 
 export interface MusicStats {
   style: StyleId | null;
@@ -73,6 +102,8 @@ export interface MusicStats {
   phrase: string | null;
   bpm: number | null;
   mood: Mood;
+  /** The atmosphere whose layer is sounding, or null. */
+  layer: Atmosphere | null;
   voices: number;
   dropped: number;
   buffers: number;
@@ -106,7 +137,12 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
   let pendingSince = 0;
   let forced: StyleId | null = null;
   let aloft = false;
-  let mood: Mood = { energy: 0.45, drums: false, night: false };
+  let mood: Mood = { energy: 0.45, drums: false, night: false, atmosphere: 'clear' };
+  let atmosphere: Atmosphere = 'clear';
+  let pendingAtmosphere: Atmosphere = 'clear';
+  let pendingAtmosphereSince = 0;
+  let layer: Layer | null = null;
+  let layers = 0;
   let town = false;
   let place = 0;
   let hour = 12;
@@ -125,12 +161,79 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
   const voices = createVoices(ctx, chain, counters, tremolos);
   const { makeBus, dropBus, fire, strikeTremolos } = voices;
 
-  function fadeOut(playing: Playing, now: number, seconds: number): void {
-    const g = playing.bus.gain.gain;
+  function fadeBus(bus: Bus, now: number, seconds: number): void {
+    const g = bus.gain.gain;
     hold(g, now);
     g.setTargetAtTime(0, now, seconds / 3);
-    fading.push({ bus: playing.bus, until: now + seconds + 4 });
-    for (const t of tremolos) if (t.bus === playing.bus) t.active = false;
+    fading.push({ bus, until: now + seconds + 4 });
+    for (const t of tremolos) if (t.bus === bus) t.active = false;
+  }
+
+  function fadeOut(playing: Playing, now: number, seconds: number): void {
+    fadeBus(playing.bus, now, seconds);
+  }
+
+  /**
+   * The layer's next bar, starting at `from` or after it: on the piece's own
+   * bar line and over its chord while one plays, on the tonic at the
+   * atmosphere's own tempo between pieces.
+   */
+  function layerBar(l: Layer, from: number): void {
+    const p = current;
+    let style = STYLES[styleId ?? 'sky'];
+    let scale = scaleAt(style, hour);
+    let chord: Chord = HOME;
+    if (p !== null) {
+      style = p.piece.style;
+      scale = p.piece.scale;
+      const barSeconds = style.beats * p.spb;
+      const k = Math.max(0, Math.ceil((from - p.start) / barSeconds - 1e-6));
+      chord = barsOf(p.piece, p.phrase.kind)[k] ?? p.piece.main[0] ?? HOME;
+      l.start = p.start + k * barSeconds;
+      l.spb = p.spb;
+    } else {
+      l.start = from;
+      l.spb = 60 / ATMOSPHERE[l.atmosphere].restBpm;
+    }
+    l.beats = style.beats;
+    l.events = atmosphereBar(l.atmosphere, style, scale, chord, style.beats, l.seed, l.bar++);
+    l.cursor = 0;
+  }
+
+  function startLayer(now: number): void {
+    const bus = makeBus(0.45);
+    const g = bus.gain.gain;
+    g.setValueAtTime(0, now);
+    g.linearRampToValueAtTime(LAYER_LEVEL, now + LAYER_IN);
+    layer = { atmosphere, bus, seed: seedOf('atmosphere', place, layers++), bar: 0, start: now, spb: 1, beats: 4, events: [], cursor: 0 };
+    layerBar(layer, now + 0.1);
+  }
+
+  function stopLayer(now: number, seconds: number): void {
+    if (layer === null) return;
+    fadeBus(layer.bus, now, seconds);
+    layer = null;
+  }
+
+  /** The layer's notes due in the lookahead. */
+  function stepLayer(now: number, horizon: number): void {
+    if (layer === null && atmosphere !== 'clear') startLayer(now);
+    const l = layer;
+    if (l === null) return;
+    for (;;) {
+      if (l.cursor < l.events.length) {
+        const e = l.events[l.cursor]!;
+        const t = l.start + e.time * l.spb;
+        if (t > horizon) break;
+        l.cursor++;
+        if (t < now - 0.05) continue;
+        fire(e, Math.max(now, t), l);
+        continue;
+      }
+      const end = l.start + l.beats * l.spb;
+      if (end > horizon) break;
+      layerBar(l, Math.max(end, now));
+    }
   }
 
   function start(when: number, fadeIn: number): void {
@@ -197,7 +300,16 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
       hour = Number.isFinite(moment.hour) ? moment.hour : 12;
       const switching = pending !== styleId && (styleId === null || now - pendingSince >= HOLD);
       // The mood first, so a piece started by the switch is arranged for the moment it starts in.
-      mood = moodOf((switching ? pending : styleId) ?? 'sky', town, moment.daylight);
+      mood = moodOf((switching ? pending : styleId) ?? 'sky', town, moment.daylight, moment.weather ?? 'clear');
+      // The atmosphere holds a few seconds too, so weather on the edge of a bank does not flap.
+      if (mood.atmosphere !== pendingAtmosphere) {
+        pendingAtmosphere = mood.atmosphere;
+        pendingAtmosphereSince = now;
+      }
+      if (pendingAtmosphere !== atmosphere && now - pendingAtmosphereSince >= HOLD) {
+        atmosphere = pendingAtmosphere;
+        if (layer !== null && layer.atmosphere !== atmosphere) stopLayer(now, LAYER_OUT);
+      }
       if (switching) switchTo(pending, now);
       // The first piece a little after the world starts, not on the click that started it.
       if (restUntil < 0) restUntil = now + between(8, 16);
@@ -219,10 +331,12 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
           fadeOut(current, now, 1.5);
           current = null;
         }
+        stopLayer(now, 1.5);
         return;
       }
       if (current === null) {
         if (styleId !== null && restUntil >= 0 && now >= restUntil) start(now + 0.1, 1.5);
+        if (restUntil >= 0) stepLayer(now, horizon);
         return;
       }
       const playing: Playing = current;
@@ -250,6 +364,7 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
         playing.start = end;
         playing.cursor = 0;
       }
+      stepLayer(now, horizon);
     },
 
     play(id) {
@@ -298,6 +413,7 @@ export function createMusic(context: AudioContext, output: AudioNode, settings: 
         phrase: p === null ? null : `${p.index + 1}/${p.piece.form.length} ${p.phrase.kind}`,
         bpm: p === null ? null : p.piece.bpm,
         mood: { ...mood },
+        layer: layer === null ? null : layer.atmosphere,
         voices: counters.voices,
         dropped: counters.dropped,
         buffers: voices.buffers.size,

@@ -80,7 +80,7 @@ const snow: AmbientWeather = { ...clear, precipitation: 0.5, snow: 1, temperatur
 interface Run {
   ambient: Ambient;
   splashes: number;
-  worst: { fireflies: number; butterflies: number; leaves: number; lying: number; litter: number; fish: number; gulls: number; motes: number; calls: number };
+  worst: { fireflies: number; butterflies: number; leaves: number; lying: number; litter: number; fish: number; gulls: number; motes: number; shells: number; castles: number; crabs: number; calls: number };
   meanMs: number;
   /** The dearest frame of the second half. */
   worstMs: number;
@@ -151,7 +151,7 @@ function run(
   const frame: AmbientFrame = { player, cameraHeight: 6, time: when, daylight: options.daylight, afloat: options.afloat ?? false };
   const frames = options.frames ?? 80;
   const dt = options.dt ?? 0.05;
-  const worst = { fireflies: 0, butterflies: 0, leaves: 0, lying: 0, litter: 0, fish: 0, gulls: 0, motes: 0, calls: 0 };
+  const worst = { fireflies: 0, butterflies: 0, leaves: 0, lying: 0, litter: 0, fish: 0, gulls: 0, motes: 0, shells: 0, castles: 0, crabs: 0, calls: 0 };
   let spent = 0;
   let dearest = 0;
   for (let i = 0; i < frames; i++) {
@@ -178,6 +178,11 @@ const SAHARA: [number, number] = [24, 12];
 const ANTARCTICA: [number, number] = [-72, 40];
 const SINGAPORE: [number, number] = [1.35, 103.8];
 const PALMA_BAY: [number, number] = [39.53, 2.62];
+/** Warm coasts, a little inland of the water: the Gulf, the Caribbean, Brazil, Australia, the Mediterranean, India, Africa. */
+const BEACHES: [number, number][] = [
+  [21.16, -86.85], [18.47, -69.9], [-22.97, -43.19], [-28.0, 153.42], [39.45, -0.33], [13.05, 80.28],
+  [-8.72, 115.17], [25.77, -80.13], [32.07, 34.77], [-33.9, 18.42], [7.9, 98.3], [36.72, -4.42],
+];
 
 console.log('\nwho lives where');
 {
@@ -263,6 +268,20 @@ console.log('\nwhere the leaves are');
 
   const bay = run(...PALMA_BAY, julyNoon, clear, { daylight: 1, frames: 400, dt: 0.1, afloat: true });
   check(bay.worst.gulls > 0, 'gulls over the bay of Palma', `${bay.worst.gulls}`);
+
+  // The beaches: walked along a dozen warm sandy coasts, shells on most, now
+  // and then a sandcastle, and crabs on the warm ones; none on a storm's beach.
+  const beach = { shells: 0, castles: 0, crabs: 0, places: 0 };
+  for (const [lat, lon] of BEACHES) {
+    const there = run(lat, lon, julyNoon, clear, { daylight: 1, frames: 40, dt: 0.1, trees: false });
+    beach.shells += there.worst.shells;
+    beach.castles += there.worst.castles;
+    beach.crabs += there.worst.crabs;
+    if (there.worst.shells + there.worst.castles + there.worst.crabs > 0) beach.places++;
+  }
+  check(beach.places >= BEACHES.length / 3 && beach.shells > 0 && beach.crabs > 0, 'shells and crabs on warm sandy beaches', JSON.stringify(beach));
+  const inland = run(...SAHARA, julyNoon, clear, { daylight: 1, frames: 40, dt: 0.1, trees: false });
+  check(inland.worst.shells + inland.worst.castles + inland.worst.crabs === 0, 'and none in the middle of the Sahara');
   check(bay.worst.fish > 0 && bay.splashes > 0, 'a fish jumps off a boat, with a splash', `${bay.worst.fish} fish, ${bay.splashes} splashes`);
   const storm = run(...PALMA_BAY, julyNoon, { ...clear, storm: 1, precipitation: 1, wind: { speed: 20, from: 0 } }, { daylight: 1, frames: 200, dt: 0.1, afloat: true });
   check(storm.worst.gulls === 0 && storm.worst.fish === 0, 'and neither in a storm', JSON.stringify(storm.worst));

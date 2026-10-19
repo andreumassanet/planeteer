@@ -1,4 +1,4 @@
-import { DOOR_JAMB, PROUD, TONES, doorPaint } from '../contract.ts';
+import { DOOR_HEIGHT, DOOR_JAMB, PROUD, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -47,6 +47,8 @@ export const pagoda: ScenicPart = {
 
     const tiers = rng.between(3, 5);
     const first = rng.range(2.5, 2.9);
+    // The hall a person walks into is a door's height and more; the tiers over it keep their own.
+    const hall = first + DOOR_HEIGHT - 1.5;
     const groundWidth = rng.range(6.4, 7.4);
     let width = groundWidth;
     let y = 0.7;
@@ -61,7 +63,7 @@ export const pagoda: ScenicPart = {
       // exactly as the conifer's needles do, and for the same reason.
       const up = tiers > 1 ? tier / (tiers - 1) : 1;
       const roofTone = tone(tile, Math.round(lerp(0.82, 1.12, up) * 100) / 100);
-      const height = first * Math.pow(TIER_TAPER, tier);
+      const height = tier === 0 ? hall : first * Math.pow(TIER_TAPER, tier);
       const body = box(width, height, width, tier === 0 ? wall : timber);
       body.position.y = y;
       group.add(body);
@@ -117,7 +119,7 @@ export const pagoda: ScenicPart = {
     const doorWidth = groundWidth * 0.2;
     const door = ctx.door({
       width: doorWidth,
-      height: first * 0.62,
+      height: DOOR_HEIGHT,
       leaf: doorPaint(rng, style, wall),
       frame: post,
     });
@@ -126,15 +128,15 @@ export const pagoda: ScenicPart = {
     const inner = doorWidth / 2 + DOOR_JAMB + 0.3;
     const outer = face - 0.46 - 0.25;
     const screenWidth = outer - inner;
-    const screenHeight = first * 0.62;
+    const screenHeight = DOOR_HEIGHT * 0.8;
     const screens = lit(panes(2, screenWidth, screenHeight, inner * 2, ctx.glass, PROUD), 0.85);
-    screens.position.set(0, 0.7 + first * 0.22, face + PROUD);
+    screens.position.set(0, 0.7 + hall * 0.18, face + PROUD);
     group.add(screens);
     const bars = 3;
     const barGap = (screenWidth - bars * 0.12) / (bars - 1);
     const grilles = [-1, 1].map((side) => {
       const grille = panes(bars, 0.12, screenHeight, barGap, rail);
-      grille.position.set((side * (inner + outer)) / 2, 0.7 + first * 0.22, face + PROUD * 2.6);
+      grille.position.set((side * (inner + outer)) / 2, 0.7 + hall * 0.18, face + PROUD * 2.6);
       return grille;
     });
     group.add(ctx.merged(grilles));

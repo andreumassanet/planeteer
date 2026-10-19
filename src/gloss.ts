@@ -29,7 +29,7 @@ const GLOSS_SKY = 0.7;
  */
 export const VARNISH_GLSL = /* glsl */ `
   {
-    vec3 glossV = normalize(-vViewPosition);
+    vec3 glossV = normalize(vViewPosition);
     float glossNV = clamp(dot(normal, glossV), 0.0, 1.0);
     float glossFresnel = 0.04 + 0.96 * pow(1.0 - glossNV, 5.0);
     float glossLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));

@@ -1,4 +1,4 @@
-import { STOREY, rolePaint, sceneryModel } from '../contract.ts';
+import { SCENERY_SCALE, rolePaint, sceneryModel } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 import type { Paint } from '../../models.ts';
 import { PALETTE } from '../../theme.ts';
@@ -13,9 +13,8 @@ import { PALETTE } from '../../theme.ts';
  * cheapest thing in the kit after a grass tuft: 52 triangles at the worst
  * variant, three meshes, two colours.
  *
- * - Height 4.8 to 5.8 units (1.25 to 1.47 storeys), under the `scatter` cap of
- *   6 and the kit's 7.6-unit two-storey eaves: a lamp that clears a doorway
- *   and stands below a roof. See `LOW`.
+ * - Height 4.8 to 5.8 units (3.8 to 4.4 m), under the `scatter` cap of 6:
+ *   a lamp that stands below a house's eaves. See `LOW`.
  * - A head 0.52 to 0.72 across: 15 pixels at 40 units and 5 at 120, a bright
  *   dot at conversational distance and gone by the far end of a street. Past
  *   120 units the mass of the windows carries a town at night, and past 4,000
@@ -29,15 +28,15 @@ import { PALETTE } from '../../theme.ts';
  */
 
 /**
- * How tall a column is, in storeys, both ends included. A range because a
- * lamp is three shapes stacked, so with a fixed height the seed could only
- * change which cap went on top and the silhouette check would find two distinct
- * silhouettes across six variants. 1.25 to 1.47 storeys is 3.8 to 4.4 m, and
- * the top of the range plus the tallest cap is 5.83 against the `scatter`
- * kind's 6-unit ceiling.
+ * How tall a column is, both ends included. A range because a lamp is three
+ * shapes stacked, so with a fixed height the seed could only change which cap
+ * went on top and the silhouette check would find two distinct silhouettes
+ * across six variants. 3.8 to 4.4 m, and the top of the range plus the
+ * tallest cap is 5.83 against the `scatter` kind's 6-unit ceiling.
  */
-const LOW = STOREY * 1.25;
-const HIGH = STOREY * 1.47;
+const METRE = SCENERY_SCALE;
+const LOW = 3.75 * METRE;
+const HIGH = 4.41 * METRE;
 
 /**
  * A town built from the City Kits gets the kit's own lamps: Kenney's curved and

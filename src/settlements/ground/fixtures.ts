@@ -13,9 +13,10 @@ import {
   LAMP_FLOOR,
   LAMP_MAX_CHANCE,
   LAMP_STRENGTH,
-  TOWER_URBANITY,
   WINDOW_SPILL,
 } from '../rules.ts';
+import { townHasSignals } from '../../signals.ts';
+import { pavementAt } from './paving.ts';
 import type { LitPlot } from '../types.ts';
 import type { GroundJob } from './job.ts';
 
@@ -99,7 +100,9 @@ export function placeLamps(job: GroundJob, urbanity: number): void {
       const oz = kerbOff(j, rng.chance(0.5) ? 1 : -1);
       if (ox === null || oz === null) continue;
       if (!rng.chance(chance)) continue;
-      if (job.spotAt(cornerOffset(grid, i) + ox, cornerOffset(grid, j) + oz, out.lamps, undefined, CLEAR_LAMP)) {
+      const lx = cornerOffset(grid, i) + ox;
+      const lz = cornerOffset(grid, j) + oz;
+      if (pavementAt(job, lx, lz) && job.spotAt(lx, lz, out.lamps, undefined, CLEAR_LAMP)) {
         lamps++;
         // The arm over the street along x, towards its line: local -z to world (-sign ox, 0).
         out.lampYaws.push(Math.atan2(Math.sign(ox), 0));
@@ -140,6 +143,8 @@ function benchBeside(
     const sx = x + fx * BENCH_SIT_AHEAD;
     const sz = z + fz * BENCH_SIT_AHEAD;
     if (!job.standable(sx, sz, level)) continue;
+    // The bench and the feet in front of it on the pavement, never out on the carriageway.
+    if (!pavementAt(job, x, z) || !pavementAt(job, x + fx * BENCH_DEPTH, z + fz * BENCH_DEPTH)) continue;
     benches.spot.length = 0;
     if (!job.spotAt(x, z, benches.spot, Math.atan2(fx, fz), CLEAR_LAMP)) continue;
     out.benches.push(...benches.spot);
@@ -152,9 +157,9 @@ function benchBeside(
  * A kit-built city's traffic lights, one on each pavement corner of its middle
  * crossing in a pinwheel, each facing the traffic coming in by its mouth.
  */
-export function placeSignals(job: GroundJob, urbanity: number): void {
+export function placeSignals(job: GroundJob): void {
   const { grid, pitch, slot, out } = job;
-  if (job.plazaKey < 0 || slot.style.assets === undefined || urbanity < TOWER_URBANITY) return;
+  if (job.plazaKey < 0 || !townHasSignals(grid, slot.style, slot.place.pop)) return;
   const middle = cellCentre(grid, grid.shift);
   const inset = pitch * 0.5 - pavementOf(pitch * 0.5) * 0.5;
   const corners: [number, number, number, number][] = [

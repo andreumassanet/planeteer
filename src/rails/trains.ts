@@ -75,11 +75,20 @@ export interface TrainState {
   standing: boolean;
 }
 
-/**
- * The train of a line `length` units long, `cars` long, at `seconds` of the
- * sky's clock; `phase` spreads the lines' timetables apart.
- */
-export function trainAt(length: number, cars: number, phase: number, seconds: number, out: TrainState): TrainState {
+/** A line's timetable: the run between the platforms, its top speed, its time, and the whole round trip. */
+export interface Timetable {
+  run: number;
+  peak: number;
+  ramp: number;
+  cruise: number;
+  /** Seconds from leaving one platform to standing at the other. */
+  travel: number;
+  /** Seconds for the round trip: two dwells and two runs. */
+  period: number;
+}
+
+/** The timetable of a line `length` units long for a train `cars` long. */
+export function timetableOf(length: number, cars: number): Timetable {
   const trainLength = cars * CAR_PITCH;
   const run = Math.max(0, length - 2 * STOP_SHORT - trainLength);
   // Braking as hard as it accelerates: a short line never reaches full speed.
@@ -88,7 +97,18 @@ export function trainAt(length: number, cars: number, phase: number, seconds: nu
   const ramp = peak / TRAIN_ACCELERATION;
   const cruise = run >= reach ? (run - reach) / TRAIN_SPEED : 0;
   const travel = 2 * ramp + cruise;
-  const period = 2 * (DWELL + travel);
+  return { run, peak, ramp, cruise, travel, period: 2 * (DWELL + travel) };
+}
+
+/**
+ * The train of a line `length` units long, `cars` long, at `seconds` of the
+ * sky's clock; `phase` spreads the lines' timetables apart. Each round trip
+ * stands `DWELL` at terminus A (end 0), runs to B, stands `DWELL` there and
+ * runs back.
+ */
+export function trainAt(length: number, cars: number, phase: number, seconds: number, out: TrainState): TrainState {
+  const trainLength = cars * CAR_PITCH;
+  const { run, peak, ramp, cruise, travel, period } = timetableOf(length, cars);
   let t = (seconds + phase * period) % period;
   if (t < 0) t += period;
   const leg = t < DWELL + travel ? 0 : 1;
@@ -123,3 +143,27 @@ export function trainAt(length: number, cars: number, phase: number, seconds: nu
 
 /** A line's timetable phase, 0 to 1: pure in the line. */
 export const phaseOf = (line: RailLine): number => lineHash(line.a, line.b, 2);
+
+/** When a line's train next stands at a terminus: whether it stands there now, and the seconds until it does and until it leaves. */
+export interface Call {
+  standing: boolean;
+  /** Seconds until it stands there: 0 while it does. */
+  arrives: number;
+  /** Seconds until it leaves: from the next arrival when it is not standing there. */
+  departs: number;
+}
+
+/** The train's call at `end` (0 is terminus A) of a line, at `seconds` of the sky's clock: the same clock `trainAt` runs on. */
+export function callAt(length: number, cars: number, phase: number, seconds: number, end: 0 | 1, out: Call): Call {
+  const { period } = timetableOf(length, cars);
+  let t = (seconds + phase * period) % period;
+  if (t < 0) t += period;
+  // A stands over [0, DWELL), B over [period / 2, period / 2 + DWELL).
+  const from = end === 0 ? 0 : period / 2;
+  let since = t - from;
+  if (since < 0) since += period;
+  out.standing = since < DWELL;
+  out.arrives = out.standing ? 0 : period - since;
+  out.departs = out.standing ? DWELL - since : out.arrives + DWELL;
+  return out;
+}

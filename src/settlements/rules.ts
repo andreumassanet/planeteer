@@ -7,14 +7,9 @@ import type { Keepout, Slot } from './types.ts';
 
 /** The numbers and small rules a town is laid out by. */
 
-/**
- * How much of a settlement is town rather than village, 0 to 1: 0 at ten
- * thousand people, 1 at ten million, logarithmic between. Drives the built
- * core, the plot fill, the house/block mix, the crowd and the parked cars.
- */
-export function urbanityOf(pop: number): number {
-  return Math.min(1, Math.max(0, (Math.log10(Math.max(1, pop)) - 4) / 2.6));
-}
+import { TOWER_URBANITY, urbanityOf } from './urbanity.ts';
+
+export { TOWER_URBANITY, urbanityOf };
 
 /**
  * How far a building's walls stand back from the square's edge on a side with
@@ -23,8 +18,7 @@ export function urbanityOf(pop: number): number {
  */
 export const EDGE_SETBACK = 0.6;
 
-/** The smallest a building may be scaled to fit its cell; past it, the region's next part is tried. */
-export const FIT_SCALE = 0.9;
+export { FIT_SCALE } from '../scenery/contract/scale.ts';
 
 /** How far the drawn land between two lattice corners can stand over the line joining them, for the edge slope's foot. */
 export const DRAWN_BULGE = 1;
@@ -71,11 +65,6 @@ export const SLOPE_CLEAR = 0.55;
 /** How far off a road's centre line the country keeps: the carriageway's half and a crown. */
 export const ROAD_KEEP = 7.5;
 
-/**
- * How urban a town must be before its region's towers are towers (about
- * 200,000 people); below it `TOWER_PART` is built as `TOWERLESS_PART`.
- */
-export const TOWER_URBANITY = 0.5;
 export const TOWER_PART = 'skyscraper';
 export const TOWERLESS_PART = 'city-block';
 

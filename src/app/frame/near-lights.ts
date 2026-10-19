@@ -49,7 +49,7 @@ function lampFrame(source: LampSource, matrix: THREE.Matrix4): void {
 }
 
 export function createNearLights(app: App): (now: number) => void {
-  const { guard, rig, sky, player, life, fleet, countryMotion, settlements, roads, monuments, craftModels } = app;
+  const { guard, rig, sky, player, life, fleet, countryMotion, settlements, roads, monuments, harbours, craftModels } = app;
   const nearLamps = new Float32Array(NEAR_LAMPS * 4);
   const headlights = new Float32Array(NEAR_HEADLIGHTS * HEADLIGHT_STRIDE);
   const fires = new Float32Array(MAX_FIRE_GLOWS * FIRE_STRIDE);
@@ -165,8 +165,9 @@ export function createNearLights(app: App): (now: number) => void {
       else {
         const townLamps = settlements.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps);
         const roadLamps = roads.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, townLamps);
-        // And the lamps round a landmark, which light its paving.
-        setNearLamps(rig.camera, nearLamps, monuments.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, roadLamps));
+        // And the lamps round a landmark, which light its paving, and a harbour's along its quays.
+        const landmarkLamps = monuments.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, roadLamps);
+        setNearLamps(rig.camera, nearLamps, harbours.lampsNear(rig.camera.position, LAMP_FIELD, nearLamps, landmarkLamps));
       }
     });
   };

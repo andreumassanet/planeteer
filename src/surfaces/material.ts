@@ -138,3 +138,32 @@ export function drawSurfaces(material: THREE.Material, options: { panes?: boolea
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n  normal = surfBend(-vViewPosition, normal, surfBump, faceDirection);');
   };
 }
+
+/** The town's brush: its two strokes' sizes in world units and how far each moves the lightness. */
+const TOWN_BRUSH_BROAD = 7;
+const TOWN_BRUSH_FINE = 1.8;
+const TOWN_BRUSH_LIGHT = 0.07;
+/** How much more saturated a town's made ground is drawn than its colour. */
+const TOWN_SATURATION = 1.12;
+
+/**
+ * How a town's made ground is painted over its vertex colour: the land's lush
+ * tone, a little more saturation, and a two-scale brush on the lightness at
+ * `pos` (world units), faded where a pixel covers a stroke. The towns and the
+ * roads' approaches draw with it, so a street and the road it runs on into
+ * meet in one paint. Needs `LUSH_GLSL` and `GROUND_MARKS_GLSL`.
+ */
+export function townPaintChunk(pos: string): string {
+  return /* glsl */ `{
+    diffuseColor.rgb = atlasLush(diffuseColor.rgb);
+    float townLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    diffuseColor.rgb = max(vec3(0.0), vec3(townLuma) + (diffuseColor.rgb - vec3(townLuma)) * ${TOWN_SATURATION.toFixed(2)});
+    float townFoot = max(length(dFdx(${pos})), length(dFdy(${pos})));
+    float townShare = 1.0 - smoothstep(${(TOWN_BRUSH_FINE * 0.3).toFixed(2)}, ${(TOWN_BRUSH_BROAD * 0.5).toFixed(2)}, townFoot);
+    if (townShare > 0.0) {
+      float townStroke = atlasNoise(${pos} * ${(1 / TOWN_BRUSH_BROAD).toFixed(5)}) * 0.65
+        + atlasNoise(${pos} * ${(1 / TOWN_BRUSH_FINE).toFixed(5)} + 3.1) * 0.35;
+      diffuseColor.rgb *= 1.0 + (townStroke - 0.5) * ${(TOWN_BRUSH_LIGHT * 2).toFixed(3)} * townShare;
+    }
+  }`;
+}

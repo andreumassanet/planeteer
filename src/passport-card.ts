@@ -9,7 +9,7 @@
  * The card is a modal over the world that holds the keyboard
  * (`registerModal`) while it is up and owns no data: the book is
  * `passport.ts`'s and the portrait is the traveller's look (`appearance.ts`).
- * `J`, the HUD button and `Esc` open and close it. The book is designed at one
+ * The passport key (`N`), the HUD button and `Esc` open and close it. The book is designed at one
  * size (`SHEET_W` by `SHEET_H`) and scaled to the window; with reduced motion
  * a leaf turns at once.
  *

@@ -65,6 +65,8 @@ export async function plantCountry(app: App): Promise<Nature> {
 
   // Small life round the camera; the Effects switch carries it.
   const { createAmbient } = await deferred.ambient;
+  const { harbourTowns } = await import('../harbours/towns.ts');
+  const harbourSky = harbourTowns(places.all);
   const ambient = createAmbient({
     groundAt: (point) => groundAt(point),
     madeHeightAt: (point) => app.walls.madeHeightAt(point),
@@ -74,6 +76,7 @@ export async function plantCountry(app: App): Promise<Nature> {
       settlements.crownsNear(point, range, visit);
     },
     splash: (point, reach) => effects.splashAt(point, reach),
+    harbourNear: (direction) => harbourSky.near(direction),
   });
   ambient.enabled = effects.enabled;
   scene.add(ambient.group);

@@ -5,6 +5,7 @@ import { DAY_MOOD } from '../theme.ts';
 import { castSunShadow } from './shadow.ts';
 import { DISC_RADIUS, MARIA } from './discs.ts';
 import { skyFragment, skyVertex } from './sky-shaders.ts';
+import { nightLightUniforms } from './night-lights.ts';
 
 export const WHITE = new THREE.Color(0xffffff);
 
@@ -22,6 +23,7 @@ export function createDome(scene: THREE.Scene) {
     galactic: { value: new THREE.Matrix3() },
     space: { value: 0 },
     dip: { value: 0 },
+    ...nightLightUniforms(),
   };
   const skyMaterial = new THREE.ShaderMaterial({
     side: THREE.BackSide,

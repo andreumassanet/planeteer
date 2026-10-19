@@ -17,6 +17,8 @@ export interface AmbientOptions {
    * together.
    */
   crownsNear?(point: THREE.Vector3, range: number, visit: (list: Float32Array, offset: number) => void): void;
+  /** Whether a unit direction is over a harbour town or its water, where the gulls gather (`harbours/towns.ts`). */
+  harbourNear?(direction: THREE.Vector3): boolean;
   /** A splash on the water at a point, `reach` units across (`effects.splashAt`). */
   splash?(point: THREE.Vector3, reach: number): void;
   /**
@@ -69,6 +71,10 @@ export interface AmbientStats {
   groundAsks: number;
   fish: number;
   gulls: number;
+  /** On the beaches in range: shells, sandcastles and crabs drawn. */
+  shells: number;
+  castles: number;
+  crabs: number;
   /** 0 to 3. */
   calls: number;
   /** Why the insects are in, if they are: `rain`, `cold`, `wind`, `snow`, or `''`. */
@@ -119,6 +125,8 @@ export interface Cell {
   /** The anchors: ground points as unit direction and radius, `[x, y, z, r]` each. */
   anchors: Float32Array;
   anchorCount: number;
+  /** What lies on a beach cell: `BEACH_STRIDE` floats a thing (`ambient/beach.ts`), or null. */
+  beach: Float32Array | null;
   /** The clock when it was worked out, for the fade in. */
   born: number;
   /** The last jump slot splashed going in and coming out. */

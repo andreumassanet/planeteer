@@ -6,7 +6,7 @@ import type { MonumentContext } from '../../monuments/contract.ts';
 import { paintModel } from '../../models.ts';
 import type { Model, Paint } from '../../models.ts';
 import type { ModelFit, SceneryContext } from './context-type.ts';
-import { NARROWEST, radiusOf, sceneryModel, shadeUp, windowsOf } from './models.ts';
+import { NARROWEST, doorOf, radiusOf, sceneryModel, shadeUp, stretchBand, windowsOf } from './models.ts';
 
 type Painting = Pick<SceneryContext, 'painted' | 'coloured' | 'fitted'> & { dispose(): void };
 
@@ -36,10 +36,13 @@ export function createPainting(base: MonumentContext): Painting {
   function fitted(id: string, fit: ModelFit, paint?: Paint): THREE.Group {
     const model = sceneryModel(id);
     const size = model.box.getSize(new THREE.Vector3());
+    // With a door and no height, the height is what stands the model's own door that tall.
+    const modelDoor = fit.door !== undefined ? (fit.modelDoor ?? doorOf(model, fit.windows ?? (() => false))) : 0;
+    const height = fit.height ?? (fit.door !== undefined ? (size.y * fit.door) / modelDoor : undefined);
     let squash = fit.squash ?? 1;
-    if (fit.narrow === true && fit.height !== undefined) {
+    if (fit.narrow === true && height !== undefined) {
       // The height is the model's and the plan gives way to the footprint.
-      const tall = fit.height / size.y;
+      const tall = height / size.y;
       const room = Math.min(
         fit.radius !== undefined ? fit.radius / (radiusOf(model) * tall) : Infinity,
         fit.width !== undefined ? fit.width / (size.x * tall) : Infinity,
@@ -48,13 +51,20 @@ export function createPainting(base: MonumentContext): Painting {
       squash = Math.min(squash, Math.max(NARROWEST, room));
     }
     const k = Math.min(
-      fit.height !== undefined ? fit.height / size.y : Infinity,
+      height !== undefined ? height / size.y : Infinity,
       fit.width !== undefined ? fit.width / (size.x * squash) : Infinity,
       fit.length !== undefined ? fit.length / (size.z * squash) : Infinity,
       fit.radius !== undefined ? fit.radius / (radiusOf(model) * squash) : Infinity,
     );
     if (!Number.isFinite(k)) throw new Error(`model '${id}': a fit needs a height, a width, a length or a radius`);
     const mesh = painted(model, paint);
+    if (fit.door !== undefined) {
+      // Where the plan held the model shorter than its door, the band under
+      // `lift` is drawn taller to make it up, and the roof keeps its pitch.
+      const stretch = Math.max(1, fit.door / (modelDoor * k));
+      if (stretch > 1) stretchBand(mesh.geometry, model.box.min.y, fit.lift ?? size.y, stretch);
+      mesh.userData.atlasDoorHeight = modelDoor * stretch;
+    }
     if (fit.shade !== undefined) shadeUp(model, mesh.geometry, fit.shade);
     if (fit.windows !== undefined) {
       const mask = windowsOf(model, fit.windows);

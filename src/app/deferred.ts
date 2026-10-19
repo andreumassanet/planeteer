@@ -77,11 +77,35 @@ export type Deferred = ReturnType<typeof loadDeferred>;
  */
 export function loadVehicleKit(deferred: Deferred): Promise<Model[]> {
   return deferred.kit
-    .then(async ({ loadModels }) =>
-      (await Promise.all([loadModels('traffic/kit.bin'), loadModels('nature/kit.bin'), loadModels('buildings/kit.bin')])).flat(),
-    )
+    .then(async ({ loadModels }) => {
+      // Each file on its own: a cancelled download is tried again, and one
+      // that still fails costs its own models, not the other files'.
+      const files = await Promise.all(KIT_FILES.map((file) => withRetries(() => loadModels(file))));
+      return files.flatMap((models, i) => {
+        if (models instanceof Error) console.warn(`the model kit ${KIT_FILES[i]} did not load`, models);
+        return models instanceof Error ? [] : models;
+      });
+    })
     .catch((error: unknown) => {
       console.warn('the model kit did not load', error);
       return [];
     });
+}
+
+const KIT_FILES = ['traffic/kit.bin', 'nature/kit.bin', 'buildings/kit.bin'] as const;
+const KIT_ATTEMPTS = 4;
+const KIT_RETRY_MS = 400;
+
+/** The load, tried again after a growing pause while it throws; its last error if it never succeeds. */
+async function withRetries<T>(load: () => Promise<T>): Promise<T | Error> {
+  let last: unknown = null;
+  for (let attempt = 0; attempt < KIT_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, KIT_RETRY_MS * attempt));
+    try {
+      return await load();
+    } catch (error) {
+      last = error;
+    }
+  }
+  return last instanceof Error ? last : new Error(String(last));
 }

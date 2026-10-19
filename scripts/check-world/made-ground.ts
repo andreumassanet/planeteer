@@ -10,6 +10,7 @@ import {
 import { poolAt, poolByte } from '../../src/lights.ts';
 import {
   cornerOffset,
+  gateFlare,
   gateGlow,
   gateMouth,
   gateLevel,
@@ -360,22 +361,23 @@ function checkStreetLevels(): { sizes: Map<number, TownGrid> } {
   let mouthsWrong = 0;
   for (const grid of sizes.values()) {
     /**
-     * The gate's mouth: the road's carriageway to the kerb, which is every
-     * class's, and a pavement out to where the street's own reaches, or
-     * past it on a band street, never inside it.
+     * The gate's mouth: the street's own section to the kerb, which the road
+     * arrives as (`carriageHalf` in `roads/section.ts`): its carriageway and
+     * pavement make up the street's half-width, and nothing flares. A square
+     * with no street keeps every class's carriageway.
      */
     for (const gate of gatesOf(grid)) {
       for (const street of [6, 9.75, 15]) {
         const band = streetBand(grid, street);
         const mouth = gateMouth(grid, gate, band);
         mouthsSeen++;
-        const carriageOk = ROAD_CLASSES.every((entry) => Math.abs(entry.width * 0.5 - mouth.carriage) < 1e-9);
-        const edgeOk = grid.cells < 2
-          ? mouth.edge === mouth.carriage && mouth.flare === 0
-          : gate.cells.length < 2
-            ? mouth.edge <= mouth.street + 1e-9 && mouth.edge > mouth.carriage
-            : mouth.edge >= Math.max(mouth.street, mouth.carriage + pavementOf(band)) - 1e-9;
-        if (!carriageOk || !edgeOk || mouth.flare > grid.pitch * 0.5 + 1e-9) mouthsWrong++;
+        const ok = grid.cells < 2
+          ? ROAD_CLASSES.every((entry) => Math.abs(entry.width * 0.5 - mouth.carriage) < 1e-9) && mouth.edge === mouth.carriage
+          : Math.abs(mouth.street - (gate.cells.length < 2 ? grid.pitch * 0.5 : band)) < 1e-9 &&
+            Math.abs(mouth.walk - pavementOf(mouth.street)) < 1e-9 &&
+            Math.abs(mouth.carriage + mouth.walk - mouth.street) < 1e-9 &&
+            mouth.edge === mouth.street;
+        if (!ok || mouth.flare !== 0) mouthsWrong++;
       }
     }
     for (let c = 0; c < grid.cells; c++) {
@@ -498,14 +500,14 @@ function checkStreetLevels(): { sizes: Map<number, TownGrid> } {
           }
           last = h;
         }
-        // And nothing climbs in a gate's mouth, where the town's street
-        // flares to the road's section on level paving.
+        // And nothing climbs in a gate's mouth, `gateFlare` in from the kerb,
+        // where the road arrives on the street's level paving.
         const [fx0, fx1, fz0, fz1] = flightRect(flight);
         for (const gate of gatesOf(grid)) {
           const mouth = gateMouth(grid, gate, streetBand(grid, 9.75));
-          if (mouth.flare <= 0) continue;
-          const outer = Math.max(mouth.edge, mouth.street);
-          const k0 = gate.outX !== 0 ? gate.x - gate.outX * mouth.flare : gate.z - gate.outZ * mouth.flare;
+          const flare = gateFlare(grid.pitch);
+          const outer = mouth.edge;
+          const k0 = gate.outX !== 0 ? gate.x - gate.outX * flare : gate.z - gate.outZ * flare;
           const k1 = gate.outX !== 0 ? gate.x : gate.z;
           const [mx0, mx1, mz0, mz1] = gate.outX !== 0
             ? [Math.min(k0, k1), Math.max(k0, k1), gate.z - outer, gate.z + outer]
@@ -559,7 +561,7 @@ function checkStreetLevels(): { sizes: Map<number, TownGrid> } {
   );
   check(
     inMouth === 0 && mouthsWrong === 0 && mouthsSeen > 0,
-    'and at a gate the road keeps its carriageway to the kerb, and the town’s street flares to it on level paving',
+    'and at a gate the road arrives as the town’s street, carriageway and pavement, on level paving',
     `${mouthsSeen} mouths over three street widths, ${mouthsWrong} wrong, ${inMouth} ramps or flights reaching into one`,
   );
   check(

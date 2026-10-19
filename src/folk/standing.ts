@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { AVATAR_HEIGHT, FIGURE } from '../avatar.ts';
 import type { ClipName, Person } from '../cast.ts';
 import { rngFrom } from '../scenery/random.ts';
+import { createUmbrellas, type Umbrellas } from '../umbrella.ts';
+import type { RigSource } from '../models.ts';
+import { createDogs } from './dogs.ts';
+import type { Dog, Dogs } from './dogs.ts';
 import type { Folk } from './dressing.ts';
 
 /** Where somebody stands, as the settlements publish it. */
@@ -21,6 +25,18 @@ export interface FolkAnchor {
   to: THREE.Vector3;
   /** One of a pair standing talking, `quaternion` turned to face the other. */
   chatting: boolean;
+  /**
+   * Sitting, on a bench or a café chair: `position` is the sitter's root on
+   * the paving and `quaternion` faces the way the seat does (`bench.ts`). A
+   * chatting sitter talks with whoever sits across the table.
+   */
+  seated?: boolean;
+  /**
+   * Walking a city's middle crossing: its corners in world space, walked one
+   * zebra at a time and back, each leg crossing the street whose traffic runs
+   * along `axes[k]`, at the walk light of the town `signalTown` (`signals.ts`).
+   */
+  crossing?: { corners: THREE.Vector3[]; axes: (0 | 1)[]; signalTown: number };
   /** The town's own frame, with no yaw: what a person is turned in. */
   town: THREE.Quaternion;
   distance: number;
@@ -104,7 +120,18 @@ export const GLANCE_LIMIT = 1.1;
 
 export const AXIS_UP = new THREE.Vector3(0, 1, 0);
 
-export type Mode = 'stand' | 'stroll' | 'chat';
+export type Mode = 'stand' | 'stroll' | 'chat' | 'sit' | 'cross';
+
+/**
+ * Bumped into, or honked at: a person steps `STEP_ASIDE` away from what
+ * startled them, easing there at `ASIDE_EASE` a second, stays aside for
+ * `ASIDE_HOLD` seconds and drifts back. `HONK_REACH` is how near a horn
+ * startles anybody.
+ */
+export const STEP_ASIDE = AVATAR_HEIGHT * 0.35;
+export const ASIDE_EASE = 5;
+export const ASIDE_HOLD = 2.5;
+export const HONK_REACH = AVATAR_HEIGHT * 4;
 
 export interface Standing {
   anchor: FolkAnchor;
@@ -154,11 +181,29 @@ export interface Standing {
   /** Held in conversation by the player: stands, and faces them. */
   held: boolean;
   turns: number;
+  /** A sitter's talking, its upper body only (`seatedTalk`); null for anybody standing. */
+  seatTalk: THREE.AnimationAction | null;
+  /** On a crossing: the corner it is at or leaving, along `anchor.crossing.corners`. */
+  leg: number;
+  /** Stepped aside: the offset from where it would be, where it is easing to, and the seconds left there. */
+  aside: THREE.Vector3;
+  asideTarget: THREE.Vector3;
+  asideFor: number;
+  /** What startled it, for a stander to turn to. */
+  startledBy: THREE.Vector3;
+  /** The dog it walks on a lead, once the rig has loaded (`dogs.ts`). */
+  dog: Dog | null;
 }
 
 export interface Townsfolk {
   group: THREE.Group;
-  update(viewer: THREE.Vector3, dt: number, clock: number, frame: number): void;
+  /** `worldClock` is the sky's clock in seconds, which the traffic lights keep (`signals.ts`). */
+  update(viewer: THREE.Vector3, dt: number, clock: number, frame: number, worldClock?: number): void;
+  /**
+   * Startles whoever stands within `HONK_REACH` of `point` (a horn, `horn`
+   * true) or just by it (a bump): they step aside from it and look.
+   */
+  startle(point: THREE.Vector3, horn: boolean): void;
   /**
    * Adds to `push` the displacement along the ground that takes a body of
    * `radius` at `point` out of every standing person it overlaps, and says
@@ -174,6 +219,8 @@ export interface Townsfolk {
    * not standing.
    */
   engage(key: string | null, towards?: THREE.Vector3): boolean;
+  /** The rigs a dog is drawn from: the fauna's library, once it exists. */
+  setRigs(rigs: RigSource): void;
   /** Where a standing person's crown is, written into `out`; false if they are not standing. */
   crownOf(key: string, out: THREE.Vector3): boolean;
   /**
@@ -213,6 +260,8 @@ export interface TownsfolkState {
   viewerAt: THREE.Vector3;
   /** The clock of the last update, for a gesture started between two. */
   now: number;
+  /** The sky's clock at the last update, in seconds: the walk lights'. */
+  worldClock: number;
   // Scratch, so nothing in the frame allocates.
   readonly inverse: THREE.Quaternion;
   readonly local: THREE.Vector3;
@@ -222,11 +271,17 @@ export interface TownsfolkState {
   readonly ahead: THREE.Vector3;
   readonly gap: THREE.Vector3;
   readonly talker: Talker;
+  /** The umbrellas the standing people put up in the rain (`umbrella.ts`). */
+  readonly umbrellas: Umbrellas;
+  /** The dogs some strollers walk (`dogs.ts`). */
+  readonly dogs: Dogs;
 }
 
 export function createState(folk: Folk, source: FolkSource): TownsfolkState {
   const group = new THREE.Group();
   group.name = 'townsfolk';
+  const umbrellas = createUmbrellas(TOWNSFOLK_CAP);
+  group.add(umbrellas.mesh);
   return {
     group,
     folk,
@@ -239,6 +294,7 @@ export function createState(folk: Folk, source: FolkSource): TownsfolkState {
     holdTowards: new THREE.Vector3(),
     viewerAt: new THREE.Vector3(),
     now: 0,
+    worldClock: 0,
     inverse: new THREE.Quaternion(),
     local: new THREE.Vector3(),
     turn: new THREE.Quaternion(),
@@ -247,5 +303,7 @@ export function createState(folk: Folk, source: FolkSource): TownsfolkState {
     ahead: new THREE.Vector3(),
     gap: new THREE.Vector3(),
     talker: { key: '', position: new THREE.Vector3(), height: 0, distance: 0 },
+    umbrellas,
+    dogs: createDogs(),
   };
 }

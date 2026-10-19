@@ -227,6 +227,17 @@ export interface ModelFit {
    */
   shade?: { slots: RegExp; bottom: number; top: number };
   /**
+   * How tall the model's front door stands (`doorOf`), in world units. With
+   * no `height` the model is fitted to stand it so; wherever the fit holds it
+   * shorter, the band under `lift` is drawn taller to make the door up. The
+   * mesh carries the door as `atlasDoorHeight`.
+   */
+  door?: number;
+  /** The model's own door, in its units, where `doorOf` cannot read it off the model. */
+  modelDoor?: number;
+  /** The band `door` may stretch, in the model's units from its foot: its walls under the eaves. The whole model by default. */
+  lift?: number;
+  /**
    * Marks the slots `windows` names as glass that lights after dark: the mesh
    * carries `atlasLit` like a code-built pane, and a per-vertex `atlasWindow`
    * byte says which of its vertices are the glass, because a painted building is

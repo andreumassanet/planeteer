@@ -22,11 +22,11 @@
  * turns them to face the player, and has them wave and then talk; `talk.ts`
  * says the words.
  */
-import { createState } from './folk/standing.ts';
+import { HONK_REACH, createState } from './folk/standing.ts';
 import type { FolkSource, Talker, Townsfolk } from './folk/standing.ts';
 import type { Folk } from './folk/dressing.ts';
 import { update } from './folk/frame.ts';
-import { collide, crownOf, engage, nearest } from './folk/queries.ts';
+import { collide, crownOf, engage, nearest, startle } from './folk/queries.ts';
 
 export { createFolk, isWoman, isYoung } from './folk/dressing.ts';
 export type { Folk, SeatPose } from './folk/dressing.ts';
@@ -39,7 +39,9 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
   return {
     group: st.group,
     stats: st.stats,
-    update: (viewer, dt, clock, frame) => update(st, viewer, dt, clock, frame),
+    update: (viewer, dt, clock, frame, worldClock) => update(st, viewer, dt, clock, frame, worldClock),
+    setRigs: (rigs) => st.dogs.setRigs(rigs),
+    startle: (point, horn) => startle(st, point, horn ? HONK_REACH : 0),
     collide: (point, radius, push) => collide(st, point, radius, push),
     nearest: (point, reach): Talker | null => nearest(st, point, reach),
     engage: (key, towards) => engage(st, key, towards),

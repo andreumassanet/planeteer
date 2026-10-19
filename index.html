@@ -80,8 +80,9 @@
       canvas { display: block; }
       #minimap {
         position: fixed;
-        top: 24px;
-        right: 24px;
+        /* The HUD's frame (`src/hud/style.ts`); the fallbacks paint before it loads. */
+        top: var(--hud-top, 24px);
+        right: var(--hud-right, 24px);
         /* Clicks go through to the canvas, which requests pointer lock. */
         pointer-events: none;
       }

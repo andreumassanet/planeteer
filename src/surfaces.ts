@@ -24,4 +24,5 @@ export {
   bindSurfaceQuality,
   drawSurfaces,
   surfaceDetailChunk,
+  townPaintChunk,
 } from './surfaces/material.ts';

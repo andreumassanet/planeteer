@@ -50,7 +50,7 @@ const PAINT_CHUNK = /* glsl */ `
 const CLEARCOAT_CHUNK = /* glsl */ `
   #if NUM_DIR_LIGHTS > 0
   {
-    vec3 coatV = normalize(-vViewPosition);
+    vec3 coatV = normalize(vViewPosition);
     vec3 coatL = directionalLights[0].direction;
     vec3 coatH = normalize(coatL + coatV);
     vec3 coatLight = directionalLights[0].color;

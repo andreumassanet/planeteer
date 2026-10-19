@@ -1,12 +1,29 @@
-import { SCENERY_SCALE } from '../../stature.ts';
+import { AVATAR_HEIGHT } from '../../stature.ts';
+
+/** The smallest a town may scale a building to fit its cell; past it, the region's next part is tried. */
+export const FIT_SCALE = 0.9;
 
 /**
- * The working unit of the kit: one floor of a building, 3 m in life.
- *
- * A person is 0.58 of a storey. A house of 1 storey is a hut, 2 is a house, 4 is a
- * street, 8 is as tall as the fabric of a city ever gets here.
+ * How tall a front door opens: 1.3 of the person drawn, so it still clears
+ * him by `DOOR_LEAST` once a town has shrunk the building to fit its cell
+ * (by 0.9 at most, `FIT_SCALE`). A person is drawn `STATURE` larger than life
+ * and a door is drawn for him, or every house is a doll's house.
  */
-export const STOREY = 3 * SCENERY_SCALE;
+export const DOOR_HEIGHT = AVATAR_HEIGHT * 1.3;
+/** The shortest door a building may stand with in a town: 1.15 of the person. `pnpm scenery` holds every variant to it. */
+export const DOOR_LEAST = AVATAR_HEIGHT * 1.15;
+
+/**
+ * The working unit of the kit: one floor of a building. A door of
+ * `DOOR_HEIGHT` over a half-metre course, its head, and a band of wall over
+ * it: 6 units, where a 3 m storey at `SCENERY_SCALE` is 3.8. Heights are drawn
+ * for the people and plans for the town's cells, so a house is a little
+ * taller and narrower than its life-size self.
+ *
+ * A person is 0.63 of a storey. A house of 1 storey is a cottage, 2 is a
+ * house, 4 is a street, 7 is as tall as the fabric of a city gets here.
+ */
+export const STOREY = 6;
 
 /**
  * What a part may spend detail on, decided at the distance it is seen from.

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { World } from '../geo.ts';
 import { PLANET_RADIUS } from '../globe.ts';
-import { SIDEWALK } from '../scenery/ground.ts';
+import { SIDEWALK, pavementOf } from '../scenery/ground.ts';
+import { CARRIAGEWAY_HALF, TOWN_PITCH } from '../scenery/grid.ts';
 import { coursePoint, courseTangent } from './course.ts';
 import type { RoadCourse } from './course.ts';
 import { BRIDGE_LAND, GIRDER, RIBBON_LIFT, crownLift, needsCentre, onBridge, rampReach } from './crown.ts';
@@ -15,12 +16,21 @@ import type { CoursePath } from './path.ts';
  * `BANK_GRADE` and laid `TOE_DEPTH` under the relief, then a skirt to a foot
  * `FOOT_RUN` further and `FOOT_DEPTH` lower, which fills any sag of the drawn
  * land under the relief. A raised top widens its bank up to `BANK_RUN_MAX`.
+ * The bank bends once, at its knee: steeper off the top and easing into the
+ * field, as a graded bank settles.
  */
 const BANK_GRADE = 0.45;
 const TOE_DEPTH = 1;
 const BANK_RUN_MAX = 22;
 const FOOT_RUN = 2;
 const FOOT_DEPTH = 8;
+/**
+ * The bank's knee: `KNEE_RUN` of the way out to the toe and `KNEE_FALL` of
+ * the way down to it, so the upper slope is 1.29 times the bank's grade and
+ * the lower 0.76 times.
+ */
+export const KNEE_RUN = 0.45;
+const KNEE_FALL = 0.58;
 /** The bank's width at a built town's kerb, beside the square's own edge slope. */
 const KERB_BANK = 4.8;
 
@@ -60,7 +70,11 @@ export function bankRun(edge: number, ramp?: RoadRamp, sA = Infinity, sB = Infin
  * toe crosses the relief. `pnpm check` uses it rather than restating it.
  */
 export function crownFall(top: number): number {
-  return top + bankRun(RIBBON_LIFT) * (RIBBON_LIFT / (RIBBON_LIFT + TOE_DEPTH));
+  const run = bankRun(RIBBON_LIFT);
+  const knee = RIBBON_LIFT + KNEE_FALL * (-TOE_DEPTH - RIBBON_LIFT);
+  // Past the knee when it is still over the relief, as an ordinary bank's is.
+  if (knee > 0) return top + run * KNEE_RUN + (run * (1 - KNEE_RUN)) * (knee / (knee + TOE_DEPTH));
+  return top + run * KNEE_RUN * (RIBBON_LIFT / (RIBBON_LIFT - knee));
 }
 
 /** A built town's pavement, `walk` wide at its kerb, `s` units out along the road from it. */
@@ -75,18 +89,48 @@ export function onPavement(ramp: RoadRamp, sA: number, sB: number): boolean {
   return (ramp.walkA > 0 && sA < PAVEMENT_RUN) || (ramp.walkB > 0 && sB < PAVEMENT_RUN);
 }
 
+/** How far out from a built town's kerb a road's carriageway takes to ease from its gate street's to its own. */
+export const CARRIAGE_RUN = PAVEMENT_RUN + PAVEMENT_TAPER;
+
 /**
- * The half-width of a road's top at a point: the carriageway's `half` and
- * beside it the shoulder, or over the last `PAVEMENT_RUN` into a built town
- * that town's pavement, so the kerb the road arrives with is the street's.
+ * The widest a gate's street carriageway is, in world units: an avenue in the
+ * widest cell (`TOWN_PITCH` grown by half), less its pavement. What a road's
+ * reach allows for near a gate.
  */
-export function ribbonHalf(ramp: RoadRamp, half: number, sA: number, sB: number): number {
-  return half + Math.max(SHOULDER_STRIP, pavementAt(ramp.walkA, sA), pavementAt(ramp.walkB, sB));
+const STREET_CARRIAGE_MOST = TOWN_PITCH * 0.75 - pavementOf(TOWN_PITCH * 0.75);
+
+/** The share of the way from a kerb, `s` units off it, that a road's carriageway has eased to its own: 0 at the kerb, 1 from `CARRIAGE_RUN`. */
+function easedFrom(s: number): number {
+  const t = Math.min(1, Math.max(0, s / CARRIAGE_RUN));
+  return t * t * (3 - 2 * t);
 }
 
-/** The widest a road's drawn section can be from its centre line: a whole pavement, the widest bank past it and its foot. */
+/**
+ * The half-width of a road's carriageway at a point: its own `half`, and over
+ * `CARRIAGE_RUN` into a built town the gate street's (`RoadRamp.carriageA`),
+ * so at the kerb the road is the street it enters. `half` is the class's,
+ * thinned by the distance band; the street's is thinned with it.
+ */
+export function carriageHalf(ramp: RoadRamp, half: number, sA: number, sB: number): number {
+  const thin = half / CARRIAGEWAY_HALF;
+  let carriage = half;
+  if (ramp.carriageA > 0 && sA < CARRIAGE_RUN) carriage += (ramp.carriageA * thin - half) * (1 - easedFrom(sA));
+  if (ramp.carriageB > 0 && sB < CARRIAGE_RUN) carriage += (ramp.carriageB * thin - half) * (1 - easedFrom(sB));
+  return carriage;
+}
+
+/**
+ * The half-width of a road's top at a point: the carriageway (`carriageHalf`)
+ * and beside it the shoulder, or over the last `PAVEMENT_RUN` into a built
+ * town that town's pavement, so the kerb the road arrives with is the street's.
+ */
+export function ribbonHalf(ramp: RoadRamp, half: number, sA: number, sB: number): number {
+  return carriageHalf(ramp, half, sA, sB) + Math.max(SHOULDER_STRIP, pavementAt(ramp.walkA, sA), pavementAt(ramp.walkB, sB));
+}
+
+/** The widest a road's drawn section can be from its centre line: a gate's street, a whole pavement, the widest bank past it and its foot. */
 export function ribbonReach(half: number): number {
-  return half + SIDEWALK + BANK_RUN_MAX + FOOT_RUN;
+  return Math.max(half, STREET_CARRIAGE_MOST) + SIDEWALK + BANK_RUN_MAX + FOOT_RUN;
 }
 
 /**
@@ -111,7 +155,9 @@ export function surfaceLift(
   if (onBridge(ramp, sA)) return away <= crown + GIRDER_RUN ? edge - GIRDER : -Infinity;
   const run = bankRun(edge, ramp, sA, sB);
   const out = away - crown;
-  if (out <= run) return edge + (out / run) * (-TOE_DEPTH - edge);
+  const knee = edge + KNEE_FALL * (-TOE_DEPTH - edge);
+  if (out <= run * KNEE_RUN) return edge + (out / (run * KNEE_RUN)) * (knee - edge);
+  if (out <= run) return knee + ((out - run * KNEE_RUN) / (run * (1 - KNEE_RUN))) * (-TOE_DEPTH - knee);
   if (out <= run + FOOT_RUN) return -TOE_DEPTH - ((out - run) / FOOT_RUN) * FOOT_DEPTH;
   return -Infinity;
 }
@@ -158,9 +204,9 @@ const sectionSide = new THREE.Vector3();
 
 /**
  * One cross-section of a road's ribbon, `s` units from gate A, as six points
- * left to right: foot, toe, top's edge, top's edge, toe, foot. Over a
- * bridge's water the toe is the girder's underside and the foot the same
- * point.
+ * left to right: foot, toe, top's edge, top's edge, toe, foot; then the two
+ * banks' knees, left and right. Over a bridge's water the toe is the girder's
+ * underside and the foot and the knee the same point.
  *
  * The direction across comes from the course's own tangent, so the two pieces
  * meeting at a section agree on its corners and the end section lies along
@@ -184,7 +230,7 @@ export function ribbonSection(
   const crown = ribbonHalf(ramp, half, s, sB);
   const bridged = onBridge(ramp, s);
   const centre = needsCentre(ramp, s, sB) ? world.elevationAt(sectionAt) : 0;
-  for (const [edge, toe, foot, sign] of [[2, 1, 0, -1], [3, 4, 5, 1]] as const) {
+  for (const [edge, toe, foot, knee, sign] of [[2, 1, 0, 6, -1], [3, 4, 5, 7, 1]] as const) {
     const top = into[edge]!;
     top.copy(sectionAt).addScaledVector(sectionSide, (sign * crown) / PLANET_RADIUS).normalize();
     const ground = world.elevationAt(top);
@@ -195,9 +241,14 @@ export function ribbonSection(
       under.copy(sectionAt).addScaledVector(sectionSide, (sign * (crown + GIRDER_RUN)) / PLANET_RADIUS).normalize();
       under.multiplyScalar(PLANET_RADIUS + ground + lift - GIRDER);
       into[foot]!.copy(under);
+      into[knee]!.copy(under);
       continue;
     }
-    const out = crown + bankRun(lift, ramp, s, sB);
+    const run = bankRun(lift, ramp, s, sB);
+    const bend = into[knee]!;
+    bend.copy(sectionAt).addScaledVector(sectionSide, (sign * (crown + run * KNEE_RUN)) / PLANET_RADIUS).normalize();
+    bend.multiplyScalar(PLANET_RADIUS + world.elevationAt(bend) + lift + KNEE_FALL * (-TOE_DEPTH - lift));
+    const out = crown + run;
     under.copy(sectionAt).addScaledVector(sectionSide, (sign * out) / PLANET_RADIUS).normalize();
     const low = world.elevationAt(under);
     under.multiplyScalar(PLANET_RADIUS + low - TOE_DEPTH);

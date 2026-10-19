@@ -5,10 +5,11 @@ import { dress, release } from './pose.ts';
 import { DRESS_PER_FRAME, NEAR_ANIMATION, TOWNSFOLK_CAP, TOWNSFOLK_RADIUS, byDistance, type TownsfolkState } from './standing.ts';
 import { place } from './stroll.ts';
 
-export function update(st: TownsfolkState, viewer: THREE.Vector3, dt: number, clock: number, frame: number): void {
+export function update(st: TownsfolkState, viewer: THREE.Vector3, dt: number, clock: number, frame: number, worldClock = clock): void {
   if (!st.folk.ready) return;
   st.viewerAt = viewer;
   st.now = clock;
+  st.worldClock = worldClock;
   // Every frame on foot, so nothing here allocates: the anchors are the
   // settlements' own objects, the list and the set are reused, and a map
   // may drop the entry it is visiting.
@@ -23,6 +24,7 @@ export function update(st: TownsfolkState, viewer: THREE.Vector3, dt: number, cl
   if (st.heldKey !== null && st.standing.has(st.heldKey)) st.keep.add(st.heldKey);
   for (const [key, entry] of st.standing) if (!st.keep.has(key)) release(st, entry);
 
+  st.umbrellas.begin();
   let dressed = 0;
   st.stats.animated = 0;
   st.stats.strolling = 0;
@@ -50,7 +52,9 @@ export function update(st: TownsfolkState, viewer: THREE.Vector3, dt: number, cl
       st.local.copy(anchor.to).sub(anchor.from).applyQuaternion(st.inverse);
       entry.strollYaw = Math.atan2(st.local.x, st.local.z);
       if (entry.mode === 'stroll' && entry.length <= 1) entry.mode = 'stand';
-      if (entry.mode === 'stroll') entry.position.lerpVectors(anchor.from, anchor.to, entry.along);
+      const corners = anchor.crossing?.corners;
+      if (entry.mode === 'cross' && corners !== undefined) entry.position.lerpVectors(corners[entry.leg]!, corners[entry.leg + entry.heading]!, entry.along);
+      else if (entry.mode === 'stroll') entry.position.lerpVectors(anchor.from, anchor.to, entry.along);
       else entry.position.copy(anchor.position);
       place(st, entry);
     }
@@ -61,13 +65,16 @@ export function update(st: TownsfolkState, viewer: THREE.Vector3, dt: number, cl
     const stride = near || entry.held ? 1 : 4;
     if ((frame + entry.lane) % stride === 0) {
       animate(st, entry, entry.owed, clock, near);
+      st.dogs.step(st, entry, entry.owed);
       entry.owed = 0;
       st.stats.animated++;
     }
+    st.umbrellas.emit(entry.person);
     if (entry.walking > 0) st.stats.strolling++;
     if (entry.gesture !== null || entry.walking > 0 || entry.talking > 0) {
       st.stats.nearestMoving = Math.min(st.stats.nearestMoving, entry.position.distanceTo(viewer));
     }
   }
+  st.umbrellas.end();
   st.stats.standing = st.standing.size;
 }

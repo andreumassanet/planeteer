@@ -29,6 +29,7 @@ import { createTrafficContext } from './traffic/contract.ts';
 import type { Vehicle } from './traffic/contract.ts';
 import { createViewCone } from './view.ts';
 import { proxyOf } from './warm.ts';
+import { umbrellaProxy } from './umbrella.ts';
 import type { HerdProbe, Life, LifeOptions, LifeShared, LifeStats } from './life/api.ts';
 import { createBirds } from './life/birds.ts';
 import { createBuilders } from './life/builders.ts';
@@ -93,7 +94,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
   const stats: LifeStats = {
     road: 0, water: 0, foot: 0, herd: 0, animals: 0, animated: 0,
     grazing: 0, wandering: 0, fleeing: 0, homing: 0, snapped: 0, inTown: 0, turning: 0,
-    yielding: 0, waiting: 0, passing: 0, delayed: 0, birds: 0,
+    yielding: 0, waiting: 0, passing: 0, delayed: 0, atLights: 0, birds: 0,
     meshes: 0, triangles: 0, pooled: 0, megabytes: 0, lastBuildMs: 0, lastScanMs: 0, reach: 0,
     nearestMoving: Infinity,
   };
@@ -164,7 +165,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     // Before anything is placed, and before last frame's walkers and animals
     // are forgotten: they are what the traffic looks at.
     giveWay(viewer, clock, walkers.shown, drawer.herdsShown);
-    walkers.beginFrame();
+    walkers.beginFrame(clock);
     animator.beginFrame();
     cone.aim(camera);
     const now = performance.now();
@@ -191,6 +192,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
 
     for (const mover of movers.values()) drawer.drawMover(mover, viewer, clock, realDt, viewerPace);
 
+    walkers.endFrame();
     stats.birds = birds.draw(clock);
     stats.meshes += stats.animated;
     if (stats.birds > 0) {
@@ -211,8 +213,8 @@ export function createLife(world: World, places: readonly Place[], options: Life
     herds,
     update,
     verify: () => verifyWalk(ctx),
-    // The movers, and the birds, whose material has no ink normals.
-    proxies: () => [proxyOf(material), proxyOf(birds.mesh.material as THREE.Material)],
+    // The movers, the birds, whose material has no ink normals, and the crowds' umbrellas.
+    proxies: () => [proxyOf(material), proxyOf(birds.mesh.material as THREE.Material), umbrellaProxy()],
     collide: (point, radius, personRadius, push) =>
       collideMovers(point, radius, personRadius, push, walkers.shown, drawer.herdsShown),
     eachBoat: (visit) => eachBoat(movers, visit),

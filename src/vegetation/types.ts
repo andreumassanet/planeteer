@@ -23,7 +23,20 @@ export interface GrassSite {
   dry: number;
   /** How tall it stands: 1, `STRIP_MOWN` on an airstrip, less where the countryside has worn it down. */
   height: number;
+  /**
+   * How far the ground it grows on goes on past the site, in units: a town's
+   * ground's clearance from its streets, walls and risers, less a blade's
+   * lean, up to `GRASS_EDGE`; `GRASS_OPEN` on open ground. The field stands a
+   * blade only within a growing texel's edge of it, measured square, as the
+   * town's margins are.
+   */
+  edge: number;
 }
+
+/** The most a town's `GrassSite.edge` says: over half the coarse field's texel, so a lawn's texels' reaches meet. */
+export const GRASS_EDGE = 3;
+/** Open ground's `GrassSite.edge`: far enough that laid between texels it never stops a blade the density grows. */
+export const GRASS_OPEN = 1000;
 
 /**
  * The questions `grass.ts` asks. Whether grass grows at a point, how thick, in

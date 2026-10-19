@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import { PARKED_AT_RIDE_SCALE, PARKED_SLOT } from '../craft/contract.ts';
+import { PARKED_SLOT } from '../craft/contract.ts';
 import { fleetVariant, paintFor, parkedArrays, parkedModel } from '../craft/parked.ts';
 import { VARIANTS, measure, part, validatePart, variantRng } from '../scenery/index.ts';
 import type { RegionStyle, SceneryContext } from '../scenery/index.ts';
@@ -186,34 +186,31 @@ function createParkedVariants(
   }
 
   /**
-   * Merged at the craft's own size for what a person rides and a bus, else no
-   * wider than the traffic's `kind`, so two still pass in a street. Null while
-   * the kit is not registered. Its light bytes are left to the merge, which
-   * marks it (`MACHINE_BED`).
+   * Merged at the craft's own size, which is the traffic's (`Vehicle.section`):
+   * what is taken is the size it stood at. Null while the kit is not
+   * registered. Its light bytes are left to the merge, which marks it
+   * (`MACHINE_BED`).
    */
   const machines = new Map<string, FlatVariant | null>();
-  function machineVariant(id: string, kind: string): FlatVariant | null {
+  function machineVariant(id: string): FlatVariant | null {
     const craft = id.slice(0, id.indexOf(':'));
     const model = parkedModel(craft);
     if (model === null) return null;
     const variant = fleetVariant(id, model.variants);
     const paint = parkedPaintOf(id);
-    const entry = vehicleById.get(kind);
-    const full = entry === undefined || PARKED_AT_RIDE_SCALE.has(kind) || craft === 'bicycle' || craft === 'bus';
-    const scale = full ? 1 : Math.min(1, placedSize(entry)[1] / model.size[1]);
-    const key = `${craft}#${variant}@${paint ?? '-'}x${scale.toFixed(4)}`;
+    const key = `${craft}#${variant}@${paint ?? '-'}`;
     const cached = machines.get(key);
     if (cached !== undefined) return cached;
     let value: FlatVariant | null = null;
     try {
-      const arrays = parkedArrays(model, variant, paint ?? undefined, scale, true);
+      const arrays = parkedArrays(model, variant, paint ?? undefined, 1, true);
       const vertices = arrays.triangles * 3;
       value = {
         ...arrays,
         glow: new Uint8Array(vertices * 2),
         emits: false,
         litBed: 0,
-        height: model.size[2] * scale,
+        height: model.size[2],
         paint,
         box: planBox(arrays.position, true),
         pieceVertices: [vertices],

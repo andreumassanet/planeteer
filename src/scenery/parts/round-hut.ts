@@ -1,4 +1,4 @@
-import { PROUD, TONES } from '../contract.ts';
+import { DOOR_HEIGHT, PROUD, TONES } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -44,8 +44,9 @@ export const roundHut: ScenicPart = {
     const capTone = tone(thatch, TONES.cap);
 
     const radius = rng.range(2.5, 3.4);
-    const wall = rng.range(2.6, 3.4);
-    const cone = rng.range(2.9, 4.2);
+    // The wall stands a door's height and a hand over it.
+    const wall = DOOR_HEIGHT + rng.range(0.5, 1.1);
+    const cone = rng.range(3.2, 4.6);
 
     // A slightly battered wall — wider at the foot — is what a mud wall does and
     // it costs nothing, since `taper` is the same helper as `column`. The course
@@ -76,11 +77,12 @@ export const roundHut: ScenicPart = {
 
     // Firelight through the doorway, which is the only opening a hut has, under
     // a lintel of the same mud a shade lighter.
-    const doorway = lit(panes(1, 1.05, 1.9, 0, dark, 0.36), 0.5);
+    const doorway = lit(panes(1, 1.4, DOOR_HEIGHT, 0, dark, 0.36), 0.5);
     doorway.position.set(0, 0, radius * 1.02);
+    doorway.userData.atlasDoorHeight = DOOR_HEIGHT;
     group.add(doorway);
-    const lintel = panes(1, 1.35, 0.22, 0, lintelTone, 0.3);
-    lintel.position.set(0, 1.9, radius * 1.02 + PROUD);
+    const lintel = panes(1, 1.7, 0.22, 0, lintelTone, 0.3);
+    lintel.position.set(0, DOOR_HEIGHT, radius * 1.02 + PROUD);
     group.add(lintel);
 
     // A granary or a store beside the house on half the variants: a compound is

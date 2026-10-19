@@ -40,6 +40,8 @@ export interface LifeStats {
   waiting: number;
   passing: number;
   delayed: number;
+  /** Road vehicles held at a city's red light this frame. */
+  atLights: number;
   birds: number;
   /** Draw calls added, before `OutlineEffect` doubles them. */
   meshes: number;

@@ -23,6 +23,7 @@ import {
   MILKY_WAY_LIMITS, MIST_LIMIT, MOON_LIMIT, MOON_OFFSET, MOON_WASH, NORTH, OVERCAST_LIMIT, SPACE_LIMIT, twilightLimit,
 } from './sun/twilight.ts';
 import type { Sky, SkyLayer, SkyState } from './sun/types.ts';
+import { shadeMoonPhase, updateNightLights } from './sun/night-lights.ts';
 
 export { sunUniform, solarPosition, sunDirection } from './sun/astronomy.ts';
 export type { Solar } from './sun/astronomy.ts';
@@ -44,6 +45,8 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
 
   const solarDirection = new THREE.Vector3(0, 1, 0);
   const moonDirection = new THREE.Vector3(0, -1, 0);
+  shadeMoonPhase(moonMaterial, { value: moonDisc.position }, uniforms.sunDir);
+  shadeMoonPhase(mareMaterial, { value: moonDisc.position }, uniforms.sunDir);
   const up = new THREE.Vector3(0, 1, 0);
   const cameraUp = new THREE.Vector3(0, 1, 0);
   const weather: SkyWeather = { overcast: 0, sunCut: 0, flash: 0, mist: 0 };
@@ -210,6 +213,10 @@ export function createSky(scene: THREE.Scene, fog: THREE.Fog): Sky {
     uniforms.milky.value =
       Math.max(mood.stars * deep * (1 - MOON_WASH * moonUp), orbit) *
       (1 - THREE.MathUtils.smoothstep(distance, PLANET_RADIUS * 4.5, PLANET_RADIUS * 5.5));
+
+    updateNightLights(
+      uniforms, time, cameraUp, THREE.MathUtils.smoothstep(dark, 3.2, 5.2), weather.overcast, orbit, moonUp,
+    );
 
     // Five 4x1 textures: cheap, but an upload, and the ramp moves by a hundredth of
     // a step a minute. Gate it.

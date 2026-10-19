@@ -44,6 +44,7 @@ import type { Nature } from './nature.ts';
 import type { Overlay } from './overlay.ts';
 import type { Conversation } from './conversation.ts';
 import type { Rockets } from './rockets.ts';
+import type { TrainRide } from './train-ride.ts';
 import type { WorldSky } from './sky.ts';
 import type { Sound } from './sound.ts';
 import type { Towns } from './towns.ts';
@@ -88,6 +89,7 @@ export interface App
   nav: Navigation;
   gestures: Gestures;
   rockets: Rockets;
+  trainRide: TrainRide;
   map: WorldMap;
   playerList: PlayerList;
   names: CountryNames;

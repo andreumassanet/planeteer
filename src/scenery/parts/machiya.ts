@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { DOOR_HEIGHT, PROUD, STOREY, TONES } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -89,7 +89,7 @@ export const machiya: ScenicPart = {
 
     // The hisashi: a pent roof over the shopfront, tilted forward off the wall,
     // with its own dark soffit under it.
-    const pentY = BASE + STOREY * (storeys === 1 ? 0.9 : 1.02);
+    const pentY = BASE + DOOR_HEIGHT + 0.9;
     const pent = box(width + EAVES, 0.34, 2.2, tile);
     pent.position.set(0, pentY, depth / 2 + 0.55);
     pent.rotation.x = -0.3;
@@ -103,15 +103,16 @@ export const machiya: ScenicPart = {
     // the koshi fills the rest of the front, from the other post to a hand's
     // width short of the door's jamb.
     const side = rng.sign();
-    const doorWidth = 1.1;
+    const doorWidth = 1.3;
     const jambWidth = 0.16;
     const postInner = width / 2 - 0.22;
     const doorX = side * (postInner - 0.12 - jambWidth - doorWidth / 2);
-    const doorway = lit(panes(1, doorWidth, 2.2, 0, ctx.glass, PROUD), 0.6);
+    const doorway = lit(panes(1, doorWidth, DOOR_HEIGHT, 0, ctx.glass, PROUD), 0.6);
     doorway.position.set(doorX, BASE, depth / 2);
     doorway.userData.atlasDoor = true;
+    doorway.userData.atlasDoorHeight = DOOR_HEIGHT;
     group.add(doorway);
-    const jamb = panes(2, jambWidth, 2.3, doorWidth, post, PROUD * 2);
+    const jamb = panes(2, jambWidth, DOOR_HEIGHT + 0.1, doorWidth, post, PROUD * 2);
     jamb.position.set(doorX, BASE, depth / 2 + PROUD * 1.5);
     jamb.userData.atlasDoor = true;
     group.add(jamb);
@@ -138,7 +139,7 @@ export const machiya: ScenicPart = {
       const upper = windows({
         count: 2,
         width: width * 0.3,
-        height: 1.15,
+        height: 1.6,
         frame: surround,
         spread: width * 0.38,
       });

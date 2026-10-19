@@ -10,6 +10,7 @@ import { QUALITIES, chosenQuality } from '../graphics-quality.ts';
 import type { Quality } from '../graphics-quality.ts';
 import { RESOLUTIONS } from './graphics.ts';
 import { renderDistanceWords } from './render-distance.ts';
+import { setNautical, setSpeedUnit, speedUnits } from './speed-units.ts';
 import {
   EFFECTS_KEY, GRAPHICS_KEY, HINTS_KEY, PERFORMANCE_KEY, RESOLUTION_KEY, SENSITIVITY_KEY, SHAKE_KEY, WEATHER_KEY,
   readSetting, writeSetting,
@@ -65,6 +66,14 @@ export async function createWorldSettings(app: App): Promise<Settings> {
         writeSetting(WEATHER_KEY, on ? '1' : '0');
         return on;
       },
+    },
+    units: {
+      speed: {
+        get: () => speedUnits.unit,
+        set: setSpeedUnit,
+        options: [['kmh', 'km/h'], ['mph', 'mph'], ['kn', 'Knots']],
+      },
+      nautical: { get: () => speedUnits.nautical, set: setNautical },
     },
     shake: {
       get: () => rig.shakes,

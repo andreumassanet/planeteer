@@ -8,7 +8,7 @@ import type { Roads } from '../roads.ts';
 import type { Settlements } from '../settlements.ts';
 import type { Terrain } from '../terrain.ts';
 
-const NO_INPUT = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, zoom: 0, run: false, jump: false, climb: false, dive: false, use: false, view: false };
+const NO_INPUT = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, zoom: 0, run: false, jump: false, climb: false, dive: false, attitude: { pitch: 0, roll: 0 }, flightMode: false, use: false, view: false };
 
 /** Sizes the lens to the renderer and returns `settle()`. */
 export function createSettle(deps: {

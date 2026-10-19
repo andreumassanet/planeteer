@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LINE_HALF } from '../scenery/ground.ts';
 import { insideOthers } from './overlap.ts';
+import { carriageHalf } from './section.ts';
 import type { OtherRoad } from './overlap.ts';
 
 /**
@@ -29,10 +30,13 @@ export function edgeLineAcross(half: number, right: boolean): number {
  */
 export const EDGE_KEEP = EDGE_LINE_IN + 2 * LINE_HALF * EDGE_LINE_SHARE + 0.3;
 
+/** Another road's carriageway half-width `s` along it: its street's near a built town. */
+const carriageOf = (other: OtherRoad, s: number): number => carriageHalf(other.ramp, other.half, s, other.path.length - s);
+
 /** Where this road's edge line gives way to another road: see `EDGE_KEEP`. */
-export const edgeGives = (other: OtherRoad): number => (other.front ? other.half - 0.05 : other.half - EDGE_KEEP);
+export const edgeGives = (other: OtherRoad, s: number): number => carriageOf(other, s) - (other.front ? 0.05 : EDGE_KEEP);
 /** Where its dash gives way: inside the carriageway of a road drawn in front, and nowhere else. */
-export const dashGives = (other: OtherRoad): number => (other.front ? other.half - 0.05 : -1);
+export const dashGives = (other: OtherRoad, s: number): number => (other.front ? carriageOf(other, s) - 0.05 : -1);
 
 const markProbe = new THREE.Vector3();
 const markProbeFar = new THREE.Vector3();
@@ -50,7 +54,7 @@ export function pieceAt(
   return markProbe.lerp(markProbeFar, along);
 }
 
-const RUN_SAMPLES = 6;
+const RUN_SAMPLES = 12;
 
 /**
  * The stretches of a piece, as pairs of shares along it, where `hidden` is

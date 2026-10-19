@@ -12,13 +12,18 @@ import type { Talk } from '../talk.ts';
 import type { LaunchPads, PadIndex } from '../launch-pads.ts';
 import type { Life } from '../life.ts';
 import type { Railway } from '../railway.ts';
+import type { Harbours } from '../harbours.ts';
 import type { App } from './context.ts';
 import { stage } from './boot.ts';
 import { seeThrough } from '../see-through.ts';
+import { createSignalLamps } from '../signal-lamps.ts';
+import type { SignalLamps } from '../signal-lamps.ts';
 
 export interface Movers {
   folk: Folk;
   townsfolk: Townsfolk;
+  /** The lit lamps of the near cities' traffic lights. */
+  signalLamps: SignalLamps;
   /** Body radius of a person, for collisions and the talk prompt. */
   personRadius: number;
   isWoman(key: string): boolean;
@@ -34,6 +39,8 @@ export interface Movers {
   /** A new material for baked models, on that ramp and outline. */
   rigMaterial(): THREE.MeshToonMaterial;
   launchPads: LaunchPads;
+  /** The coastal towns' piers and quays, near the player. */
+  harbours: Harbours;
   life: Life;
   railway: Railway | null;
 }
@@ -46,6 +53,8 @@ export async function buildMovers(app: App): Promise<Movers> {
   const folk = createFolk(ctx);
   const townsfolk = createTownsfolk(folk, settlements);
   scene.add(townsfolk.group);
+  const signalLamps = createSignalLamps(settlements);
+  scene.add(signalLamps.mesh);
   const { createTalk } = await deferred.talk;
   // Spoken aloud while the voices are on and the sound is open.
   const { audio, voices } = app.sound;
@@ -87,6 +96,13 @@ export async function buildMovers(app: App): Promise<Movers> {
     seeThrough(modelMaterial(inkSource.gradientMap!, inkSource.userData.outlineParameters as { thickness: number; color: [number, number, number] }));
   const launchPads = createLaunchPads({ world, pads: padIndex, gradientMap: inkSource.gradientMap!, land });
   scene.add(launchPads.group);
+  // The harbours, whose berths the fleet's sites already hold.
+  const { createHarbours } = await import('../harbours.ts');
+  const harbours = createHarbours({ world, places: places.all, monuments: placements, sites: fleetSites, ctx });
+  scene.add(harbours.group);
+  // One library of rigs: the herds' and the dogs the townsfolk walk.
+  const rigs = createRigLibrary(rigMaterial());
+  townsfolk.setRigs(rigs);
   const streetPush = new THREE.Vector3();
   const life = createLife(world, places.all, {
     context: ctx,
@@ -95,7 +111,7 @@ export async function buildMovers(app: App): Promise<Movers> {
     vehicles: VEHICLES,
     folk,
     animals: ANIMALS,
-    rigs: createRigLibrary(rigMaterial()),
+    rigs,
     fields: takenGround,
     land,
     // A vehicle driving through a town rides its floor and keeps out of its walls.
@@ -127,7 +143,7 @@ export async function buildMovers(app: App): Promise<Movers> {
   }
 
   return {
-    folk, townsfolk, personRadius: PERSON_RADIUS, isWoman, isYoung, talk,
-    fleetSites, railNetwork, padIndex, takenGround, inkSource, rigMaterial, launchPads, life, railway,
+    folk, townsfolk, signalLamps, personRadius: PERSON_RADIUS, isWoman, isYoung, talk,
+    fleetSites, railNetwork, padIndex, takenGround, inkSource, rigMaterial, launchPads, harbours, life, railway,
   };
 }

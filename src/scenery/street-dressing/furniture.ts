@@ -49,6 +49,15 @@ export function drawCafe(sink: Sink, rng: Rng, style: DressStyle): void {
   const seat = rng.pick([P.white, P.bark, P.crimson, P.darkOlive, P.skyBlue]);
   chair(sink, -0.72 * M, 0, 1, seat);
   chair(sink, 0.72 * M, 0, -1, seat);
+  // A cup on its saucer at each place, both open underneath, so no face lies in the table's plane.
+  for (const side of [-1, 1]) {
+    const cx = side * 0.2 * M;
+    const cz = side * 0.06 * M;
+    sink.paint(P.white);
+    sink.lathe(cx, cz, [[0.05 * M, top], [0.075 * M, top + 0.012 * M], [0, top + 0.012 * M]], 6);
+    sink.paint(tone(P.white, 0.9));
+    sink.lathe(cx, cz, [[0.035 * M, top + 0.012 * M], [0.043 * M, top + 0.08 * M], [0, top + 0.08 * M]], 6);
+  }
   if (style.parasol) {
     const fabric = rng.pick(style.fabrics);
     const height = 2.25 * M;

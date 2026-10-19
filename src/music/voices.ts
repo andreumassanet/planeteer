@@ -205,8 +205,8 @@ export function createVoices(ctx: AudioContext, chain: Chain, counters: Counters
     };
   }
 
-  function fire(e: NoteEvent, when: number, playing: Playing): void {
-    const support = e.role === 'accomp' || e.role === 'pad' || e.role === 'drone';
+  function fire(e: NoteEvent, when: number, playing: Pick<Playing, 'bus' | 'spb'>): void {
+    const support = e.role === 'accomp' || e.role === 'pad' || e.role === 'drone' || e.role === 'mood';
     if (counters.voices >= (support ? SUPPORT_VOICES : MAX_VOICES)) {
       counters.dropped++;
       return;

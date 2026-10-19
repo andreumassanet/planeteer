@@ -22,7 +22,7 @@ export interface Baker {
 }
 
 export function createBaker(ground: GrassGround, R: number, layers: Layers, stats: GrassStats): Baker {
-  const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1 };
+  const site: GrassSite = { radius: 0, density: 0, r: 0, g: 0, b: 0, dry: 0, height: 1, edge: 0 };
   const texelDirection = new THREE.Vector3();
   const gatherDirection = new THREE.Vector3();
   const srgb = new THREE.Color();
@@ -50,8 +50,9 @@ export function createBaker(ground: GrassGround, R: number, layers: Layers, stat
     field.data[slot] = found.radius - R;
     field.data[slot + 1] = found.density;
     field.data[slot + 2] = found.dry;
-    // The ground goes on here, grass or none: its height is laid between.
-    field.data[slot + 3] = 1;
+    // The ground goes on here, grass or none: its height is laid between, and
+    // past 1 how far it goes on (`GrassSite.edge`), which the blades stop at.
+    field.data[slot + 3] = 1 + Math.max(0, found.edge);
     srgb.setRGB(found.r, found.g, found.b).convertLinearToSRGB();
     field.paint[slot] = Math.round(Math.min(1, Math.max(0, srgb.r)) * 255);
     field.paint[slot + 1] = Math.round(Math.min(1, Math.max(0, srgb.g)) * 255);

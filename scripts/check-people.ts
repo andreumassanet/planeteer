@@ -11,6 +11,7 @@ import './check-people/silhouettes.ts';
 import './check-people/appearance.ts';
 import './check-people/speech.ts';
 import './check-people/traveller.ts';
+import './check-people/umbrella.ts';
 import { failures } from './check-people/setup.ts';
 
 console.log(failures === 0 ? '\nOK\n' : `\n${failures} failures\n`);

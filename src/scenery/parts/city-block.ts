@@ -1,5 +1,5 @@
 import type { ScenicPart } from '../contract.ts';
-import { buildingPaint, sceneryModel } from '../contract.ts';
+import { DOOR_HEIGHT, buildingPaint, sceneryModel } from '../contract.ts';
 import { isGlass } from '../../models.ts';
 
 /**
@@ -28,6 +28,11 @@ export const cityBlock: ScenicPart = {
       { walls: rng.pick(style.walls), roofs: rng.pick(style.roofs), trim: rng.pick(style.trim) },
       isGlass,
     );
-    return ctx.fitted(id, { height: rng.range(14, 24), radius: FOOTPRINT - 0.02, width: 11, length: 9.5, narrow: true, windows: isGlass }, paint);
+    // The shop storey (0.4 of the kit's units) is what grows where the plan holds the block short of its door.
+    return ctx.fitted(
+      id,
+      { door: DOOR_HEIGHT * rng.range(1, 1.25), lift: 0.4, radius: FOOTPRINT - 0.02, width: 11, length: 9.5, narrow: true, windows: isGlass },
+      paint,
+    );
   },
 };

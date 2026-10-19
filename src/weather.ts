@@ -308,6 +308,46 @@ export function weatherAt(
   return classify(target);
 }
 
+/**
+ * How far back the ground remembers rain, the step it is read at, and how
+ * long a soaked surface takes to lose most of its water (the e-folding time,
+ * on the sky's clock). A wetness reads the model `WET_MEMORY_MS / WET_STEP_MS
+ * + 2` times: what `weather-view.ts` asks every `WET_SAMPLE_EVERY` seconds,
+ * never every frame.
+ */
+export const WET_MEMORY_MS = 3 * 3_600_000;
+export const WET_STEP_MS = 10 * 60_000;
+export const WET_DRYING_MS = 45 * 60_000;
+/** How much rain soaks the ground: the weighted sum of rain times this, saturating. */
+const WET_SOAK = 2.4;
+const wetProbe = weatherSample();
+const wetReads: number[] = [];
+
+/**
+ * How wet the ground is, 0 to 1: the rain (precipitation less its snow) of
+ * the last `WET_MEMORY_MS`, read on the clock's own `WET_STEP_MS` grid and
+ * weighted down by its age, saturating; between two instants of the grid it
+ * runs straight from the soak one step back to the soak at the last one, so it
+ * lags the rain by up to a step and is continuous however fast the rain moves.
+ * A pure function of where and when, so every client's streets dry together.
+ */
+export function wetnessAt(lat: number, lon: number, elevation: number, timeMs: number): number {
+  const grid = Math.floor(timeMs / WET_STEP_MS) * WET_STEP_MS;
+  const steps = Math.round(WET_MEMORY_MS / WET_STEP_MS);
+  wetReads.length = 0;
+  for (let k = 0; k <= steps + 1; k++) {
+    weatherAt(lat, lon, elevation, grid - k * WET_STEP_MS, wetProbe);
+    wetReads.push(wetProbe.precipitation * (1 - wetProbe.snow));
+  }
+  const soakAt = (from: number): number => {
+    let soak = 0;
+    for (let k = 0; k <= steps; k++) soak += wetReads[from + k]! * Math.exp((-k * WET_STEP_MS) / WET_DRYING_MS);
+    return 1 - Math.exp(-WET_SOAK * soak);
+  };
+  const share = (timeMs - grid) / WET_STEP_MS;
+  return soakAt(1) * (1 - share) + soakAt(0) * share;
+}
+
 /** Names what a sample is, and how strongly. Exported for the forced presets. */
 export function classify(target: WeatherSample): WeatherSample {
   const p = target.precipitation;

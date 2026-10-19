@@ -36,7 +36,7 @@ export async function warmUp(app: App): Promise<{ warmed: Promise<void> }> {
     scene,
     [
       app.settlements, app.monuments, app.roads, app.vegetation, app.grass, app.life, app.effects, app.ambient,
-      app.sea, app.seaLife, app.countryMotion, app.weather,
+      app.sea, app.seaLife, app.countryMotion, app.weather, app.harbours,
       { proxies: () => [proxyOf(inkSource), landFlagProxy(), ...fleetMaterials().map((material) => proxyOf(material))] },
     ],
     app.rigMaterial(),

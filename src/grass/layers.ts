@@ -57,7 +57,8 @@ export function tangentOf(frame: Frame, point: THREE.Vector3, out: THREE.Vector3
  * held as a torus (texel `(I, J)` lives at `(I mod size, J mod size)`) so the
  * window moves by the line it takes on. The data are the ground's height over
  * the sphere in units, the density, the dryness and whether there is ground
- * there at all (a float texture read texel by texel), and the colour (sRGB
+ * there at all: 0 where there is none, else 1 and how far the ground goes on
+ * past the texel (`GrassSite.edge`) (a float texture read texel by texel), and the colour (sRGB
  * bytes, filtered) with how tall the grass stands of what it would
  * (`GrassSite.height`) in its alpha.
  */

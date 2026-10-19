@@ -87,6 +87,91 @@ export function windowsOf(model: Model, isWindow: NonNullable<ModelFit['windows'
   return mask;
 }
 
+/**
+ * How tall a door in Kenney's City Kits is, in the kit's own units: every door
+ * leaf the suburban and commercial packs model stands 0.27 off its sill.
+ */
+export const KIT_DOOR = 0.27;
+
+export const doors = new WeakMap<Model, number>();
+/**
+ * How tall the front door of a building model is, in its own units: the
+ * darkest slot that is not glass, on the +Z face from the ground up to under
+ * half a unit (a leaf, or a shopfront's opening). `KIT_DOOR` where no slot
+ * reads as one.
+ */
+export function doorOf(model: Model, isWindow: NonNullable<ModelFit['windows']>): number {
+  const known = doors.get(model);
+  if (known !== undefined) return known;
+  const position = model.geometry.getAttribute('position');
+  const normal = model.geometry.getAttribute('normal');
+  const ground = model.box.min.y;
+  const hsl = { h: 0, s: 0, l: 0 };
+  const lightness = model.defaults.map((color) => {
+    color.clone().convertLinearToSRGB().getHSL(hsl);
+    return hsl.l;
+  });
+  let darkest = -1;
+  let top = 0;
+  const tops = new Map<number, number>();
+  for (let t = 0; t + 2 < position.count; t += 3) {
+    const s = model.slot[t]!;
+    if (lightness[s]! > 0.4 || isWindow(model.slots[s]!, model.defaults[s]!)) continue;
+    if (normal.getZ(t) + normal.getZ(t + 1) + normal.getZ(t + 2) < 2.7) continue;
+    const low = Math.min(position.getY(t), position.getY(t + 1), position.getY(t + 2)) - ground;
+    const high = Math.max(position.getY(t), position.getY(t + 1), position.getY(t + 2)) - ground;
+    if (low > 0.08 || high > 0.5) continue;
+    tops.set(s, Math.max(tops.get(s) ?? 0, high));
+  }
+  for (const [s, high] of tops) {
+    if (darkest < 0 || lightness[s]! < lightness[darkest]!) {
+      darkest = s;
+      top = high;
+    }
+  }
+  const door = darkest >= 0 && top > 0.2 ? top : KIT_DOOR;
+  doors.set(model, door);
+  return door;
+}
+
+/**
+ * Draws the band of a painted model's geometry from `ground` up to `ground +
+ * band` `stretch` times as tall and lifts what stands over it by the
+ * difference. A face is in the band by its centre; its normals (fill and hull)
+ * take the stretch's inverse transpose, so a wall keeps its own and a slope in
+ * the band steepens as drawn.
+ */
+export function stretchBand(geometry: THREE.BufferGeometry, ground: number, band: number, stretch: number): void {
+  const source = geometry.getAttribute('position');
+  const position = new THREE.Float32BufferAttribute(new Float32Array(source.count * 3), 3);
+  const top = ground + band;
+  const lift = band * (stretch - 1);
+  const normals = ['normal', 'outlineNormal']
+    .filter((name) => geometry.getAttribute(name) !== undefined)
+    .map((name) => ({ name, attribute: (geometry.getAttribute(name) as THREE.BufferAttribute).clone() }));
+  const n = new THREE.Vector3();
+  for (let t = 0; t + 2 < source.count; t += 3) {
+    const centre = (source.getY(t) + source.getY(t + 1) + source.getY(t + 2)) / 3;
+    const inBand = centre < top;
+    for (let k = t; k < t + 3; k++) {
+      const y = source.getY(k);
+      const drawn = y <= top ? ground + (y - ground) * stretch : y + lift;
+      position.setXYZ(k, source.getX(k), drawn, source.getZ(k));
+      if (!inBand) continue;
+      for (const { attribute } of normals) {
+        n.fromBufferAttribute(attribute, k);
+        n.y /= stretch;
+        n.normalize();
+        attribute.setXYZ(k, n.x, n.y, n.z);
+      }
+    }
+  }
+  geometry.setAttribute('position', position);
+  for (const { name, attribute } of normals) geometry.setAttribute(name, attribute);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 /** The narrowest `ModelFit.narrow` draws a model, as a share of its own plan. */
 export const NARROWEST = 0.6;
 

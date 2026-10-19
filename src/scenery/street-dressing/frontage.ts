@@ -5,7 +5,7 @@ import type { Rng } from '../random.ts';
 import { disc, yawed } from '../solids.ts';
 import { aabbOf, overlapping } from './aabb.ts';
 import type { Aabb } from './aabb.ts';
-import { CLEAR, FRONTAGE_DEPTH, FRONTAGE_SHARE, ITEM_GAP, LINE_BACK, M } from './config.ts';
+import { CLEAR, FRONTAGE_DEPTH, FRONTAGE_SHARE, ITEM_GAP, LINE_BACK, M, WALL_CLEAR } from './config.ts';
 import type { Dresser } from './dresser.ts';
 import { FOOTPRINTS } from './footprints.ts';
 import type { Piece } from './footprints.ts';
@@ -121,6 +121,7 @@ function createStander(d: Dresser): Stander {
     }
   };
   for (const solid of input.solids) file(aabbOf(solid, CLEAR));
+  for (const front of input.fronts) file(aabbOf(front.solid, WALL_CLEAR));
   for (let i = 0; i + 2 < input.discs.length; i += 3) {
     const r = input.discs[i + 2]! + CLEAR;
     file({ x0: input.discs[i]! - r, x1: input.discs[i]! + r, z0: input.discs[i + 1]! - r, z1: input.discs[i + 1]! + r });

@@ -1,5 +1,5 @@
 import type { ScenicPart } from '../contract.ts';
-import { buildingPaint, sceneryModel } from '../contract.ts';
+import { DOOR_HEIGHT, buildingPaint, sceneryModel } from '../contract.ts';
 import { isGlass } from '../../models.ts';
 
 /**
@@ -26,6 +26,11 @@ export const skyscraper: ScenicPart = {
       { walls: rng.pick(style.walls), roofs: rng.pick(style.roofs), trim: rng.pick(style.trim) },
       isGlass,
     );
-    return ctx.fitted(id, { height: rng.range(26, 33.5), radius: FOOTPRINT - 0.02, width: 9.5, length: 9.5, narrow: true, windows: isGlass }, paint);
+    // The tower keeps its height and its lobby storey (0.4 of the kit's units) grows to a door's.
+    return ctx.fitted(
+      id,
+      { height: rng.range(26, 33.5), door: DOOR_HEIGHT, lift: 0.4, radius: FOOTPRINT - 0.02, width: 9.5, length: 9.5, narrow: true, windows: isGlass },
+      paint,
+    );
   },
 };

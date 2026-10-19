@@ -8,10 +8,8 @@ import { PLANET_RADIUS } from '../globe.ts';
 import type { Place } from '../places.ts';
 import type { Model } from '../models.ts';
 import { paintModel } from '../models.ts';
-import { coursePoint } from '../roads/course.ts';
-import { parameterAt } from '../roads/path.ts';
-import { crownAt } from '../rails/crown.ts';
-import { CAR_GAP, CAR_PITCH, CAR_WIDTH, consistOf, phaseOf, RAIL_TOP, TRAIN_SPEED, trainAt } from '../rails/trains.ts';
+import { carFrame, emptyCarFrame, railHeadAt } from '../rails/ride.ts';
+import { CAR_GAP, CAR_PITCH, CAR_WIDTH, consistOf, phaseOf, TRAIN_SPEED, trainAt } from '../rails/trains.ts';
 import type { RailNetwork } from '../rails/network.ts';
 import type { TrainState } from '../rails/trains.ts';
 import type { PassingSource } from '../passing-sound.ts';
@@ -20,6 +18,8 @@ import type { Crossing } from './crossings.ts';
 
 export interface Car {
   holder: THREE.Group;
+  /** The baked model under the holder: hidden while the eye is inside its carriage. */
+  body: THREE.Mesh;
   model: string;
   half: number;
   height: number;
@@ -72,7 +72,7 @@ export function createTrainRunner(source: TrainSource): TrainRunner {
   const carBehind = new THREE.Vector3();
   const hornAt = new THREE.Vector3();
   const basis = new THREE.Matrix4();
-  const bx = new THREE.Vector3();
+  const frame = emptyCarFrame();
   const by = new THREE.Vector3();
   const bz = new THREE.Vector3();
   const passingOut: PassingSource = { distance: 0, closing: 0, effort: 0 };
@@ -101,7 +101,7 @@ export function createTrainRunner(source: TrainSource): TrainRunner {
     mesh.receiveShadow = true;
     const holder = new THREE.Group();
     holder.add(mesh);
-    return { holder, model: id, half: (CAR_PITCH - CAR_GAP) / 2, height: size.y * across };
+    return { holder, body: mesh, model: id, half: (CAR_PITCH - CAR_GAP) / 2, height: size.y * across };
   }
   function takeCar(id: string): Car | null {
     const free = carPool.get(id);
@@ -120,12 +120,7 @@ export function createTrainRunner(source: TrainSource): TrainRunner {
   }
 
   /** A point `s` along a line at the rail head, over the planet's centre. */
-  function railHead(line: number, s: number, out: THREE.Vector3): THREE.Vector3 {
-    const path = network.path(line);
-    const clamped = Math.min(path.length, Math.max(0, s));
-    coursePoint(network.course(line), parameterAt(path, clamped), out);
-    return out.multiplyScalar(crownAt(network.crown(line), clamped) + RAIL_TOP);
-  }
+  const railHead = (line: number, s: number, out: THREE.Vector3): THREE.Vector3 => railHeadAt(network, line, s, out);
 
   /** The lines whose train is near enough to draw, nearest first, capped at `MAX_TRAINS`. */
   function nearestTrains(seconds: number, reach: number, lines: readonly number[], eye: THREE.Vector3): Set<number> {
@@ -161,20 +156,12 @@ export function createTrainRunner(source: TrainSource): TrainRunner {
     return train;
   }
 
-  /** Poses every car of a train along its line; the last car faces backwards. */
+  /** Poses every car of a train along its line (`carFrame`): in their order from A, the cab at A's end facing A. */
   function poseCars(line: number, train: Train, state: TrainState): void {
     train.cars.forEach((car, k) => {
-      const centre = state.head - state.direction * (k + 0.5) * CAR_PITCH;
-      railHead(line, centre + state.direction * car.half * 0.8, carAhead);
-      railHead(line, centre - state.direction * car.half * 0.8, carBehind);
-      railHead(line, centre, carPoint);
-      by.copy(carPoint).normalize();
-      bz.subVectors(carAhead, carBehind).normalize();
-      if (k === train.cars.length - 1 && k > 0) bz.negate();
-      by.addScaledVector(bz, -by.dot(bz)).normalize();
-      bx.crossVectors(by, bz).normalize();
-      basis.makeBasis(bx, by, bz);
-      car.holder.position.copy(carPoint);
+      carFrame(network, line, state, train.cars.length, k, frame);
+      basis.makeBasis(frame.x, frame.y, frame.z);
+      car.holder.position.copy(frame.position);
       car.holder.quaternion.setFromRotationMatrix(basis);
     });
   }

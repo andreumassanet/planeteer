@@ -20,10 +20,17 @@ import { BIOMES, LAPSE_PER_UNIT, SWING, TEMPERATURE_KNOTS, meanTemperature, seas
 import { PLANET_RADIUS } from './planet.ts';
 
 export const groundWeather = {
+  /** How wet the ground is where the player is, 0 to 1 (`wetnessAt`, eased). */
   atlasWet: { value: 0 },
+  /** How hard it is raining there now, 0 to 1: what rings the puddles. */
+  atlasRain: { value: 0 },
+  /** Seconds, wrapped: the rings' clock. */
+  atlasRainClock: { value: 0 },
   atlasFresh: { value: 0 },
   /** `seasonOf`'s northern phase: +1 at the height of the northern summer. */
   atlasSeason: { value: 0 },
+  /** `seasonTurn`, radians: the flora's year (`foliage-season.ts`), which tells autumn from spring. */
+  atlasSeasonTurn: { value: 0 },
   atlasWeatherAt: { value: new THREE.Vector3() },
   /** The biome's continentality, one texel a degree; see `weather-view.ts`. */
   atlasContinental: { value: blankContinental() },
@@ -97,11 +104,14 @@ float atlasLyingSnow(vec3 pos) {
   // for a falling pair of edges.
   return 1.0 - smoothstep(${LIE_COLD.toFixed(2)}, ${LIE_WARM.toFixed(2)}, t);
 }
+float atlasWeatherNear(vec3 pos) {
+  return 1.0 - smoothstep(${(WEATHER_REACH * 0.55).toFixed(1)}, ${WEATHER_REACH.toFixed(1)}, distance(pos, atlasWeatherAt));
+}
 vec3 atlasWeathered(vec3 colour, vec3 pos, vec3 viewNormal) {
   vec3 up = normalize(pos);
   vec3 worldNormal = normalize((vec4(viewNormal, 0.0) * viewMatrix).xyz);
   float facing = smoothstep(${SNOW_FLAT[0].toFixed(2)}, ${SNOW_FLAT[1].toFixed(2)}, abs(dot(worldNormal, up)));
-  float near = 1.0 - smoothstep(${(WEATHER_REACH * 0.55).toFixed(1)}, ${WEATHER_REACH.toFixed(1)}, distance(pos, atlasWeatherAt));
+  float near = atlasWeatherNear(pos);
   float snow = max(atlasLyingSnow(pos), atlasFresh * near);
   // In blots: a thin cover is patches and a deep one is whole. The blot can
   // only take snow away, so where there is none the noise is not asked, and
@@ -124,4 +134,83 @@ export function bindGroundWeather(uniforms: Record<string, THREE.IUniform>): voi
  */
 export function groundWeatherChunk(pos: string): string {
   return `diffuseColor.rgb = atlasWeathered(diffuseColor.rgb, ${pos}, vNormal);`;
+}
+
+/** The sky's share a wet surface reflects at normal incidence, and how much more a puddle does. */
+const WET_GLOSS = 0.18;
+const PUDDLE_GLOSS = 0.55;
+/** A puddle's noise scale (a puddle is a few metres across) and the share of flat ground one covers when soaked. */
+const PUDDLE_SCALE = 0.11;
+const PUDDLE_COVER = 0.32;
+/** How dark the water in a puddle leaves what is under it. */
+const PUDDLE_DARK = 0.35;
+/** A ripple's cell in units, and how many land in one a second at full rain. */
+const RIPPLE_CELL = 0.9;
+const RIPPLE_RATE = 1.1;
+
+/**
+ * The wet surface's sheen, over the lit colour: a gloss that reflects the sky
+ * by a Fresnel term, puddles in the low spots of flat ground, the sun's glint
+ * in them, and rings where drops land while it rains. Made surfaces only (the
+ * road's ribbon, a town's floor and roofs), and only at full quality: at 0
+ * the ground keeps `atlasWeathered`'s darkening alone. Needs
+ * `groundWeatherGLSL()` and `atlasQuality` declared before it, and goes just
+ * before `void main() {`, after the lights' and the fog's declarations.
+ */
+export function wetSheenGLSL(): string {
+  return /* glsl */ `
+uniform float atlasRain;
+uniform float atlasRainClock;
+float atlasRippleLayer(vec2 p, float seed) {
+  vec2 cell = floor(p);
+  vec2 f = p - cell;
+  float h = atlasHash13(vec3(cell, seed));
+  vec2 centre = vec2(0.28) + 0.44 * vec2(h, fract(h * 17.31));
+  float t = fract(atlasRainClock * ${RIPPLE_RATE.toFixed(2)} + h * 7.13);
+  float r = length(f - centre);
+  float ring = 1.0 - smoothstep(0.0, 0.045, abs(r - t * 0.42));
+  return ring * (1.0 - t) * step(fract(h * 3.71), atlasRain * 1.2);
+}
+// The puddle share at a point of flat ground soaked wet.
+float atlasPuddle(vec3 pos, float wet) {
+  float n = atlasNoise(pos * ${PUDDLE_SCALE.toFixed(3)}) * 0.7 + atlasNoise(pos * ${(PUDDLE_SCALE * 3.1).toFixed(3)}) * 0.3;
+  float edge = 1.0 - ${PUDDLE_COVER.toFixed(2)} * smoothstep(0.35, 0.9, wet);
+  return smoothstep(edge, edge + 0.04, n);
+}
+vec3 atlasWetSheen(vec3 lit, vec3 pos, vec3 viewNormal, vec3 viewPos) {
+  if (atlasQuality <= 0.0) return lit;
+  float wet = atlasWet * atlasWeatherNear(pos);
+  if (wet <= 0.01) return lit;
+  vec3 up = normalize(pos);
+  vec3 worldNormal = normalize((vec4(viewNormal, 0.0) * viewMatrix).xyz);
+  float level = smoothstep(0.9, 0.985, dot(worldNormal, up));
+  if (level <= 0.0) return lit;
+  float puddle = atlasPuddle(pos, wet) * level;
+  // vViewPosition is the fragment's position negated, so it already points at the eye.
+  vec3 v = normalize(viewPos);
+  float ndv = clamp(dot(viewNormal, v), 0.0, 1.0);
+  float fresnel = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
+  vec3 sky = vec3(0.62, 0.68, 0.74);
+  #ifdef USE_FOG
+    sky = fogColor;
+  #endif
+  vec3 a = abs(up);
+  vec2 plane = (a.x > a.y && a.x > a.z ? pos.yz : a.y > a.z ? pos.xz : pos.xy) / ${RIPPLE_CELL.toFixed(2)};
+  float ripple = atlasRain > 0.02 ? atlasRippleLayer(plane, 1.0) + atlasRippleLayer(plane * 1.37 + 0.5, 2.0) : 0.0;
+  float gloss = wet * level * (${WET_GLOSS.toFixed(2)} + ${PUDDLE_GLOSS.toFixed(2)} * puddle) * atlasQuality;
+  lit *= 1.0 - ${PUDDLE_DARK.toFixed(2)} * puddle * wet * atlasQuality;
+  lit += sky * gloss * (fresnel + 0.35 * ripple * puddle);
+  #if NUM_DIR_LIGHTS > 0
+    vec3 h = normalize(directionalLights[0].direction + v);
+    float glint = pow(max(dot(viewNormal, h), 0.0), 180.0) * step(0.0, dot(viewNormal, directionalLights[0].direction));
+    lit += directionalLights[0].color * glint * puddle * wet * (1.0 - atlasRain) * 1.5 * atlasQuality;
+  #endif
+  return lit;
+}`;
+}
+
+/** The sheen on the lit colour, put before `#include <opaque_fragment>` (which it carries). Reads `normal` and `vViewPosition`. */
+export function wetSheenChunk(pos: string, skip = 'false'): string {
+  return `if (!(${skip})) outgoingLight = atlasWetSheen(outgoingLight, ${pos}, normal, vViewPosition);
+#include <opaque_fragment>`;
 }

@@ -127,6 +127,11 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
     // The craft's glass is all but cleared, as Earth's is (`faintGlass`): from
     // inside, a dome or a windscreen at its outside tint would be a blue filter
     // over the whole view.
+    // On foot in first person the body stays drawn and only its head is folded
+    // away; in the seat's eye `setCockpit` owns the head.
+    setEyeInHead(on) {
+      if (traveller !== null && !inCockpit) traveller.avatar.setHeadless(on);
+    },
     setCockpit(on) {
       inCockpit = on;
       if (fainted !== null) faintGlass(fainted, false);
@@ -168,7 +173,7 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
     // the wheel's rim nearer still: the near plane comes in to Earth's own
     // for a seat (`COCKPIT_NEAR`, `main.ts`), which `pnpm craft` and
     // `check-worlds.ts` hold every cabin's roof and wheel further from.
-    camera.near = inCockpit ? COCKPIT_NEAR : Math.max(0.25, Math.min(50, altitude * 0.02));
+    camera.near = inCockpit || rig.firstPerson ? COCKPIT_NEAR : Math.max(0.25, Math.min(50, altitude * 0.02));
     camera.far = Math.max(3000, horizon + beyond);
     camera.updateProjectionMatrix();
   }

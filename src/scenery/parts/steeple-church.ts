@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
+import { DOOR_HEAD, DOOR_HEIGHT, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { Group, RegionStyle, Rng, SceneryContext, ScenicPart } from '../contract.ts';
 
 /**
@@ -98,14 +98,17 @@ function addTower(ctx: SceneryContext, group: Group, c: Church): void {
   group.add(finial);
 }
 
+/** A church's west door: a tenth over a house's. */
+const CHURCH_DOOR = DOOR_HEIGHT * 1.1;
+
 /** The door and west window, a porch or an apse, and the nave lancets. */
 function addFront(ctx: SceneryContext, rng: Rng, style: RegionStyle, group: Group, c: Church): void {
   const { box, panes, lit, taper, roof, windows } = ctx;
   const { stone, tile, dark, course, cornice, naveWidth, naveDepth, naveHeight, towerWidth, naveZ } = c;
   const face = towerWidth / 2;
   const door = ctx.door({
-    width: 1.7,
-    height: 3,
+    width: 2,
+    height: CHURCH_DOOR,
     leaf: doorPaint(rng, style, stone),
     frame: cornice,
     sill: 0.5,
@@ -117,13 +120,13 @@ function addFront(ctx: SceneryContext, rng: Rng, style: RegionStyle, group: Grou
   const west = windows({
     count: 1,
     width: towerWidth * 0.4,
-    height: 1.7,
+    height: 2.4,
     panes: 2,
     frame: cornice,
     glass: dark,
     strength: 0.7,
   });
-  west.position.set(0, 4.5, face);
+  west.position.set(0, 0.5 + CHURCH_DOOR + DOOR_HEAD + 0.8, face);
   group.add(west);
 
   // A porch or an apse, so no two churches in the world have the same plan.
@@ -155,11 +158,11 @@ function addFront(ctx: SceneryContext, rng: Rng, style: RegionStyle, group: Grou
   for (const side of [-1, 1]) {
     const bays = 3;
     const gap = naveDepth * 0.26 - 0.9;
-    const surround = panes(bays, 0.9, 2.4, gap, cornice);
+    const surround = panes(bays, 0.9, 3.6, gap, cornice);
     surround.rotation.y = (side * Math.PI) / 2;
     surround.position.set((side * naveWidth) / 2 + side * PROUD, 0.5 + naveHeight * 0.3, naveZ);
     group.add(surround);
-    const light = lit(panes(bays, 0.62, 2.1, gap + 0.28, dark), 0.7);
+    const light = lit(panes(bays, 0.62, 3.3, gap + 0.28, dark), 0.7);
     light.rotation.y = (side * Math.PI) / 2;
     light.position.set((side * naveWidth) / 2 + side * PROUD * 2, 0.5 + naveHeight * 0.3 + 0.15, naveZ);
     group.add(light);
@@ -191,10 +194,10 @@ export const steepleChurch: ScenicPart = {
 
     const naveWidth = rng.range(6.4, 7.6);
     const naveDepth = rng.range(10, 13);
-    const naveHeight = STOREY * rng.range(1.9, 2.4);
+    const naveHeight = STOREY * rng.range(1.5, 1.9);
     const towerWidth = naveWidth * rng.range(0.55, 0.68);
-    const towerHeight = naveHeight + STOREY * rng.range(1.6, 2.6);
-    const spireHeight = towerHeight * rng.range(0.55, 0.78);
+    const towerHeight = naveHeight + STOREY * rng.range(1, 1.6);
+    const spireHeight = towerHeight * rng.range(0.5, 0.72);
     /** One line round the whole building at one height is what makes it one building. */
     const stringY = 0.5 + naveHeight * 0.62;
 

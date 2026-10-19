@@ -4,6 +4,7 @@ import type { Ground } from '../ground/build.ts';
 import { boundingSteps, townGlass, townLeavesSteps } from '../meshes.ts';
 import type { LeafCard } from '../meshes.ts';
 import { LAMP_HEAD } from '../rules.ts';
+import { SIGNAL_HEAD } from './furniture.ts';
 import { unpublish } from '../registry.ts';
 import { writeSurface } from '../surfaces.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
@@ -245,6 +246,7 @@ function publish(kit: RaiseKit, job: RaiseJob, ground: Ground, mesh: THREE.Mesh)
     person.to.applyQuaternion(mesh.quaternion).add(mesh.position);
     person.quaternion.premultiply(mesh.quaternion);
     person.town.copy(mesh.quaternion);
+    for (const corner of person.crossing?.corners ?? []) corner.applyQuaternion(mesh.quaternion).add(mesh.position);
   }
   if (slot.folk.length > 0) registry.inhabited.add(slot);
   if (ground.lamps.length >= 3) {
@@ -275,4 +277,19 @@ function publish(kit: RaiseKit, job: RaiseJob, ground: Ground, mesh: THREE.Mesh)
     rack.forward.applyQuaternion(mesh.quaternion);
   }
   if (slot.bikeSlots.length > 0) registry.rackTowns.add(slot);
+  if (job.signalHeads.length >= SIGNAL_HEAD) {
+    const heads = Float32Array.from(job.signalHeads);
+    const at = kit.scratch.at;
+    for (let i = 0; i + SIGNAL_HEAD <= heads.length; i += SIGNAL_HEAD) {
+      for (let k = 0; k < 3; k++) {
+        const o = i + k * 3;
+        at.set(heads[o]!, heads[o + 1]!, heads[o + 2]!).applyQuaternion(mesh.quaternion).add(mesh.position);
+        heads[o] = at.x;
+        heads[o + 1] = at.y;
+        heads[o + 2] = at.z;
+      }
+    }
+    slot.signalHeads = heads;
+    registry.signalTowns.add(slot);
+  }
 }

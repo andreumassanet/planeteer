@@ -1,7 +1,7 @@
 import { FLOOR, LAND_GROUND } from '../../surfaces.ts';
 import type * as THREE from 'three';
 import { flightRect } from '../../scenery/floor.ts';
-import { cellCentre } from '../../scenery/grid.ts';
+import { cellCentre, cellIndex } from '../../scenery/grid.ts';
 import { DASH, GROUND_LIFT, LINE_HALF, MARKED_STREET, ZEBRA, ZEBRA_STRIPE, cellKey, cellTone, pavementOf } from '../../scenery/ground.ts';
 import type { GroundJob, Mouth } from './job.ts';
 import { litAround } from './writer.ts';
@@ -260,6 +260,27 @@ function cutCell(job: GroundJob, key: number, col: number, row: number, plaza: b
     vsCapped.sort((m, n) => m - n);
   }
   return { x0, z0, plaza, crossing, alongZ, alongX, ends, us: usCapped, vs: vsCapped, holes };
+}
+
+/**
+ * Whether the floor at `(x, z)` of the town's plane is pavement, worked out
+ * as the paving draws it (the cell's streets, its crossing, its dead ends)
+ * and never inside a gate's mouth, where the road comes in: what a lamp, a
+ * bench or anything else that stands on the pavement asks.
+ */
+export function pavementAt(job: GroundJob, x: number, z: number): boolean {
+  const { grid, pitch, frame, colours } = job;
+  for (const [x0, x1, z0, z1] of job.out.mouths) if (x > x0 && x < x1 && z > z0 && z < z1) return false;
+  const col = cellIndex(grid, x);
+  const row = cellIndex(grid, z);
+  const key = cellKey(col, row);
+  if (!job.levels.has(key)) return false;
+  const plaza = frame.blocked(cellCentre(grid, col), cellCentre(grid, row));
+  const crossing = !plaza && key === job.plazaKey;
+  const cut = cutCell(job, key, col, row, plaza, crossing);
+  const uc = (x - cut.x0) / pitch;
+  const vc = (z - cut.z0) / pitch;
+  return tintOf(job, cut, roleAcross(job, cut.alongZ, uc), roleAcross(job, cut.alongX, vc), uc, vc) === colours.walk;
 }
 
 /** Where a point of the cell falls across the streets on one axis. */

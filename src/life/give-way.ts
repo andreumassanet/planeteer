@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import type { LifeShared, LifeStats } from './api.ts';
+import { GREEN, signalLeft, signalLight, signalPace } from '../signals.ts';
 import type { Herding } from './herd-types.ts';
 import { WALKER_RADIUS, createLaneSearch } from './lane-search.ts';
 import { BLOCK_ANIMAL, BLOCK_PERSON, BLOCK_PLAYER, BLOCK_TRAFFIC } from './mover.ts';
@@ -126,7 +127,7 @@ export function createGiveWay(movers: ReadonlyMap<string, Mover>, stats: LifeSta
   }
 
   /** One vehicle's frame: look, then set its pace, delay, waits, horn and lane. */
-  function stepWay(mover: Mover, way: Way, viewer: THREE.Vector3, step: number): void {
+  function stepWay(mover: Mover, way: Way, viewer: THREE.Vector3, step: number, clock: number): void {
     find.gap = Infinity;
     find.kind = -1;
     const looking = way.shown && mover.at.distanceToSquared(viewer) < YIELD_REACH * YIELD_REACH;
@@ -154,6 +155,13 @@ export function createGiveWay(movers: ReadonlyMap<string, Mover>, stats: LifeSta
       const free = find.gap - (find.kind === BLOCK_TRAFFIC ? FOLLOW_GAP : STOP_GAP);
       const allowed = free <= 0 ? 0 : Math.min(Math.sqrt(2 * BRAKE * free), free / step);
       target = Math.min(top, allowed / mover.speed);
+    }
+    // A city's red light: stopped on its line, never past it in a step.
+    if (way.hold < Infinity) {
+      const light = signalLight(way.holdTown, clock, way.holdAxis);
+      const left = signalLeft(way.holdTown, clock, way.holdAxis);
+      target = Math.min(target, signalPace(way.hold, light, left, way.pace, mover.speed, step));
+      if (light !== GREEN && target < 0.1) stats.atLights++;
     }
     way.pace = target < way.pace ? target : Math.min(target, way.pace + (ACCELERATE * step) / mover.speed);
     way.delay = Math.max(0, way.delay + step * (1 - way.pace));
@@ -194,11 +202,12 @@ export function createGiveWay(movers: ReadonlyMap<string, Mover>, stats: LifeSta
     stats.waiting = 0;
     stats.passing = 0;
     stats.delayed = 0;
+    stats.atLights = 0;
     if (!gather(viewer, step, jump, walkers, herds)) return;
     for (const mover of movers.values()) {
       const way = mover.way;
       if (way === undefined) continue;
-      stepWay(mover, way, viewer, step);
+      stepWay(mover, way, viewer, step, clock);
     }
   };
 }

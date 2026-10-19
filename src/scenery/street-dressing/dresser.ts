@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { cellKey } from '../ground.ts';
 import { cellCentre, cellIndex } from '../grid.ts';
 import type { TownGrid } from '../grid.ts';
-import { flightAt } from '../floor.ts';
+import { flightAt, shoreSide } from '../floor.ts';
 import type { FloorField } from '../floor.ts';
 import type { Solid } from '../solids.ts';
 import type { Aabb } from './aabb.ts';
@@ -41,7 +41,7 @@ export interface Dresser {
   count(kind: string): void;
   /** Writes one piece and keeps it only if the town can afford it. */
   afford(write: () => void): boolean;
-  /** The terrace under `(x, z)`, if it is paved, clear of a landmark and of any flight by `margin`. */
+  /** The terrace under `(x, z)`, if it is paved, dry by `margin`, clear of a landmark and of any flight by `margin`. */
   levelAt(x: number, z: number, margin: number): number | null;
   /** One level under every corner of a box, or null: nothing straddles a riser. */
   levelUnder(box: Aabb, margin: number): number | null;
@@ -92,8 +92,12 @@ export function createDresser(input: DressInput): Dresser {
       return false;
     },
     levelAt(x, z, margin) {
-      const level = levels.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
+      const key = cellKey(cellIndex(grid, x), cellIndex(grid, z));
+      const level = levels.get(key);
       if (level === undefined) return null;
+      // Where the coast cuts the cell the paving stops at it: nothing is laid past it.
+      const shore = field.shores?.get(key);
+      if (shore !== undefined && shoreSide(shore, x, z) < margin) return null;
       if (input.blocked(x, z)) return null;
       if (flightAt(field, x, z, margin) !== null) return null;
       return level;

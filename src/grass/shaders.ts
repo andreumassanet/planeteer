@@ -1,5 +1,6 @@
 /** The blade shader: the vertex stage that places and bends every blade from its cell, and the fragment lighting. */
 import { LUSH_GLSL } from '../globe.ts';
+import { SEASON_GLSL } from '../foliage-season.ts';
 import { METRE, TIP_SATURATION, TIP_WARM, WRAP } from './types.ts';
 
 /** The vertex stage's declarations, for a planet of `radius` units. */
@@ -71,6 +72,7 @@ float vegGust(vec2 p) {
   return smoothstep(0.45, 0.95, bands * 0.6 + n * 0.55);
 }
 ${LUSH_GLSL}
+${SEASON_GLSL}
 vec3 grassSaturate(vec3 c, float s) {
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   return max(vec3(0.0), vec3(l) + (c - vec3(l)) * s);
@@ -114,11 +116,21 @@ int grassLookup(highp sampler2D data, sampler2D paintMap, vec4 win, vec2 xz, out
   float w11 = k.w * step(1e-4, a11.y);
   float ws = w00 + w10 + w01 + w11;
   if (ws < 0.5) return 0;
+  // How far a growing texel's ground goes on round it (its edge), less how
+  // far off it the point is, square as a town's margins are: past every
+  // growing texel's reach is past a lawn's kerb or wall, and nothing grows.
+  vec4 a4 = vec4(a00.w, a10.w, a01.w, a11.w);
+  vec4 onGround = step(0.5, a4);
+  vec4 off = vec4(max(f.x, f.y), max(1.0 - f.x, f.y), max(f.x, 1.0 - f.y), max(1.0 - f.x, 1.0 - f.y)) * win.z;
+  vec4 grows = step(1e-4, vec4(a00.y, a10.y, a01.y, a11.y));
+  vec4 reach4 = mix(vec4(-1e4), a4 - 1.0 - off, grows);
+  float edge = max(max(reach4.x, reach4.y), max(reach4.z, reach4.w));
+  if (edge <= 0.0) return 0;
   // The height over every texel whose ground goes on, bare or grown.
-  vec4 g4 = k * vec4(a00.w, a10.w, a01.w, a11.w);
+  vec4 g4 = k * onGround;
   fld.x = dot(g4, vec4(a00.x, a10.x, a01.x, a11.x)) / max(g4.x + g4.y + g4.z + g4.w, 1e-4);
   // Thinned toward the edge rather than cut at it.
-  fld.y = (a00.y * w00 + a10.y * w10 + a01.y * w01 + a11.y * w11) / ws * smoothstep(0.5, 0.85, ws);
+  fld.y = (a00.y * w00 + a10.y * w10 + a01.y * w01 + a11.y * w11) / ws * smoothstep(0.5, 0.85, ws) * smoothstep(0.0, 0.35, edge);
   fld.z = (a00.z * w00 + a10.z * w10 + a01.z * w01 + a11.z * w11) / ws;
   vec4 painted = textureLod(paintMap, (g + 0.5) / float(n), 0.0);
   paint = painted.rgb;
@@ -148,6 +160,9 @@ vec3 grassTilt(vec3 o, vec3 n) {
   return o + cross(v, o) + cross(v, cross(v, o)) / (1.0 + n.y);
 }
 `;
+
+/** The blade's year, the land's own (`atlasGroundSeason`), read off the ground's colour; Earth's grass only. */
+export const GRASS_SEASON_AT = '      c = atlasGroundSeason(c, mid, (modelMatrix * vec4(rootL, 1.0)).xyz);';
 
 export const GRASS_VERTEX_MAIN = /* glsl */ `
   vec3 objectNormal = vec3(0.0, 1.0, 0.0);
@@ -290,6 +305,7 @@ export const GRASS_VERTEX_MAIN = /* glsl */ `
       c *= 0.86 + 0.26 * r1.w;
       vec3 dcol = mix(mix(uGDryRoot, uGDryTip, far * 0.5), uGDryTip, smoothstep(0.0, 1.0, t)) * (0.88 + 0.24 * r2.y);
       c = mix(c, dcol, dry);
+${GRASS_SEASON_AT}
       c *= 1.0 + gust * (0.15 + ws * 0.45) * t;
       c *= 1.0 + far * 0.12;
       vGrassColour = c;

@@ -1,7 +1,6 @@
 /** The big thing a cell holds: one builder per kind, each drawing from its own forked stream in a fixed order. */
 import { lonOf } from '../sphere.ts';
 import type { Rng } from '../scenery/random.ts';
-import { WATERLINE } from '../vehicles.ts';
 import { dirAt, inCell } from './frame.ts';
 import { free, turn } from './ground.ts';
 import type { Site } from './ground.ts';
@@ -84,10 +83,6 @@ const fishing: Builder = (s, plan, rng, c) => {
   if (ground <= 0) return true;
   put(s, plan, 'jetty', startX, startZ, facing, 1.6, rng, 1, false, ground);
   s.claimed.push({ x: end.x, z: end.z, radius: 3, yaw: 0, halfX: 0, halfZ: 0 });
-  const boat = turn(point.x, point.z, facing, rng.sign() * 2.8, land + 9);
-  if (world.elevationAt(dirAt(frame, boat.x, boat.z, frame.scratch)) <= 0) {
-    put(s, plan, 'rowboat', boat.x, boat.z, facing + rng.range(-0.3, 0.3), 1.8, rng, 1, false, WATERLINE);
-  }
   return true;
 };
 

@@ -2,7 +2,7 @@
  * The small life round the camera: fireflies over the grass on a summer
  * night, butterflies over a meadow by day, pollen in the sun, gulls over a
  * coast, a fish jumping off the shore, falling leaves and the litter under
- * the trees.
+ * the trees, and on a sandy beach shells, a sandcastle and crabs.
  *
  * Nothing is stored, streamed or random. The ground is cut into cells on a
  * fixed grid of the sphere; a cell is a pure function of its row and column
@@ -27,6 +27,7 @@ import {
   LITTER_BASE, LITTER_EVERY, LITTER_MAX, RANGE, RESCAN_EVERY, RESCAN_MOVE, WEATHER_EVERY,
 } from './ambient/constants.ts';
 import { createCreatures } from './ambient/creatures.ts';
+import { createBeach } from './ambient/beach.ts';
 import { createCrowns } from './ambient/crowns.ts';
 import { autumnAt, clamp01, smooth } from './ambient/grid.ts';
 import type {
@@ -82,7 +83,8 @@ export function createAmbient(options: AmbientOptions): Ambient {
   const admitPerFrame = options.admitPerFrame ?? 2;
   const stats: AmbientStats = {
     enabled: true, cells: 0, gullCells: 0, admitted: 0, fireflies: 0, motes: 0, butterflies: 0,
-    leaves: 0, lying: 0, crowns: 0, litter: 0, groundAsks: 0, fish: 0, gulls: 0, calls: 0, quiet: '', autumn: 0, updateMs: 0,
+    leaves: 0, lying: 0, crowns: 0, litter: 0, groundAsks: 0, fish: 0, gulls: 0, shells: 0, castles: 0, crabs: 0,
+    calls: 0, quiet: '', autumn: 0, updateMs: 0,
   };
   const state = {
     lightCursor: 0, vertexCursor: 0, clock: 0, pending: false, scanId: 0, crownBudget: 0, litterAsks: 0,
@@ -98,6 +100,7 @@ export function createAmbient(options: AmbientOptions): Ambient {
   const grid = createCells(ctx);
   const creatures = createCreatures(ctx, grid.anchorPoint);
   const crowns = createCrowns(ctx);
+  const beach = createBeach(ctx);
   const { group, lights, bodies, litter, lightGeometry, bodyGeometry, litterGeometry } = buffers;
 
   let enabled = true;
@@ -116,6 +119,7 @@ export function createAmbient(options: AmbientOptions): Ambient {
     // Written again from the crowns when it shows.
     state.litterDirty = true;
     stats.fireflies = stats.motes = stats.butterflies = stats.leaves = stats.lying = stats.litter = stats.fish = stats.gulls = 0;
+    stats.shells = stats.castles = stats.crabs = 0;
     stats.calls = 0;
   }
 
@@ -219,6 +223,10 @@ export function createAmbient(options: AmbientOptions): Ambient {
       Math.round(LITTER_MAX * crown.shed * (LITTER_BASE + (1 - LITTER_BASE) * season) * cover);
 
     stats.fireflies = stats.motes = stats.butterflies = stats.leaves = stats.lying = stats.fish = stats.gulls = 0;
+    stats.shells = stats.castles = stats.crabs = 0;
+    // The beach under lying snow keeps nothing in sight, and its crabs keep in out of the rain.
+    const sandy = w.lying < 0.3;
+    const crabs = strength.calm * (1 - clamp01(w.precipitation * 2.5)) * clamp01((w.temperatureC - 10) / 5);
     state.lightCursor = 0;
     state.vertexCursor = 0;
     const now = state.clock;
@@ -226,6 +234,8 @@ export function createAmbient(options: AmbientOptions): Ambient {
       const distance = cell.up.distanceTo(up) * PLANET_RADIUS;
       cell.fade = smooth((RANGE - distance) / (RANGE - FADE_FROM)) * smooth((now - cell.born) / FADE_IN);
       if (cell.fade <= 0) continue;
+      if (sandy && cell.beach !== null) beach.draw(cell, player, crabs);
+      if (cell.anchorCount === 0) continue;
       if (cell.fireflies > 0 && strength.fireflies > 0.01) creatures.fireflies(cell, strength.fireflies);
       if (cell.motes > 0 && strength.motes > 0.01) creatures.motes(cell, strength.motes);
       if (cell.butterflies > 0 && strength.butterflies > 0.01) creatures.butterflies(cell, strength.butterflies);

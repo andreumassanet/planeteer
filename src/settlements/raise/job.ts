@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ShopDoor } from './street-folk.ts';
 import type { World } from '../../geo.ts';
 import type { DrawnFootprint, LandProbe } from '../../land-probe.ts';
 import type { Placed, RegionStyle } from '../../scenery/index.ts';
@@ -49,6 +50,10 @@ export interface RaiseJob {
   readonly parked: Bay[];
   readonly benches: Bench[];
   readonly bikeSlots: BikeSlot[];
+  /** The street dressing's shop doorsteps, where a keeper may stand (`street-folk.ts`). */
+  readonly shopDoors: ShopDoor[];
+  /** Its traffic lights' lamps, `SIGNAL_HEAD` numbers each (`furniture.ts`), in the town's frame until the mesh is placed. */
+  readonly signalHeads: number[];
   readonly grid: TownGrid;
   readonly placed: Placed[];
   readonly standing: Standing[];

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { shadeByClouds } from '../cloud-shade.ts';
 import { seeThrough } from '../see-through.ts';
 import { MACHINE_BED } from '../craft/parked.ts';
-import { GROUND_MARKS_GLSL, LUSH_GLSL, bindGroundWeather, groundPatchesChunk, groundWeatherChunk, groundWeatherGLSL } from '../globe.ts';
+import { GROUND_MARKS_GLSL, LUSH_GLSL, bindGroundWeather, groundPatchesChunk, groundWeatherChunk, groundWeatherGLSL, wetSheenChunk, wetSheenGLSL } from '../globe.ts';
 import {
   LAND_GROUND_GLSL, LAND_SURFACE_GLSL, LAND_SURFACE_VERTEX_PARS, landBumpChunk, landSurfaceUniforms, landSurfaceVertex, madeLandChunk,
 } from '../globe.ts';
@@ -10,7 +10,7 @@ import { VARNISH_GLSL } from '../gloss.ts';
 import { lightWindows } from '../lights.ts';
 import { surfaceQuality } from '../graphics-quality.ts';
 import { createToonRamp } from '../theme.ts';
-import { GLASS, LAND_GROUND, ROOM_GLSL, SURFACE_GLSL } from '../surfaces.ts';
+import { GLASS, LAND_GROUND, ROOM_GLSL, SURFACE_GLSL, townPaintChunk } from '../surfaces.ts';
 
 /**
  * The one material every town on the planet is drawn with.
@@ -26,22 +26,7 @@ import { GLASS, LAND_GROUND, ROOM_GLSL, SURFACE_GLSL } from '../surfaces.ts';
  * vertices (`MACHINE_BED`) keep their colour and take the craft's varnish.
  */
 
-const TOWN_BRUSH_BROAD = 7;
-const TOWN_BRUSH_FINE = 1.8;
-const TOWN_BRUSH_LIGHT = 0.07;
-const TOWN_SATURATION = 1.12;
-const TOWN_PAINT = /* glsl */ `{
-    diffuseColor.rgb = atlasLush(diffuseColor.rgb);
-    float townLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-    diffuseColor.rgb = max(vec3(0.0), vec3(townLuma) + (diffuseColor.rgb - vec3(townLuma)) * ${TOWN_SATURATION.toFixed(2)});
-    float townFoot = max(length(dFdx(vAtlasPos)), length(dFdy(vAtlasPos)));
-    float townShare = 1.0 - smoothstep(${(TOWN_BRUSH_FINE * 0.3).toFixed(2)}, ${(TOWN_BRUSH_BROAD * 0.5).toFixed(2)}, townFoot);
-    if (townShare > 0.0) {
-      float townStroke = atlasNoise(vAtlasPos * ${(1 / TOWN_BRUSH_BROAD).toFixed(5)}) * 0.65
-        + atlasNoise(vAtlasPos * ${(1 / TOWN_BRUSH_FINE).toFixed(5)} + 3.1) * 0.35;
-      diffuseColor.rgb *= 1.0 + (townStroke - 0.5) * ${(TOWN_BRUSH_LIGHT * 2).toFixed(3)} * townShare;
-    }
-  }`;
+const TOWN_PAINT = townPaintChunk('vAtlasPos');
 
 /** Past this many world units a pixel, no surface is bent: its joints are under a pixel. */
 const BUMP_REACH = 0.2;
@@ -133,7 +118,10 @@ export function townMaterial(): THREE.MeshToonMaterial {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n  normal = surfBend(-vViewPosition, normal, townBump, faceDirection);\n  ${landBumpChunk('madeLandBump', '1.0')}`)
       .replace('#include <emissivemap_fragment>', 'vec3 townMachineGlow = totalEmissiveRadiance;\n  #include <emissivemap_fragment>')
       .replace('#include <lights_toon_fragment>', 'if (townMachine) totalEmissiveRadiance = townMachineGlow;\n  totalEmissiveRadiance *= townRoomGlow;\n  #include <lights_toon_fragment>')
-      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n  if (townMachine) ${VARNISH_GLSL}`);
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n  if (townMachine) ${VARNISH_GLSL}`)
+      // A wet floor's and a flat roof's sheen and puddles, over the light; never a parked car's.
+      .replace('void main() {', `${wetSheenGLSL()}\nvoid main() {`)
+      .replace('#include <opaque_fragment>', wetSheenChunk('vAtlasPos', 'townMachine || madeLand'));
   };
   // Last, over the windows and the paint, and before `fadeTwin` clones it.
   return seeThrough(shadeByClouds(material));

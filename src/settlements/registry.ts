@@ -26,6 +26,8 @@ export interface Registry {
   readonly benchTowns: Set<Slot>;
   /** The standing towns with a bicycle rack, for `bikeSlotsNear`. */
   readonly rackTowns: Set<Slot>;
+  /** The standing towns with traffic lights, for `signalsNear`. */
+  readonly signalTowns: Set<Slot>;
   /** The near towns whose trees shed; see `createCrowns`. */
   readonly crowned: Set<THREE.Mesh>;
   townCrowns(mesh: THREE.Mesh, cards: readonly LeafCard[]): void;
@@ -63,6 +65,7 @@ export function createRegistry(): Registry {
     parkedTowns: new Set(),
     benchTowns: new Set(),
     rackTowns: new Set(),
+    signalTowns: new Set(),
     crowned,
     townCrowns,
     seatLog: null,
@@ -114,5 +117,7 @@ export function unpublish(registry: Registry, slot: Slot): void {
   registry.benchTowns.delete(slot);
   slot.bikeSlots = [];
   registry.rackTowns.delete(slot);
+  slot.signalHeads = null;
+  registry.signalTowns.delete(slot);
   slot.mesh = null;
 }

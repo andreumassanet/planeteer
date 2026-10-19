@@ -29,7 +29,7 @@ import { createPainting } from './contract/painting.ts';
 import type { SceneryContext } from './contract/context-type.ts';
 
 export { AVATAR_HEIGHT, SCENERY_SCALE } from '../stature.ts';
-export { LEGIBLE_AT, STOREY } from './contract/scale.ts';
+export { DOOR_HEIGHT, DOOR_LEAST, FIT_SCALE, LEGIBLE_AT, STOREY } from './contract/scale.ts';
 export { GLASS_TONE, PROUD, TONES } from './contract/tones.ts';
 export { KINDS, VARIANTS } from './contract/kinds.ts';
 export type { KindSpec, PartKind } from './contract/kinds.ts';
@@ -43,7 +43,7 @@ export {
   rolePaint,
   sceneryModel,
 } from './contract/models.ts';
-export { doorClashes, validatePart, variantRng, varietyOf } from './contract/part.ts';
+export { doorClashes, doorHeights, validatePart, variantRng, varietyOf } from './contract/part.ts';
 export type { ScenicPart, Variety } from './contract/part.ts';
 export type { Measurements } from '../monuments/contract.ts';
 export { measure, paletteName } from '../monuments/contract.ts';

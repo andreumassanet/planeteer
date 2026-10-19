@@ -2,8 +2,10 @@
 import { INSTRUMENTS } from './instruments.ts';
 import type { InstrumentId } from './instruments.ts';
 import type { Chord, DrumLine, Style } from './style-types.ts';
+import type { Atmosphere } from './atmosphere.ts';
 
-export type Role = 'lead' | 'answer' | 'accomp' | 'bass' | 'pad' | 'drone' | 'drums';
+/** `mood` is the atmosphere's layer (`atmosphere.ts`), on a bus of its own. */
+export type Role = 'lead' | 'answer' | 'accomp' | 'bass' | 'pad' | 'drone' | 'drums' | 'mood';
 
 export interface NoteEvent {
   /** Beats from the phrase's start. */
@@ -36,6 +38,8 @@ export interface Mood {
   /** Whether the drums that keep to town play. */
   drums: boolean;
   night: boolean;
+  /** What the sky is doing, which bends the piece and picks the layer over it. */
+  atmosphere: Atmosphere;
 }
 
 export type PhraseKind = 'intro' | 'theme' | 'variation' | 'contrast' | 'answer' | 'outro';

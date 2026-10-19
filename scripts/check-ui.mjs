@@ -316,8 +316,8 @@ function passportSuite({ test, ensure, key, canvas, opener, resetBindings, creat
     try {
       resetBindings();
       opener.focus();
-      key(window, 'keydown', 'KeyJ');
-      ensure(card.open, 'J opens it');
+      key(window, 'keydown', 'KeyN');
+      ensure(card.open, 'N opens it');
       ensure(root.querySelector('.p-page.cover') === null, 'with no cover to open first');
       ensure(current().length === 1 && current()[0].startsWith('Africa'), 'at the visa of the country underfoot');
       ensure(root.querySelector('.p-nav, .p-close') === null, 'and no buttons under the book');
@@ -331,9 +331,9 @@ function passportSuite({ test, ensure, key, canvas, opener, resetBindings, creat
       ensure(current()[0].startsWith('Europe'), 'the corner turns to the next spread');
       key(window, 'keydown', 'ArrowLeft');
       ensure(root.querySelector('.p-tab.holder').getAttribute('aria-current') === 'true', 'and the arrows turn it too');
-      key(document.activeElement ?? window, 'keydown', 'KeyJ');
-      ensure(!card.open, 'J closes it');
-      key(window, 'keydown', 'KeyJ');
+      key(document.activeElement ?? window, 'keydown', 'KeyN');
+      ensure(!card.open, 'N closes it');
+      key(window, 'keydown', 'KeyN');
       key(document.activeElement ?? window, 'keydown', 'Escape');
       ensure(!card.open, 'and so does Escape');
     } finally {

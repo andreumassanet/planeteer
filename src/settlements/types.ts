@@ -76,6 +76,11 @@ export interface Settlements {
   /** The bicycle-rack slots of every standing town inside `radius` of `viewer`. Appends to `out`. */
   bikeSlotsNear(viewer: THREE.Vector3, radius: number, out: BikeSlot[]): void;
   /**
+   * Every standing town with traffic lights inside `radius` of `viewer`: its
+   * place index and its lamps, `SIGNAL_HEAD` numbers a light, in world space.
+   */
+  signalsNear(viewer: THREE.Vector3, radius: number, visit: (town: number, heads: Float32Array) => void): void;
+  /**
    * A parked car has been taken: its vertices in the town's buffer are folded
    * away and its wall comes down. Idempotent, and nothing when its town is not
    * standing.
@@ -388,4 +393,6 @@ export interface Slot {
   benches: Bench[];
   /** Its bicycle racks' slots, in world space. */
   bikeSlots: BikeSlot[];
+  /** Its traffic lights' lamps, in world space, `SIGNAL_HEAD` numbers each; null where it has none. */
+  signalHeads: Float32Array | null;
 }

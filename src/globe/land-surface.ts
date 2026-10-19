@@ -18,6 +18,7 @@ import { SHORE_LIP } from '../terrain.ts';
 import { PALETTE } from '../theme.ts';
 import { PLANET_RADIUS } from './planet.ts';
 import { BRUSH_BROAD, BRUSH_FINE, BRUSH_LIGHT, MACRO_BROAD, PATCH_FINE, noise3 } from './ground-marks.ts';
+import { SEASON_GLSL } from '../foliage-season.ts';
 
 const DEG = Math.PI / 180;
 
@@ -267,9 +268,11 @@ vec3 atlasLandSurface(vec3 colour, vec3 pos, vec3 local, vec3 worldNormal, float
  * \`LAND_SURFACE_GLSL\` and \`groundWeatherGLSL()\` before it.
  */
 export const LAND_GROUND_GLSL = /* glsl */ `
+${SEASON_GLSL}
 vec3 atlasLandGround(vec3 colour, vec3 pos, vec3 local, vec3 viewNormal, float foot, float marks, float brush, float surface, out float bump) {
   bump = 0.0;
   colour = atlasLush(colour);
+  colour = atlasGroundSeason(colour, colour, pos);
   float macroShare = marks * step(1e-4, atlasQuality) * (1.0 - smoothstep(${(MACRO_BROAD * 0.08).toFixed(1)}, ${(MACRO_BROAD * 0.3).toFixed(1)}, foot));
   float blotShare = marks * (1.0 - smoothstep(${(PATCH_FINE * 0.1).toFixed(1)}, ${(PATCH_FINE * 0.4).toFixed(1)}, foot));
   if (macroShare > 0.0) colour = mix(colour, atlasMacro(colour, pos), macroShare);

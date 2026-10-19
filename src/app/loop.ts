@@ -19,6 +19,7 @@ import { createStreaming } from './frame/streaming.ts';
 import { createFrameStats } from './frame/stats.ts';
 import type { Tick } from './frame/tick.ts';
 import { createWater } from './frame/water.ts';
+import { setUmbrellaRain } from '../umbrella.ts';
 import { createBadgePhase, createMapsPhase } from './frame/whereabouts.ts';
 
 /**
@@ -75,6 +76,8 @@ export function createLoop(app: App): () => void {
     guard('city lights', () => app.cityLights.update(renderer));
     // Before the haze, which it closes in rain and fog (`setWeatherHaze`).
     guard('weather', () => app.weather.update(tick.dt, sky.state.time, player.position, tick.ground, rig.camera, sky.state.daylight));
+    // The crowds put their umbrellas up by the rain where the player stands.
+    setUmbrellaRain(app.weather.sound.rain);
     soundPhase(tick);
     tick.altitude = updateHaze(app, tick);
     streaming(tick);

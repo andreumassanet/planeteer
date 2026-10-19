@@ -21,6 +21,7 @@ export interface NearTowns {
   parkedNear(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
   benchesNear(viewer: THREE.Vector3, radius: number, out: Bench[]): void;
   bikeSlotsNear(viewer: THREE.Vector3, radius: number, out: BikeSlot[]): void;
+  signalsNear(viewer: THREE.Vector3, radius: number, visit: (town: number, heads: Float32Array) => void): void;
   hideParked(id: string): void;
 }
 
@@ -126,6 +127,14 @@ export function createNearTowns(registry: Registry, slots: readonly Slot[]): Nea
         for (const rack of slot.bikeSlots) {
           if (rack.position.distanceTo(viewer) <= radius) out.push(rack);
         }
+      }
+    },
+
+    signalsNear(viewer, radius, visit) {
+      const cosReach = cosOf(radius);
+      const direction = folkDirection.copy(viewer).normalize();
+      for (const slot of registry.signalTowns) {
+        if (slot.signalHeads !== null && slot.direction.dot(direction) >= cosReach) visit(slot.index, slot.signalHeads);
       }
     },
 

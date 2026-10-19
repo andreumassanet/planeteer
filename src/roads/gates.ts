@@ -176,6 +176,7 @@ export function rampOf(
     let rise = 0;
     let run = 0;
     let walk = 0;
+    let carriage = 0;
     let kerb = 0;
     if (level !== null) {
       const town = townOf(place);
@@ -184,16 +185,19 @@ export function rampOf(
       run = course.approach;
       const mouth = gateMouth(town.grid, town.gates[gate]!, bandOf(place, town, world));
       walk = mouth.edge - mouth.carriage;
+      carriage = mouth.carriage;
     }
     if (end === 0) {
       into.riseA = rise;
       into.levelA = run;
       into.walkA = walk;
+      into.carriageA = carriage;
       into.kerbA = kerb;
     } else {
       into.riseB = rise;
       into.levelB = run;
       into.walkB = walk;
+      into.carriageB = carriage;
       into.kerbB = kerb;
     }
   }

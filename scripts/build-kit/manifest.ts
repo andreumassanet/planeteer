@@ -32,7 +32,6 @@ export const TRAFFIC: StaticEntry[] = [
   { id: 'suv', source: `${KENNEY_CARS}suv.glb`, wheels: /^wheel/ },
   { id: 'suv-luxury', source: `${KENNEY_CARS}suv-luxury.glb`, wheels: /^wheel/ },
   { id: 'van', source: `${KENNEY_CARS}van.glb`, wheels: /^wheel/ },
-  { id: 'delivery', source: `${KENNEY_CARS}delivery.glb`, wheels: /^wheel/ },
   { id: 'delivery-flat', source: `${KENNEY_CARS}delivery-flat.glb`, wheels: /^wheel/ },
   { id: 'truck', source: `${KENNEY_CARS}truck.glb`, wheels: /^wheel/ },
   { id: 'truck-flat', source: `${KENNEY_CARS}truck-flat.glb`, wheels: /^wheel/ },
@@ -137,4 +136,6 @@ export const FAUNA: RigEntry[] = [
   // No CC0 camel exists in this style, so the camel is the horse with a hump.
   { id: 'camel', source: `${UAA}Horse.gltf`, clips: /^(Eating|Idle|Walk)$/, hump: { bone: 'Torso2', slot: 'Main', length: 0.38, height: 0.13, width: 0.72 } },
   { id: 'sheep', source: `${FARM}Sheep.fbx`, clips: /Idle$/ },
+  // A town's dog, walked on a lead by a stroller (`folk/dogs.ts`); no herd keeps one.
+  { id: 'dog', source: `${UAA}ShibaInu.gltf`, clips: /^(Idle|Walk|Eating)$/ },
 ];

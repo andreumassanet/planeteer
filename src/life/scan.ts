@@ -3,6 +3,7 @@
  * and the nearest win under a cap per family and one over all of them, so
  * the cast thins from the horizon inwards.
  */
+import { releaseUmbrella } from '../umbrella.ts';
 import * as THREE from 'three';
 import type { Folk } from '../folk.ts';
 import { prominenceVersion } from '../places.ts';
@@ -137,6 +138,7 @@ export function createScan(deps: ScanDeps): Scan {
       if (mover.person) {
         group.remove(mover.person.holder);
         // Back to the cast's pool, not disposed: see `Cast.release`.
+        releaseUmbrella(mover.person.person);
         folk?.release(mover.person.person);
         mover.person = null;
       }

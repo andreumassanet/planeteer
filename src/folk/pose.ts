@@ -6,7 +6,13 @@ import { place } from './stroll.ts';
 
 export function release(st: TownsfolkState, entry: Standing): void {
   st.group.remove(entry.holder);
+  st.dogs.release(st, entry);
+  if (entry.seatTalk !== null) {
+    entry.seatTalk.stop();
+    entry.seatTalk.setEffectiveWeight(1);
+  }
   if (entry.head !== null) entry.head.quaternion.copy(entry.headRest);
+  st.umbrellas.release(entry.person);
   // Back to the cast's pool, not disposed: see `Cast.release`.
   st.folk.release(entry.person);
   st.standing.delete(entry.anchor.key);
@@ -26,6 +32,7 @@ export function dress(st: TownsfolkState, anchor: FolkAnchor, clock: number): St
     stance = clip;
     if ((pick -= share) < 0) break;
   }
+  if (anchor.seated === true) stance = 'Sit';
   const base = person.actions.get(stance)!;
   base.play();
   // Every action a pooled person comes back with is at a time scale of one
@@ -45,8 +52,21 @@ export function dress(st: TownsfolkState, anchor: FolkAnchor, clock: number): St
   talk.setEffectiveWeight(0);
   talk.time = hash(anchor.key, 'talk') * talk.getClip().duration;
   talk.timeScale = 0.9 + hash(anchor.key, 'talk-rate') * 0.2;
-  const length = anchor.from.distanceTo(anchor.to);
-  const mode: Mode = anchor.chatting
+  const length = anchor.crossing !== undefined ? anchor.crossing.corners[0]!.distanceTo(anchor.crossing.corners[1]!) : anchor.from.distanceTo(anchor.to);
+  // A sitter talks with the upper body only, over the sitting clip.
+  let seatTalk: THREE.AnimationAction | null = null;
+  if (anchor.seated === true) {
+    seatTalk = person.mixer.clipAction(seatedTalk(talk.getClip()));
+    seatTalk.play();
+    seatTalk.setEffectiveWeight(0);
+    seatTalk.time = talk.time;
+    seatTalk.timeScale = talk.timeScale;
+  }
+  const mode: Mode = anchor.crossing !== undefined
+    ? 'cross'
+    : anchor.seated === true
+      ? 'sit'
+      : anchor.chatting
     ? 'chat'
     : length > 1 && hash(anchor.key, 'strolls') < STROLL_SHARE
       ? 'stroll'
@@ -75,7 +95,7 @@ export function dress(st: TownsfolkState, anchor: FolkAnchor, clock: number): St
     yaw,
     targetYaw: yaw,
     restYaw: yaw,
-    along: length > 1e-6 ? THREE.MathUtils.clamp(anchor.from.distanceTo(anchor.position) / length, 0, 1) : 0,
+    along: mode === 'cross' ? 0 : length > 1e-6 ? THREE.MathUtils.clamp(anchor.from.distanceTo(anchor.position) / length, 0, 1) : 0,
     heading: hash(anchor.key, 'heading') < 0.5 ? 1 : -1,
     length,
     speed: WALK_SPEED * THREE.MathUtils.lerp(STROLL_PACE[0], STROLL_PACE[1], hash(anchor.key, 'pace')),
@@ -91,7 +111,28 @@ export function dress(st: TownsfolkState, anchor: FolkAnchor, clock: number): St
     glance: 0,
     held: false,
     turns: 0,
+    seatTalk,
+    leg: 0,
+    aside: new THREE.Vector3(),
+    asideTarget: new THREE.Vector3(),
+    asideFor: 0,
+    startledBy: new THREE.Vector3(),
+    dog: null,
   };
+  if (mode === 'cross') entry.heading = 1;
   place(st, entry);
   return entry;
+}
+
+const seatedClips = new WeakMap<THREE.AnimationClip, THREE.AnimationClip>();
+
+/** The talking clip without the hips and the legs: what a sitter talks with over the sitting clip. */
+export function seatedTalk(talk: THREE.AnimationClip): THREE.AnimationClip {
+  let clip = seatedClips.get(talk);
+  if (clip === undefined) {
+    const upper = talk.tracks.filter((track) => !/(hips|leg|foot|toe|root)/i.test(track.name.split('.').slice(0, -1).join('.')));
+    clip = new THREE.AnimationClip(`${talk.name}_Seated`, talk.duration, upper);
+    seatedClips.set(talk, clip);
+  }
+  return clip;
 }

@@ -71,7 +71,6 @@ export const PIECE_COLOURS: Record<string, number | null> = {
   campfire: PALETTE.orange,
   'fishing-hut': PALETTE.brown,
   jetty: tone(PALETTE.brown, 0.85),
-  rowboat: null,
   cairn: PALETTE.bone,
   bench: null,
   signpost: null,

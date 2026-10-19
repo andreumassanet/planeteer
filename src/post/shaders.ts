@@ -41,6 +41,12 @@ uniform float uAO;
 uniform vec3 uAOColor;
 uniform float uDof;
 uniform float uFocus;
+uniform vec2 uFocusBand;
+uniform float uDofNear;
+uniform vec3 uFilterTint;
+uniform float uFilterMono;
+uniform float uFilterSepia;
+uniform float uFilterFade;
 ${SHAFT_GRADE_PARS}
 varying vec2 vUv;
 
@@ -95,9 +101,12 @@ float grainHash(vec2 p) {
 }
 
 // How many pixels across a point at 'distance' is spread: nothing near the
-// subject, opening to the whole radius far past it. Only the far field blurs.
+// subject, opening to the whole radius past it, between 'uFocusBand' times
+// the focus. 'uDofNear' blurs what is nearer than the focus too.
 float dofSpread(float distance) {
-  return smoothstep(uFocus * 4.0, uFocus * 24.0, distance) * uDof * resolution.y * ${DOF_RADIUS};
+  float far = smoothstep(uFocus * uFocusBand.x, uFocus * uFocusBand.y, distance);
+  float near = uDofNear * (1.0 - smoothstep(uFocus * 0.3, uFocus * 0.8, distance));
+  return max(far, near) * uDof * resolution.y * ${DOF_RADIUS};
 }
 // The far field gathered over a golden-angle disc; a tap counts only where
 // its own spread reaches back this far, so a sharp near edge does not bleed
@@ -150,6 +159,12 @@ ${SHAFT_GRADE}
   p = mix(p, s, uContrast);
   float l2 = dot(p, vec3(0.2126, 0.7152, 0.0722));
   p = mix(vec3(l2), p, uSat);
+  // A photo's filter: a tint, black and white, sepia, and faded blacks.
+  p *= uFilterTint;
+  float lf = dot(p, vec3(0.2126, 0.7152, 0.0722));
+  p = mix(p, vec3(lf), uFilterMono);
+  p = mix(p, vec3(lf) * vec3(1.08, 0.93, 0.72), uFilterSepia);
+  p = mix(p, vec3(0.07, 0.06, 0.05) + p * 0.84, uFilterFade);
   float aspect = resolution.x / max(resolution.y, 1.0);
   vec2 q = (vUv - 0.5) * vec2(aspect, 1.0);
   float vignette = smoothstep(0.35, 1.25, length(q));

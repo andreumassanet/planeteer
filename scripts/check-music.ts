@@ -24,6 +24,13 @@ import {
   ringOf,
   scaleOver,
   styleAt,
+  ATMOSPHERE,
+  ATMOSPHERES,
+  HOME,
+  atmosphereBar,
+  atmosphereOf,
+  barsOf,
+  weatherCueOf,
   styleForCountry,
 } from '../src/music-score.ts';
 import type { InstrumentId, Mood, NoteEvent, Piece, Style } from '../src/music-score.ts';
@@ -351,4 +358,69 @@ test('every style can be forced for review by its id', () => {
   const byStyle = new Map<string, Style>(Object.entries(STYLES));
   for (const id of STYLE_IDS) assert.ok(byStyle.has(id));
   assert.equal(STYLE_IDS.length, 20);
+});
+
+test('the atmosphere: weather over the dark, and the piece bent by it', () => {
+  assert.equal(atmosphereOf(1), 'clear');
+  assert.equal(atmosphereOf(0), 'night');
+  assert.equal(atmosphereOf(0, 'storm'), 'storm');
+  assert.equal(atmosphereOf(1, 'rain'), 'rain');
+  assert.equal(atmosphereOf(0.1, 'snow'), 'snow');
+  assert.equal(weatherCueOf('drizzle'), 'rain');
+  assert.equal(weatherCueOf('fog'), 'clear');
+  for (const id of STYLE_IDS) {
+    const style = STYLES[id];
+    const clear = planPiece(style, 5, moodOf(id, true, 1), 12, 120);
+    const night = planPiece(style, 5, moodOf(id, true, 0), 12, 120);
+    const snow = planPiece(style, 5, moodOf(id, true, 1, 'snow'), 12, 120);
+    assert.ok(night.bpm <= clear.bpm, `${id}: night is not slower (${night.bpm} against ${clear.bpm})`);
+    assert.ok(snow.bpm <= clear.bpm && snow.density < clear.density, `${id}: snow is not slower and sparser`);
+    assert.equal(moodOf(id, true, 1, 'snow').drums, false, `${id}: the street drums play in the snow`);
+    assert.equal(moodOf(id, true, 1, 'rain').atmosphere, 'rain');
+  }
+});
+
+test('the atmosphere\'s layer: in range, in the scale, sparse, and a function of its seed', () => {
+  const report: string[] = [];
+  for (const atmosphere of ATMOSPHERES) {
+    const spec = ATMOSPHERE[atmosphere];
+    let notes = 0;
+    let bars = 0;
+    let worst = 0;
+    for (const id of STYLE_IDS) {
+      const style = STYLES[id];
+      const piece = planPiece(style, 3, moodOf(id, false, 1), 12, 120);
+      const chords = [HOME, ...barsOf(piece, 'theme'), ...barsOf(piece, 'contrast')];
+      for (let bar = 0; bar < chords.length; bar++) {
+        const chord = chords[bar]!;
+        const events = atmosphereBar(atmosphere, style, piece.scale, chord, style.beats, 9, bar);
+        assert.deepEqual(atmosphereBar(atmosphere, style, piece.scale, chord, style.beats, 9, bar), events, `${id} ${atmosphere}: a bar is its seed's`);
+        if (atmosphere === 'clear') assert.equal(events.length, 0, `${id}: clear skies have a layer`);
+        const allowed = [...scaleOver(piece.scale, chord), ...chord.tones];
+        bars++;
+        notes += events.length;
+        worst = Math.max(worst, events.length);
+        for (const e of events) {
+          const where = `${id} ${atmosphere} bar ${bar}`;
+          assert.equal(e.role, 'mood', `${where}: a layer note on ${e.role}`);
+          assert.ok(e.instrument in INSTRUMENTS, `${where}: no instrument ${e.instrument}`);
+          assert.ok(e.time >= 0 && e.time < style.beats, `${where}: a note at beat ${e.time} of ${style.beats}`);
+          assert.ok(e.length > 0 && e.velocity > 0 && e.velocity <= 0.6, `${where}: length ${e.length}, velocity ${e.velocity}`);
+          const sound = INSTRUMENTS[e.instrument].sound.kind;
+          if (sound === 'drum') continue;
+          assert.ok(e.pitch >= style.tonic + spec.low - 0.01 && e.pitch <= style.tonic + spec.high + 0.01,
+            `${where}: ${e.pitch} outside the tonic's ${spec.low}..${spec.high}`);
+          assert.ok(e.pitch >= 24 && e.pitch <= 100, `${where}: ${e.pitch} out of hearing`);
+          // The plucks and the bells keep to the scale or the chord; the drones may lean on them.
+          if (sound === 'pluck' || sound === 'modal') {
+            if (e.instrument === 'gong') continue;
+            assert.ok(allowed.some((c) => near(c, e.pitch - style.tonic)), `${where}: ${e.instrument} ${e.pitch} off the scale`);
+          }
+        }
+      }
+    }
+    if (atmosphere !== 'clear') assert.ok(worst <= 10 && notes / bars <= 8, `${atmosphere}: up to ${worst} notes a bar, ${(notes / bars).toFixed(1)} on average`);
+    report.push(`${atmosphere.padEnd(6)} ${(notes / bars).toFixed(1).padStart(4)} notes a bar, at most ${worst}`);
+  }
+  console.log(report.join('\n'));
 });

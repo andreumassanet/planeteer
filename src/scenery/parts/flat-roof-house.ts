@@ -1,4 +1,4 @@
-import { DOOR_HEAD, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
+import { DOOR_HEAD, DOOR_HEIGHT, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -32,6 +32,10 @@ const STOREYS = 3;
 const COURSE = 0.55;
 /** The coping's shadow on the wall under it. */
 const SHADE = 0.3;
+/** A window, small and deep, its head level with the door's. */
+const WINDOW_WIDTH = 1.3;
+const WINDOW_HEIGHT = 2;
+const SILL = DOOR_HEIGHT - WINDOW_HEIGHT;
 
 export const flatRoofHouse: ScenicPart = {
   id: 'flat-roof-house',
@@ -133,8 +137,8 @@ export const flatRoofHouse: ScenicPart = {
     const doorBay = rng.between(0, 1);
     const doorX = bays[doorBay]!;
     const windowX = bays[1 - doorBay]!;
-    const doorWidth = 1.4;
-    const doorHeight = 2.5;
+    const doorWidth = 1.6;
+    const doorHeight = DOOR_HEIGHT;
     const leaf = doorPaint(rng, style, wall);
     const door = ctx.door({
       width: doorWidth,
@@ -148,12 +152,12 @@ export const flatRoofHouse: ScenicPart = {
     group.add(door);
 
     for (let floor = 0; floor < lower; floor++) {
-      const sill = COURSE + floor * STOREY + STOREY * 0.44;
+      const sill = COURSE + floor * STOREY + SILL;
       const ground = floor === 0;
       const row = windows({
         count: ground ? 1 : 2,
-        width: 1.15,
-        height: 1.35,
+        width: WINDOW_WIDTH,
+        height: WINDOW_HEIGHT,
         frame: surround,
         spread: width * 0.42,
         // Painted-on grilles above the first floor: a reveal is ten triangles
@@ -165,7 +169,7 @@ export const flatRoofHouse: ScenicPart = {
 
       // One deep slot on each flank, which is what a courtyard house shows the
       // street. Two triangles a side, and they light as one room.
-      const flank = lit(panes(1, 1.0, 1.35, 0, ctx.glass));
+      const flank = lit(panes(1, 1.1, WINDOW_HEIGHT, 0, ctx.glass));
       flank.rotation.y = Math.PI / 2;
       flank.position.set(width / 2 + PROUD, sill, rng.jitter() * depth * 0.18);
       group.add(flank);

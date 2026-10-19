@@ -1,15 +1,18 @@
 import * as THREE from 'three';
-import { BENCH_SIT_AHEAD } from '../../bench.ts';
+import { BENCH_DEPTH, BENCH_LONGEST, BENCH_SIT_AHEAD } from '../../bench.ts';
 import { biomeAt, biomeSample } from '../../biome.ts';
 import { PARKED_CRAFT, PARKED_SLOT } from '../../craft/contract.ts';
 import { PLANET_RADIUS } from '../../globe.ts';
-import { GROUND_LIFT } from '../../scenery/ground.ts';
+import { flightAt } from '../../scenery/floor.ts';
+import { cellIndex, cornerOffset } from '../../scenery/grid.ts';
+import { GROUND_LIFT, cellKey } from '../../scenery/ground.ts';
+import type { Solid } from '../../scenery/solids.ts';
 import { VARIANTS, rngFrom } from '../../scenery/index.ts';
 import { placedSize, trafficFor } from '../../traffic/index.ts';
 import type { Ground } from '../ground/build.ts';
 import { solidOf } from '../plots.ts';
 import { BENCH_PART, FOLK_STRIDE, LAMP_PART, RACK_FILL, SIGNAL_PART, TOWN_PARKED, TOWN_PEOPLE, urbanityOf } from '../rules.ts';
-import type { Bay } from '../types.ts';
+import type { Bay, FlatVariant } from '../types.ts';
 import { AXIS_Y, compose } from './job.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
 
@@ -35,24 +38,107 @@ export function standLamps(kit: RaiseKit, job: RaiseJob, ground: Ground): void {
   }
 }
 
+/**
+ * A city's traffic lights, their lamps dark in the merged town: which one is
+ * lit is the clock's (`signals.ts`), drawn over them by `signal-lamps.ts`
+ * from the heads published here.
+ */
 export function standSignals(kit: RaiseKit, job: RaiseJob, ground: Ground): void {
   const { slot } = job;
   const at = kit.scratch.at;
   for (let i = 0; i + 3 < ground.signals.length; i += 4) {
     const rng = rngFrom(slot.seed, 'signal', i);
-    const flat = kit.variants.variantOf(SIGNAL_PART, slot.style, rng.int(VARIANTS));
-    if (flat === null) break;
+    const lit = kit.variants.variantOf(SIGNAL_PART, slot.style, rng.int(VARIANTS));
+    if (lit === null) break;
+    const { flat, heads } = darkSignal(lit);
     at.set(ground.signals[i]!, ground.signals[i + 1]!, ground.signals[i + 2]!);
-    const matrix = compose(kit.scratch, at, ground.signals[i + 3]!, 1);
-    job.standing.push({ flat, matrix: matrix.clone(), glow: 1 });
+    const yaw = ground.signals[i + 3]!;
+    const matrix = compose(kit.scratch, at, yaw, 1);
+    job.standing.push({ flat, matrix: matrix.clone(), glow: 0 });
     job.vertices += flat.position.length / 3;
+    // The lamps face the model's -x: the traffic that sees them drives along that axis.
+    if (heads[9]! <= 0) continue;
+    const facing = kit.scratch.local.set(-1, 0, 0).applyAxisAngle(AXIS_Y, yaw);
+    const axis = Math.abs(facing.x) >= Math.abs(facing.z) ? 0 : 1;
+    for (let k = 0; k < 3; k++) {
+      at.set(heads[k * 3]!, heads[k * 3 + 1]!, heads[k * 3 + 2]!).applyMatrix4(matrix);
+      job.signalHeads.push(at.x, at.y, at.z);
+    }
+    job.signalHeads.push(axis, heads[9]!);
   }
+}
+
+/** How far behind a bench a building's wall must keep: room to walk past its back, and its doors and windows left in sight. */
+const BENCH_WALL_GAP = 1.6;
+/** How far beyond its ends a bench keeps off a wall behind it. */
+const BENCH_END_GAP = 0.8;
+/** The steps a bench is slid along its pavement, away from its lamp's crossing, to find a free stretch. */
+const BENCH_SLIDE = [0, 1.2, 2.4, 3.6, 4.8] as const;
+
+const inside = (solid: Solid, x: number, z: number): boolean => {
+  const dx = x - solid.x;
+  const dz = z - solid.z;
+  if (solid.round) return dx * dx + dz * dz <= solid.hx * solid.hx;
+  return Math.abs(dx * solid.cos + dz * solid.sin) <= solid.hx && Math.abs(-dx * solid.sin + dz * solid.cos) <= solid.hz;
+};
+
+/**
+ * Where along its pavement a bench may stand: the first of `BENCH_SLIDE` away
+ * from its crossing where no wall stands behind it within `BENCH_WALL_GAP`
+ * (so it never sits against a door or a window), nothing stands where it
+ * would, and the paving is the same terrace, clear of a flight, a lamp, a
+ * gate's mouth and the water. Null where none is.
+ */
+function benchSpot(kit: RaiseKit, job: RaiseJob, ground: Ground, x: number, z: number, yaw: number): [number, number] | null {
+  const { grid } = job;
+  const fx = Math.sin(yaw);
+  const fz = Math.cos(yaw);
+  // Along the bench, and which way along is away from the crossing it was set beside.
+  const ax = fz;
+  const az = -fx;
+  const along = Math.abs(ax) > 0.5 ? x : z;
+  const line = Math.round(along / grid.pitch + 0.5 + grid.shift);
+  const away = Math.sign(along - cornerOffset(grid, line)) || 1;
+  const level = ground.terraces.get(cellKey(cellIndex(grid, x), cellIndex(grid, z)));
+  const walls = job.solidFlats.length;
+  const half = BENCH_LONGEST / 2;
+  for (const step of BENCH_SLIDE) {
+    const bx = x + ax * away * step;
+    const bz = z + az * away * step;
+    if (ground.terraces.get(cellKey(cellIndex(grid, bx), cellIndex(grid, bz))) !== level) continue;
+    if (kit.frame.blocked(bx, bz) || kit.frame.wetAt(bx, bz) || flightAt(ground.field, bx, bz, half + 0.3) !== null) continue;
+    if (ground.mouths.some(([x0, x1, z0, z1]) => bx > x0 - half && bx < x1 + half && bz > z0 - half && bz < z1 + half)) continue;
+    let clear = true;
+    for (let l = 0; l + 2 < ground.lamps.length && clear; l += 3) {
+      if (Math.hypot(ground.lamps[l]! - bx, ground.lamps[l + 2]! - bz) < half + 0.5) clear = false;
+    }
+    // The bench's own ground and the strip behind it, sampled: its ends and middle, from its front back past its gap.
+    for (const u of [-half - BENCH_END_GAP, -half, 0, half, half + BENCH_END_GAP]) {
+      for (const v of [BENCH_DEPTH / 2, 0, -BENCH_DEPTH / 2, -BENCH_DEPTH / 2 - BENCH_WALL_GAP * 0.5, -BENCH_DEPTH / 2 - BENCH_WALL_GAP]) {
+        if (!clear) break;
+        const px = bx + ax * u + fx * v;
+        const pz = bz + az * u + fz * v;
+        const own = Math.abs(u) <= half && v >= -BENCH_DEPTH / 2;
+        // Behind it, only the buildings' walls; where it stands, anything already standing.
+        const count = own ? job.solids.length : walls;
+        for (let s = 0; s < count; s++) {
+          if (inside(job.solids[s]!, px, pz)) {
+            clear = false;
+            break;
+          }
+        }
+      }
+    }
+    if (clear) return [bx, bz];
+  }
+  return null;
 }
 
 /**
  * The benches, at their own size (the seat is the sitting clip's), each a
  * wall from the paving it stands on, published in the town's frame with the
- * spot a sitter takes.
+ * spot a sitter takes. One that would stand against a building's front is
+ * slid along its pavement clear of it, or left out (`benchSpot`).
  */
 export function standBenches(kit: RaiseKit, job: RaiseJob, ground: Ground): void {
   const { slot } = job;
@@ -62,8 +148,10 @@ export function standBenches(kit: RaiseKit, job: RaiseJob, ground: Ground): void
     const rng = rngFrom(slot.seed, 'bench', i);
     const flat = kit.variants.variantOf(BENCH_PART, slot.style, rng.int(VARIANTS));
     if (flat === null) break;
-    at.set(ground.benches[i]!, ground.benches[i + 1]!, ground.benches[i + 2]!);
     const yaw = ground.benches[i + 3]!;
+    const spot = benchSpot(kit, job, ground, ground.benches[i]!, ground.benches[i + 2]!, yaw);
+    if (spot === null) continue;
+    at.set(spot[0], ground.benches[i + 1]!, spot[1]);
     const matrix = compose(kit.scratch, at, yaw, 1);
     job.standing.push({ flat, matrix: matrix.clone(), glow: 0 });
     job.vertices += flat.position.length / 3;
@@ -249,4 +337,59 @@ export function* standRackBikesSteps(kit: RaiseKit, job: RaiseJob): Generator<vo
     job.vertices += flat.position.length / 3;
     logParked(kit, 'bicycle', rack.position);
   }
+}
+
+/** Numbers a traffic light publishes: its red, amber and green lamps' centres, the axis its traffic drives along, and a lamp's radius. */
+export const SIGNAL_HEAD = 11;
+/** Where the lamps sit up the lit housing, as shares of its height: Kenney's red, amber and green. */
+const LAMP_AT = [0.787, 0.5, 0.213] as const;
+/** A lamp's radius as a share of the housing's height. */
+const LAMP_RADIUS = 0.11;
+/** How bright an unlit lamp's glass stays. */
+const LAMP_DARK = 0.35;
+
+const darkSignals = new WeakMap<FlatVariant, { flat: FlatVariant; heads: Float32Array }>();
+
+/**
+ * A traffic light's variant with its lamps put out — no glow, the glass
+ * dimmed — and where its three lamps are in the part's own frame, read off
+ * the lit housing: the lamps are on its -x face, one above another.
+ */
+function darkSignal(lit: FlatVariant): { flat: FlatVariant; heads: Float32Array } {
+  const known = darkSignals.get(lit);
+  if (known !== undefined) return known;
+  const p = lit.position;
+  let x0 = Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let v = 0; v < p.length / 3; v++) {
+    if (lit.glow[v * 2]! === 0) continue;
+    x0 = Math.min(x0, p[v * 3]!);
+    y0 = Math.min(y0, p[v * 3 + 1]!);
+    y1 = Math.max(y1, p[v * 3 + 1]!);
+    z0 = Math.min(z0, p[v * 3 + 2]!);
+    z1 = Math.max(z1, p[v * 3 + 2]!);
+  }
+  const tall = Number.isFinite(y0) ? y1 - y0 : 0;
+  const radius = tall * LAMP_RADIUS;
+  const zc = (z0 + z1) / 2;
+  const heads = new Float32Array(SIGNAL_HEAD - 1);
+  for (let k = 0; k < 3; k++) {
+    heads[k * 3] = x0 - radius * 0.2;
+    heads[k * 3 + 1] = y0 + tall * LAMP_AT[k]!;
+    heads[k * 3 + 2] = zc;
+  }
+  heads[9] = radius;
+  const color = lit.color.slice();
+  const glow = lit.glow.slice();
+  for (let v = 0; v < p.length / 3; v++) {
+    if (glow[v * 2]! === 0) continue;
+    glow[v * 2] = 0;
+    glow[v * 2 + 1] = 0;
+    // The lamp's glass, not the housing round it: on the face, near the middle.
+    if (p[v * 3]! - x0 < radius * 0.5 && Math.abs(p[v * 3 + 2]! - zc) < radius * 1.5) {
+      for (let c = 0; c < 3; c++) color[v * 3 + c]! *= LAMP_DARK;
+    }
+  }
+  const made = { flat: { ...lit, color, glow, emits: false }, heads };
+  darkSignals.set(lit, made);
+  return made;
 }

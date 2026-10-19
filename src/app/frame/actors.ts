@@ -8,7 +8,7 @@ import type { App } from '../context.ts';
 import type { Tick } from './tick.ts';
 
 export function createActors(app: App): (tick: Tick) => void {
-  const { guard, player, rig, sky, airTraffic, railway, passingSound, townsfolk, conversation, fleet, rockets, peers, horns, effects, ambient, weather } = app;
+  const { guard, player, rig, sky, airTraffic, railway, passingSound, townsfolk, signalLamps, conversation, fleet, rockets, peers, horns, effects, ambient, weather } = app;
   const passingVoices: Parameters<PassingSound['update']>[1] = {};
   // The townsfolk keep their own clock: breathing does not speed up with `setRate`.
   let townsfolkClock = 0;
@@ -24,7 +24,9 @@ export function createActors(app: App): (tick: Tick) => void {
     passingVoices.rail = railway?.passing ?? null;
     guard('passing', () => passingSound.update(app.sound.audio.bus, passingVoices));
     townsfolkClock += dt;
-    guard('townsfolk', () => townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame));
+    const worldClock = sky.state.time.getTime() / 1000;
+    guard('townsfolk', () => townsfolk.update(player.position, dt, townsfolkClock, ++townsfolkFrame, worldClock));
+    guard('signals', () => signalLamps.update(player.position, worldClock));
     // After whoever is in it has moved.
     guard('talk', () => conversation.update());
     // After everything they stand on, and before the other players, who may sit in them.

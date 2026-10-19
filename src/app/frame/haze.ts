@@ -32,9 +32,9 @@ export function updateHaze(app: App, tick: Tick): number {
 
   // The near plane rides the camera's distance to the player, keeping depth
   // precision for coastlines from orbit. Inside a cab in first person it is
-  // `COCKPIT_NEAR`, or the cabin's lining over the head would be clipped.
-  const inCab = rig.firstPerson && player.ride !== null;
-  const near = inCab ? COCKPIT_NEAR : Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
+  // `COCKPIT_NEAR`, or the cabin's lining over the head would be clipped; in
+  // the head on foot too, or the shoulders and the chest under the eye would be.
+  const near = rig.firstPerson ? COCKPIT_NEAR : Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
   if (Math.abs(near - rig.camera.near) > near * 0.1) {
     rig.camera.near = near;
     rig.camera.updateProjectionMatrix();

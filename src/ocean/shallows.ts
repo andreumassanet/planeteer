@@ -227,31 +227,68 @@ function resample(rawAt: THREE.Vector3[], rawPhase: number[], tolerance: number)
     anchor = end;
   }
 
-  // The sea's direction at each kept point, and the mitre that makes two bands
-  // meet rather than leaving a wedge on the outside of every turn.
-  const out: THREE.Vector3[] = [];
-  const mitre: number[] = [];
+  // The sea's direction along each kept segment. Land is on the right of
+  // `a -> b`, so the sea is `cross(up, b - a)`, the sign the cliffs and the
+  // shore index use.
+  const segment: THREE.Vector3[] = [];
   for (let i = 0; i + 1 < at.length; i++) {
     along.subVectors(at[i + 1]!, at[i]!).normalize();
-    // Land is on the right of `a -> b`, so the sea is `cross(up, b - a)`, the
-    // sign the cliffs and the shore index use.
     c.copy(at[i]!).add(at[i + 1]!).normalize();
-    out.push(new THREE.Vector3().crossVectors(c, along).normalize());
-    mitre.push(1);
+    segment.push(new THREE.Vector3().crossVectors(c, along).normalize());
   }
-  if (out.length === 0) return null;
-  out.push(out[out.length - 1]!.clone());
-  mitre.push(1);
+  if (segment.length === 0) return null;
+  return joinRun(at, phase, segment);
+}
+
+/** A turn sharper than this, radians, is rounded on its seaward side rather than mitred. */
+const ROUND_FROM = (40 * Math.PI) / 180;
+/** The most a round join turns between two of its spokes, radians. */
+const ROUND_STEP = (30 * Math.PI) / 180;
+
+/**
+ * Each kept point's sea direction and mitre. A gentle turn is mitred, so two
+ * bands meet rather than leaving a wedge on the outside of it. A sharp turn
+ * whose outside is the sea (a headland, a skerry) is rounded instead: the
+ * point is repeated with its direction swung from one side's to the other's,
+ * so the surf keeps its width round the corner rather than standing out as a
+ * white wedge two and a half times as wide. A sharp turn whose outside is the
+ * land keeps a capped mitre, and `untangle` undoes what it folds.
+ */
+function joinRun(at: THREE.Vector3[], phase: number[], segment: THREE.Vector3[]): Run {
+  const run: Run = { at: [], out: [], mitre: [], phase: [] };
+  const push = (i: number, out: THREE.Vector3, mitre: number): void => {
+    run.at.push(at[i]!);
+    run.out.push(out);
+    run.mitre.push(mitre);
+    run.phase.push(phase[i]!);
+  };
+  const before = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  push(0, segment[0]!.clone(), 1);
   for (let i = 1; i + 1 < at.length; i++) {
-    const previous = out[i - 1]!;
-    const next = out[i]!;
+    const previous = segment[i - 1]!;
+    const next = segment[i]!;
+    const angle = previous.angleTo(next);
+    before.subVectors(at[i]!, at[i - 1]!);
+    if (angle > ROUND_FROM && next.dot(before) > 0) {
+      // Swung about the point's own up, the way that takes one side's direction to the other's.
+      const up = at[i]!;
+      turn.setFromAxisAngle(up, angle);
+      const sign = previous.clone().applyQuaternion(turn).dot(next) > Math.cos(angle * 0.5) ? 1 : -1;
+      const steps = Math.ceil(angle / ROUND_STEP);
+      for (let k = 0; k <= steps; k++) {
+        turn.setFromAxisAngle(up, (sign * angle * k) / steps);
+        push(i, previous.clone().applyQuaternion(turn).normalize(), 1);
+      }
+      continue;
+    }
     const joined = previous.clone().add(next).normalize();
     // Capped, because a spit that doubles back on itself would otherwise ask
     // for a spike hundreds of units long.
-    mitre[i] = clamp(1 / Math.max(0.4, joined.dot(next)), 1, 2.5);
-    out[i] = joined;
+    push(i, joined, clamp(1 / Math.max(0.4, joined.dot(next)), 1, 2.5));
   }
-  return { at, out, mitre, phase };
+  push(at.length - 1, segment[segment.length - 1]!.clone(), 1);
+  return run;
 }
 
 /** Everything the ribbon's runs are laid into. */
@@ -326,6 +363,47 @@ function layRows(build: RibbonBuild, run: Run): void {
       build.rowColor[at + 1] = color.g;
       build.rowColor[at + 2] = color.b;
     }
+  }
+  for (let row = 0; row < rows.length; row++) untangle(build, run, row);
+}
+
+/** How many times a row is walked for folds; each pass undoes the folds the last one's merges made. */
+const UNTANGLE_PASSES = 4;
+
+/**
+ * Undoes the folds of one row. Where the coast turns sharply away from the
+ * row's side (a fjord's head, for a seaward row) or two points stand closer
+ * than their offset, the row's points cross: its segment runs against the
+ * coast's, the band beside it folds over, and the surf's distance, which is
+ * per vertex, is laid over open water. A folded pair is merged at its midpoint
+ * instead, so the row pinches where the coast turns.
+ */
+function untangle(build: RibbonBuild, run: Run, row: number): void {
+  const stride = build.rows.length * 3;
+  const p = build.rowAt;
+  const n = run.at.length;
+  for (let pass = 0; pass < UNTANGLE_PASSES; pass++) {
+    let folded = false;
+    for (let i = 0; i + 1 < n; i++) {
+      const a = i * stride + row * 3;
+      const b = a + stride;
+      const sx = p[b]! - p[a]!;
+      const sy = p[b + 1]! - p[a + 1]!;
+      const sz = p[b + 2]! - p[a + 2]!;
+      const from = run.at[i]!;
+      const to = run.at[i + 1]!;
+      if (sx * (to.x - from.x) + sy * (to.y - from.y) + sz * (to.z - from.z) >= 0) continue;
+      folded = true;
+      const radius = Math.hypot(p[a]!, p[a + 1]!, p[a + 2]!);
+      const mx = (p[a]! + p[b]!) / 2;
+      const my = (p[a + 1]! + p[b + 1]!) / 2;
+      const mz = (p[a + 2]! + p[b + 2]!) / 2;
+      const scale = radius / Math.max(1e-9, Math.hypot(mx, my, mz));
+      p[a] = p[b] = mx * scale;
+      p[a + 1] = p[b + 1] = my * scale;
+      p[a + 2] = p[b + 2] = mz * scale;
+    }
+    if (!folded) return;
   }
 }
 

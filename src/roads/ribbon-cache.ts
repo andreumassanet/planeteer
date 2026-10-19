@@ -3,8 +3,11 @@ import type { World } from '../geo.ts';
 import type { RoadCaches } from './caches.ts';
 import { SPANS } from './lod.ts';
 import type { RoadGeometry } from './path.ts';
+import type { Place } from '../places.ts';
 import { layRibbon } from './ribbon.ts';
+import type { RibbonEnd } from './ribbon.ts';
 import type { Ribbon } from './ribbon-writer.ts';
+import { townOf } from './town.ts';
 import type { Road } from './types.ts';
 
 /**
@@ -24,6 +27,7 @@ export interface RibbonCache {
 
 export interface RibbonSource {
   world: World;
+  places: readonly Place[];
   roads: readonly Road[];
   geometry: RoadGeometry;
   caches: RoadCaches;
@@ -36,6 +40,20 @@ export function createRibbonCache(source: RibbonSource): RibbonCache {
   const ribbons = new Map<number, Ribbon>();
   let ribbonBytes = 0;
   const middle = new THREE.Vector3();
+
+  /** A road's end as its ribbon reads it: the town's plane, and where along it the gate's street runs. */
+  function endOf(place: number, gateIndex: number, point: THREE.Vector3, built: boolean): RibbonEnd {
+    const town = townOf(source.places[place]!);
+    const gate = town.gates[gateIndex]!;
+    return {
+      across: town.across,
+      north: town.north,
+      point,
+      along: gate.outX !== 0 ? gate.x : gate.z,
+      out: gate.outX !== 0 ? gate.outX : gate.outZ,
+      built,
+    };
+  }
 
   function ribbonOf(index: number, band: number): Ribbon {
     const key = index * SPANS.length + band;
@@ -58,6 +76,7 @@ export function createRibbonCache(source: RibbonSource): RibbonCache {
       middle: source.readMiddle(index, middle),
       regionA: source.regionId(road.a),
       regionB: source.regionId(road.b),
+      ends: [endOf(road.a, road.gateA, course.gateA, ramp.kerbA > 0), endOf(road.b, road.gateB, course.gateB, ramp.kerbB > 0)],
     });
     ribbons.set(key, made);
     ribbonBytes += made.bytes;

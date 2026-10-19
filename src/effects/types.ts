@@ -29,7 +29,7 @@ export type OtherVisitor = (object: THREE.Object3D, kind: CraftKind, model: Craf
 export type SmokeVisitor = (at: THREE.Vector3, up: THREE.Vector3) => void;
 
 /** What the player just did that leaves a mark: `player.ts`'s `PlayerEvent`s, and the two foot callbacks. */
-export type EffectsEvent = 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
+export type EffectsEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
 
 export interface EffectsStats {
   enabled: boolean;

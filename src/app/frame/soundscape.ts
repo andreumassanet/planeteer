@@ -83,6 +83,9 @@ export function createSoundPhase(app: App): (tick: Tick) => void {
         musicMoment.mode = kind === null ? (player.state === 'swim' ? 'swim' : 'foot') : MUSIC_OF[kind];
         musicMoment.height = eyeOverGround;
         musicMoment.daylight = sky.state.daylight;
+        // As `weatherCueOf` in `music-score/atmosphere.ts` reads it, without loading the music.
+        const overhead = weather.here().kind;
+        musicMoment.weather = overhead === 'storm' || overhead === 'snow' ? overhead : overhead === 'rain' || overhead === 'drizzle' ? 'rain' : 'clear';
         guard('music', () => tune.observe(musicMoment));
       }
       guard('music', () => tune.update());

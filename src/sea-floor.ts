@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { LandRing, World } from './geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, WORLD_SCALE, coastEdges, onSphere } from './globe.ts';
 import { meanTemperature } from './biome.ts';
-import { fbm } from './terrain.ts';
+import { APRON_FOOT, SHORE_APRON, apronDepth, fbm } from './terrain.ts';
 import { hash3 } from './weather.ts';
 import { latOf, lonOf } from './sphere.ts';
 
@@ -28,11 +28,16 @@ import { latOf, lonOf } from './sphere.ts';
  * shore kept on each segment because the surf is a phase running down the beach
  * and the water drawn here has to carry it on where the ribbon hands over.
  *
+ * Nearest the coast the floor is the apron (`terrain/apron.ts`): the beach
+ * carried on in a straight line from `SHORE_LIP` over the sea at the coastline
+ * to `COAST_DEPTH` under it `SHORE_APRON` units out, so for its first few units
+ * the depth is negative and the floor is dry sand. The land mesh draws that
+ * line, and the profile below starts where it ends.
+ *
  * The distance is unsigned, which is safe: a point on land a few units from the
- * coast gets the same shallow depth as one in the water, and the lowest ground
- * is `SHORE_LIP` over the sea while the shallowest floor is `MIN_DEPTH` under
- * it, so a seabed under land is never seen. What needs the side (whether a coral
- * or a fish is in the water) asks `countryAt`.
+ * coast gets a floor that falls away inland while the land rises, so a seabed
+ * under land is never seen. What needs the side (whether a coral or a fish is
+ * in the water) asks `countryAt`.
  */
 
 const DEG = Math.PI / 180;
@@ -45,16 +50,17 @@ const DEG = Math.PI / 180;
  * The depth profile, in world units under the sea's radius, against distance
  * from the coast in world units. One unit is 0.79 m at `SCENERY_SCALE`.
  *
- * - `COAST_DEPTH` at the waterline: two knees of water where the land's wall
- *   meets the sand, so the beach runs straight in.
- * - `SHELF_DEPTH` at `SHELF_RUN`: the sandy shelf, wading and then swimming
- *   depth, where the water is turquoise over sand.
+ * - The apron, from the coastline to `SHORE_APRON`: the beach running into the
+ *   water, down to `COAST_DEPTH`, two knees of water.
+ * - `SHELF_DEPTH` at `SHELF_RUN` past the apron: the sandy shelf, wading and
+ *   then swimming depth, where the water is turquoise over sand. The distances
+ *   below are all counted from the apron's foot.
  * - `FLAT_DEPTH` at `REEF_EDGE`: the reef flat, where the corals are densest.
  * - `SLOPE_DEPTH` at `DROP_END`: the reef edge, the drop-off where the water
  *   turns from turquoise to blue in a few body lengths.
  * - `OPEN_DEPTH` at `SEA_REACH` and beyond: the deep, which nothing shows.
  */
-export const COAST_DEPTH = 1.2;
+export const COAST_DEPTH = APRON_FOOT;
 export const SHELF_DEPTH = 6.5;
 export const FLAT_DEPTH = 11;
 export const SLOPE_DEPTH = 55;
@@ -63,7 +69,7 @@ export const SHELF_RUN = 100;
 export const REEF_EDGE = 200;
 export const DROP_END = 320;
 export const SEA_REACH = 560;
-/** The shallowest the floor ever is, anywhere: the bumps may not bring it closer to the surface. */
+/** The shallowest the floor ever is past the apron: the bumps may not bring it closer to the surface. */
 export const MIN_DEPTH = 0.9;
 /**
  * How far a coast is looked for when a colour needs it, in units: the water's
@@ -81,6 +87,8 @@ const STRETCH_FREQUENCY = 8;
 const BUMP_FREQUENCY = 266;
 const BUMP_SHARE = 0.28;
 const BUMP_MAX = 3.5;
+/** How far past the apron's foot the bumps take to come in, so the floor meets the apron's line. */
+const BUMP_IN = 24;
 
 const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x);
 const smoothstep = (a: number, b: number, x: number): number => {
@@ -90,20 +98,23 @@ const smoothstep = (a: number, b: number, x: number): number => {
 
 /**
  * The depth at a point on the unit sphere `distance` units from the nearest
- * coast: the profile, stretched by the coast's own noise, with its bumps.
- * Continuous in both, so the floor has no step anywhere.
+ * coast: the apron, then the profile, stretched by the coast's own noise, with
+ * its bumps. Continuous in both, so the floor has no step anywhere; negative
+ * (over the sea) on the apron's dry half.
  */
 export function depthAtDistance(x: number, y: number, z: number, distance: number): number {
+  if (distance < SHORE_APRON) return apronDepth(Math.max(0, distance));
+  const along = distance - SHORE_APRON;
   const stretch = STRETCH_MIN + (STRETCH_MAX - STRETCH_MIN) *
     smoothstep(0.3, 0.7, fbm(x * STRETCH_FREQUENCY, y * STRETCH_FREQUENCY, z * STRETCH_FREQUENCY, 2));
-  const d = Math.max(0, distance) / stretch;
+  const d = along / stretch;
   let depth: number;
   if (d < SHELF_RUN) depth = COAST_DEPTH + (SHELF_DEPTH - COAST_DEPTH) * smoothstep(0, SHELF_RUN, d) ** 0.8;
   else if (d < REEF_EDGE) depth = SHELF_DEPTH + (FLAT_DEPTH - SHELF_DEPTH) * ((d - SHELF_RUN) / (REEF_EDGE - SHELF_RUN));
   else if (d < DROP_END) depth = FLAT_DEPTH + (SLOPE_DEPTH - FLAT_DEPTH) * smoothstep(REEF_EDGE, DROP_END, d);
   else depth = SLOPE_DEPTH + (OPEN_DEPTH - SLOPE_DEPTH) * smoothstep(DROP_END, SEA_REACH, d);
   const bump = (fbm(x * BUMP_FREQUENCY, y * BUMP_FREQUENCY, z * BUMP_FREQUENCY, 3) - 0.5) * 2;
-  depth += bump * Math.min(BUMP_MAX, depth * BUMP_SHARE);
+  depth += bump * Math.min(BUMP_MAX, depth * BUMP_SHARE) * smoothstep(0, BUMP_IN, along);
   return Math.max(MIN_DEPTH, depth);
 }
 

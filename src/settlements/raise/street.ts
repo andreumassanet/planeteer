@@ -169,6 +169,7 @@ export function* dressStreetsSteps(kit: RaiseKit, job: RaiseJob, ground: Ground,
       const position = new THREE.Vector3(anchor.x, anchor.y, anchor.z);
       const facing = new THREE.Vector3(anchor.fx, 0, anchor.fz);
       if (anchor.kind === 'seat') job.benches.push({ position, facing, sink: 0, key: `chair:${slot.index}:${chairs++}` });
+      else if (anchor.kind === 'shop') job.shopDoors.push(anchor);
       else job.bikeSlots.push({ id: `rack:${slot.index}:${job.bikeSlots.length}`, place: slot.index, position, forward: facing });
     }
     const log = registry.seatLog;

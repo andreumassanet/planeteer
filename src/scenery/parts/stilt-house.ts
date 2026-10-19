@@ -1,4 +1,4 @@
-import { PROUD, STOREY, TONES } from '../contract.ts';
+import { DOOR_HEIGHT, PROUD, STOREY, TONES } from '../contract.ts';
 import type { ScenicPart } from '../contract.ts';
 
 /**
@@ -42,7 +42,7 @@ export const stiltHouse: ScenicPart = {
     const width = rng.range(4.6, 5.8);
     const depth = width * rng.range(1.05, 1.4);
     const clear = rng.range(2.2, 3.1);
-    const body = STOREY * rng.range(0.85, 1.05);
+    const body = STOREY * rng.range(1, 1.12);
 
     // Six posts, not four: a four-post house reads as a table.
     for (const x of [-1, 0, 1]) {
@@ -107,25 +107,26 @@ export const stiltHouse: ScenicPart = {
 
     // A lamp inside a one-room house, seen through the door: dimmer than a
     // window and never more than half of one. See `ctx.lit`.
-    const doorway = lit(panes(1, 1.05, body * 0.8, 0, rng.pick(style.glass), PROUD * 2), 0.5);
+    const doorway = lit(panes(1, 1.3, DOOR_HEIGHT, 0, rng.pick(style.glass), PROUD * 2), 0.5);
     doorway.position.set(0, clear + 0.42, depth / 2 + PROUD);
+    doorway.userData.atlasDoorHeight = DOOR_HEIGHT;
     group.add(doorway);
-    const lintel = panes(1, 1.4, 0.2, 0, rail, PROUD * 3);
-    lintel.position.set(0, clear + 0.42 + body * 0.8, depth / 2 + PROUD * 1.5);
+    const lintel = panes(1, 1.65, 0.2, 0, rail, PROUD * 3);
+    lintel.position.set(0, clear + 0.42 + DOOR_HEIGHT, depth / 2 + PROUD * 1.5);
     group.add(lintel);
 
     // Two shuttered windows on one flank, which is the side an alley sees.
     const side = rng.sign();
     const row = windows({
       count: 2,
-      width: 1.05,
-      height: 1.05,
+      width: 1.4,
+      height: 1.6,
       frame: surround,
       spread: depth * 0.34,
       strength: 0.8,
     });
     row.rotation.y = (side * Math.PI) / 2;
-    row.position.set((side * width) / 2, clear + 0.42 + body * 0.4, 0);
+    row.position.set((side * width) / 2, clear + 0.42 + body * 0.38, 0);
     group.add(row);
 
     return group;

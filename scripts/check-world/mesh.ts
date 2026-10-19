@@ -104,13 +104,14 @@ function checkVertices(mesh: LandMesh): void {
 }
 
 /**
- * The coastal walls face the sea.
+ * The coastal aprons and walls face the sea.
  *
- * A wall's normal is perpendicular to the radius whichever way it points, so
- * the inward test cannot see it. Instead, step off each wall along its normal
- * and ask the outlines (point-in-polygon, independent of winding) which side
- * is water. A wall is a triangle that crosses sea level: only the coastal
- * skirt does that, since the ground never goes below `SHORE_LIP`.
+ * A wall's normal is perpendicular to the radius whichever way it points, and
+ * an apron's leans out of it, so the inward test cannot see either. Instead,
+ * step off each one's top corner along its normal laid flat and ask the
+ * outlines (point-in-polygon, independent of winding) which side is water. A
+ * wall is a triangle that crosses sea level: only the aprons and the walls
+ * under the frontiers do that, since the ground never goes below `SHORE_LIP`.
  */
 function checkCliffs(ctx: WorldContext, mesh: LandMesh): void {
   const { world } = ctx;
@@ -138,7 +139,12 @@ function checkCliffs(ctx: WorldContext, mesh: LandMesh): void {
     const high = Math.max(v.length(), cb.length(), cc.length());
     const low = Math.min(v.length(), cb.length(), cc.length());
     if (high <= PLANET_RADIUS || low >= PLANET_RADIUS) continue;
-    centroid.copy(v).add(cb).add(cc).divideScalar(3);
+    // The top corner, on the outline, and the normal laid on the ground there.
+    const topAt = v.length() === high ? v : cb.length() === high ? cb : cc;
+    centroid.copy(topAt);
+    n.projectOnPlane(probe.copy(centroid).normalize());
+    if (n.lengthSq() < 1e-12) continue;
+    n.normalize();
     walls++;
     const ahead = toLatLon(probe.copy(centroid).addScaledVector(n, CLIFF_STEP));
     const behind = toLatLon(probe.copy(centroid).addScaledVector(n, -CLIFF_STEP));

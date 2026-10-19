@@ -75,10 +75,11 @@ export interface DressSeat {
  * Somewhere a piece offers: `'seat'`, a café chair's sitter's spot and the way
  * a sitter faces (what `Bench.position` and `Bench.facing` are); `'bike'`, a
  * rack's slot, the middle of where a bicycle stands and the way its front
- * points. On the paving, in the town's frame.
+ * points; `'shop'`, a shop's doorstep and the street it faces. On the paving,
+ * in the town's frame.
  */
 export interface Anchor {
-  kind: 'seat' | 'bike';
+  kind: 'seat' | 'bike' | 'shop';
   x: number;
   y: number;
   z: number;

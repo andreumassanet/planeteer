@@ -24,6 +24,8 @@ export {
   groundWeatherGLSL,
   lyingSnowAt,
   seasonalTemperature,
+  wetSheenChunk,
+  wetSheenGLSL,
 } from './globe/ground-weather.ts';
 export { landFlagProxy, landFlags } from './globe/materials.ts';
 export { buildLand } from './globe/land-mesh.ts';

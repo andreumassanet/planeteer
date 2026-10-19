@@ -8,6 +8,7 @@ import type { Rng } from './scenery/random.ts';
 import { LEAF_ATLAS } from './scenery/tree-forms.ts';
 import { createToonRamp } from './theme.ts';
 import { WIND, WIND_GLSL } from './wind.ts';
+import { SEASON_GLSL, leafSeasonChunk, leafSeasonDepthChunk } from './foliage-season.ts';
 
 /**
  * The near wood's two materials and the texture its leaves are cut from.
@@ -385,17 +386,17 @@ export function leafMaterial(): THREE.MeshToonMaterial {
     bindGroundWeather(shader.uniforms);
     bindNearLights(shader.uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${WIND_VERTEX}\nvarying vec3 vLeafWorld;\nvarying float vLeafRim;`)
+      .replace('#include <common>', `#include <common>\n${WIND_VERTEX}\nvarying vec3 vLeafWorld;\nvarying float vLeafRim;\nvarying vec2 vLeafYear;`)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += atlasWindOffset(transformed, normal);')
-      .replace('#include <project_vertex>', '#include <project_vertex>\n  vLeafWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  vLeafRim = aWind.z;');
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vLeafWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  vLeafRim = aWind.z;\n  vLeafYear = aWind.yw;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vLeafWorld;\n${LUSH_GLSL}\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}\n${nearLightsGLSL()}`)
+      .replace('#include <common>', `#include <common>\nvarying vec3 vLeafWorld;\nvarying vec2 vLeafYear;\n${LUSH_GLSL}\n${SEASON_GLSL}\n${GROUND_MARKS_GLSL}\n${groundWeatherGLSL()}\n${nearLightsGLSL()}`)
       .replace('#include <gradientmap_pars_fragment>', gradientGLSL(WRAP))
       .replace('#include <lights_toon_pars_fragment>', LEAF_LIGHTS)
       .replace('#include <map_fragment>', `#include <map_fragment>\n${leafAlphaGLSL(true)}`)
       .replace(
         '#include <color_fragment>',
-        `#include <color_fragment>\n  diffuseColor.rgb = atlasLush(diffuseColor.rgb);\n  ${groundWeatherChunk('vLeafWorld')}`,
+        `#include <color_fragment>\n  diffuseColor.rgb = atlasLush(diffuseColor.rgb);\n${leafSeasonChunk('vLeafWorld', 'vLeafYear.x', 'vLeafYear.y')}\n  ${groundWeatherChunk('vLeafWorld')}`,
       )
       // The crown's normal on both faces: three turns a back face's round,
       // and the far side of every card would step to the shadow band.
@@ -448,7 +449,14 @@ function windDepth(key: string, leaves: boolean): THREE.MeshDepthMaterial {
       .replace('#include <common>', `#include <common>\n${WIND_VERTEX}`)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  transformed += atlasWindOffset(transformed, normal);');
     if (leaves) {
-      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>\n${leafAlphaGLSL(false)}`);
+      // The season thins a bare crown's shadow as it thins the crown.
+      bindGroundWeather(shader.uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vLeafWorld;\nvarying vec2 vLeafYear;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\n  vLeafWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\n  vLeafYear = aWind.yw;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `#include <common>\nvarying vec3 vLeafWorld;\nvarying vec2 vLeafYear;\n${SEASON_GLSL}`)
+        .replace('#include <map_fragment>', `#include <map_fragment>\n${leafAlphaGLSL(false)}\n${leafSeasonDepthChunk('vLeafWorld', 'vLeafYear.x', 'vLeafYear.y')}`);
     }
   };
   material.customProgramCacheKey = () => key;

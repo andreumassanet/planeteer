@@ -16,6 +16,7 @@ import './check-fauna/gait.ts';
 import './check-fauna/placing.ts';
 import './check-fauna/herd.ts';
 import './check-fauna/silhouettes.ts';
+import './check-fauna/dog.ts';
 import { failures } from './check-fauna/setup.ts';
 
 // ---------------------------------------------------------------------------

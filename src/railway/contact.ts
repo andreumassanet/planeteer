@@ -102,3 +102,38 @@ export function stationBenchesNear(stations: Iterable<DrawnStation>, point: THRE
     });
   }
 }
+
+/** A platform a body stands on: its station, the line and the end, and where along it (`z`) and out from the track (`x`). */
+export interface PlatformHit {
+  station: DrawnStation;
+  line: number;
+  end: 0 | 1;
+  x: number;
+  z: number;
+}
+
+/** The drawn station whose platform `point` stands on, within `margin` of its edges, or null. */
+export function platformAt(stations: Iterable<DrawnStation>, point: THREE.Vector3, margin: number, out: PlatformHit): PlatformHit | null {
+  for (const station of stations) {
+    inverse.copy(station.group.matrixWorld).invert();
+    local.copy(point).applyMatrix4(inverse);
+    const sx = station.frame.hand > 0 ? -local.x : local.x;
+    if (local.z < PLATFORM_FROM - margin || local.z > PLATFORM_FROM + PLATFORM_LENGTH + margin) continue;
+    if (sx < PLATFORM_INNER - margin || sx > PLATFORM_INNER + PLATFORM_WIDTH + margin) continue;
+    if (Math.abs(local.y - PLATFORM_RISE) > 4) continue;
+    const [line, end] = station.key.split(':').map(Number) as [number, number];
+    out.station = station;
+    out.line = line;
+    out.end = end === 0 ? 0 : 1;
+    out.x = sx;
+    out.z = local.z;
+    return out;
+  }
+  return null;
+}
+
+/** A point of a drawn station's platform deck, `x` out from the track and `z` along it, in the world. */
+export function platformPoint(station: DrawnStation, x: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  station.group.updateMatrixWorld(true);
+  return out.set(station.frame.hand > 0 ? -x : x, PLATFORM_RISE, z).applyMatrix4(station.group.matrixWorld);
+}

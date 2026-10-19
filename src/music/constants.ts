@@ -21,5 +21,5 @@ export const MAX_BUFFERS = 64;
 /** The mandolin's and the balalaika's re-strike rate, a second. */
 export const TREMOLO_RATE = 11;
 
-export const PAN: Record<Role, number> = { lead: 0.08, answer: -0.14, accomp: -0.28, bass: 0, pad: 0, drone: 0.16, drums: 0.12 };
+export const PAN: Record<Role, number> = { lead: 0.08, answer: -0.14, accomp: -0.28, bass: 0, pad: 0, drone: 0.16, drums: 0.12, mood: -0.06 };
 export const ROLES = Object.keys(PAN) as Role[];

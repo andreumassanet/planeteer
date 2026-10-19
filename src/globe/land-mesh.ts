@@ -1,13 +1,13 @@
 // The land mesh: each ring's surface at its height plus the relief, a smooth
-// normal and a biome colour a vertex, and a vertical wall dropping to the sea
-// under every boundary. The surface and `world.elevationAt` are the same sum,
-// so a foot lands on what is drawn.
+// normal and a biome colour a vertex, an apron running down into the sea from
+// every coastline and a vertical wall under every other boundary. The surface
+// and `world.elevationAt` are the same sum, so a foot lands on what is drawn.
 
 import * as THREE from 'three';
 import { ShapeUtils } from 'three';
 import type { World } from '../geo.ts';
 import { insideRing } from '../geo.ts';
-import { detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt } from '../terrain.ts';
+import { SHORE_APRON, apronDepth, detailWeightAt, flattenWeightAt, prepareTerrain, reliefAt, shoreAt, shoreSample } from '../terrain.ts';
 import type { FlagLayer, LandFlagData, RingSpan } from '../land-flags.ts';
 import { latOf, lonOf } from '../sphere.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE, onSphere } from './planet.ts';
@@ -18,8 +18,22 @@ import { clampLat, lakesOf, planLakes, subtractLake } from './lakes.ts';
 import { groundShade, paletteFor } from './ground-color.ts';
 import { WALL_SHADE, landFlags, toonMaterial } from './materials.ts';
 
-/** How far the coastal wall sinks below sea level, hiding the seam with the ocean sphere. */
+/** How far a wall sinks below sea level, hiding the seam with the ocean sphere. */
 const EMBED = 25;
+/**
+ * How far past the apron's foot the drawn apron runs on down its own line,
+ * units, so its edge is under the sea floor `seabed.ts` lays near the player.
+ */
+const APRON_TUCK = 4;
+const APRON_REACH = SHORE_APRON + APRON_TUCK;
+/** How much darker the apron is than the ground at its top: wet sand. */
+const APRON_SHADE = 0.86;
+/**
+ * How far the shore has fallen (`shoreAt`) at a boundary edge's middle for the
+ * edge to be a coastline: the fall is 1 on the water's edge and loses a
+ * hundredth every quarter unit or so inland; a frontier is well short of it.
+ */
+const COAST_FALL = 0.97;
 
 /**
  * Thinnest triangle worth keeping, world units: its area over its longest edge,
@@ -375,11 +389,16 @@ function emitSurface(
 }
 
 /**
- * One quad per boundary edge, dropping to `base`. The outline was densified
- * before triangulating, so these edges are exactly the boundary of the surface
- * above, relief included, since the wall is built from the raised points.
- * `boundaries` lists `[start, length]` runs of the ring's vertices: the
- * coastline first, then each lake rim this ring owns.
+ * One quad per boundary edge. The outline was densified before triangulating,
+ * so these edges are exactly the boundary of the surface above, relief
+ * included, since the quads are built from the raised points.
+ *
+ * A coastline's quad is the apron: from the edge down the apron's line
+ * (`apronDepth`) to `APRON_REACH` out to sea, square to the edge; at a corner
+ * a wedge joins one quad's foot to the next's. Any other boundary (a frontier) drops a vertical wall to
+ * `EMBED` under the sea, hidden under the neighbour's land. `boundaries` lists
+ * `[start, length]` runs of the ring's vertices: the coastline first, then
+ * each lake rim this ring owns, whose every edge is a shore.
  */
 function emitWalls(
   build: LandBuild,
@@ -390,37 +409,82 @@ function emitWalls(
 ): void {
   const { unit, relief } = surface;
   const base = PLANET_RADIUS - EMBED;
-  const scratch = new THREE.Vector3();
+  const apronFoot = PLANET_RADIUS - apronDepth(APRON_REACH);
   const up = new THREE.Vector3();
   const dir = new THREE.Vector3();
-  const outward = new THREE.Vector3();
   const cliff = new THREE.Color();
-  for (const [start, count] of boundaries) {
+  const mid = new THREE.Vector3();
+  const footA = new THREE.Vector3();
+  const footB = new THREE.Vector3();
+  const footC = new THREE.Vector3();
+  const wayMean = new THREE.Vector3();
+  const shore = shoreSample();
+  /** A corner's foot: out along `way` to `APRON_REACH`, at the apron's foot. */
+  const footAt = (corner: THREE.Vector3, way: THREE.Vector3, out: THREE.Vector3): void => {
+    out.copy(corner).addScaledVector(way, APRON_REACH / PLANET_RADIUS).setLength(apronFoot);
+  };
+  boundaries.forEach(([start, count], run) => {
+    // Rings are wound with the land on the right of a -> b, so outward is
+    // cross(up, b - a) on a right-handed planet; a lake rim is wound so the
+    // same sign points at the water. The reverse builds every wall facing
+    // inland, where it is invisible.
+    const outward: THREE.Vector3[] = [];
+    const coast = new Uint8Array(count);
+    for (let n = 0; n < count; n++) {
+      const i = start + n;
+      const j = start + ((n + 1) % count);
+      up.copy(unit[i]!);
+      dir.subVectors(raised[j]!, raised[i]!);
+      outward.push(new THREE.Vector3().crossVectors(up, dir).projectOnPlane(up).normalize());
+      mid.addVectors(unit[i]!, unit[j]!).normalize();
+      coast[n] = run > 0 || shoreAt(mid.x, mid.y, mid.z, shore).fall > COAST_FALL ? 1 : 0;
+    }
+    /** Whether the coast bulges seaward where edge `n` ends: the next edge's outward turns on along `n`. */
+    const turnsOut = (n: number): boolean => {
+      const next = (n + 1) % count;
+      if (coast[next] === 0) return true;
+      dir.subVectors(raised[start + next]!, raised[start + n]!);
+      return outward[next]!.dot(dir) >= 0;
+    };
+    /** The way out at corner `c` for edge `e` (one it ends or starts): the edge's own at a bulge, else the mean of both, so the feet do not cross. */
+    const wayAt = (c: number, e: number): THREE.Vector3 => {
+      const before = (c + count - 1) % count;
+      if (coast[before] === 0 || coast[c] === 0 || turnsOut(before)) return outward[e]!;
+      wayMean.addVectors(outward[before]!, outward[c]!).projectOnPlane(unit[start + c]!);
+      return wayMean.lengthSq() < 1e-12 ? outward[e]! : wayMean.normalize();
+    };
     for (let n = 0; n < count; n++) {
       const i = start + n;
       const j = start + ((n + 1) % count);
       const topA = raised[i]!;
       const topB = raised[j]!;
-      const baseA = scratch.copy(unit[i]!).multiplyScalar(base).clone();
-      const baseB = unit[j]!.clone().multiplyScalar(base);
-
-      // Rings are wound with the land on the right of a -> b, so outward is
-      // cross(up, b - a) on a right-handed planet; a lake rim is wound so the
-      // same sign points at the water. The reverse builds every wall facing
-      // inland, where it is invisible.
       up.copy(unit[i]!);
-      dir.subVectors(topB, topA);
-      outward.crossVectors(up, dir).normalize();
-
       // The wall is the ground above it a shade down; taking the shade from the
       // biome rather than the country makes a Saharan coast a sand cliff and a
       // Norwegian one grey.
-      groundShade(up.x, up.y, up.z, relief[i]!, tint, cliff).multiplyScalar(WALL_SHADE);
-
-      build.emit(topA, baseA, baseB, outward, cliff);
-      build.emit(topA, baseB, topB, outward, cliff);
+      groundShade(up.x, up.y, up.z, relief[i]!, tint, cliff);
+      if (coast[n] === 1) {
+        const next = (n + 1) % count;
+        const convex = turnsOut(n);
+        footAt(unit[i]!, wayAt(n, n), footA);
+        footAt(unit[j]!, wayAt(next, n), footB);
+        cliff.multiplyScalar(APRON_SHADE);
+        build.emit(topA, footA, footB, up, cliff);
+        build.emit(topA, footB, topB, up, cliff);
+        // The wedge a convex corner leaves between this quad's foot and the next's.
+        if (coast[next] === 1 && convex) {
+          footAt(unit[j]!, outward[next]!, footC);
+          build.emit(topB, footB, footC, up, cliff);
+        }
+        continue;
+      }
+      cliff.multiplyScalar(WALL_SHADE);
+      footA.copy(unit[i]!).multiplyScalar(base);
+      footB.copy(unit[j]!).multiplyScalar(base);
+      build.emit(topA, footA, footB, outward[n]!, cliff);
+      build.emit(topA, footB, topB, outward[n]!, cliff);
     }
-  }
+  });
 }
 
 /** Builds one land ring's surface and walls into the shared buffers; a ring that triangulates to nothing is skipped. */
@@ -479,9 +543,10 @@ function resolveSeams(build: LandBuild): void {
 
 /**
  * The land, built from the country outlines themselves: a surface at the ring's
- * height plus its relief, and a vertical cliff dropping to the sea. The visible
- * coast and `countryAt` are the same data, so a monument snapped to the shore
- * lands on the shore you can see.
+ * height plus its relief, and the apron running from it into the sea. The
+ * coastline and `countryAt` are the same data, so a monument snapped to the
+ * shore lands on the shore you can see; the waterline is `SHORE_WATERLINE`
+ * further out, on the apron.
  *
  * Normals and colours are bytes: position as Float32 is needed this far from the
  * origin, but a unit normal and a palette colour lose a quarter of a degree at

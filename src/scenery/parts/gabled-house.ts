@@ -1,4 +1,4 @@
-import { DOOR_HEAD, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
+import { DOOR_HEAD, DOOR_HEIGHT, PROUD, STOREY, TONES, doorPaint } from '../contract.ts';
 import type { Group, Rng, RegionStyle, SceneryContext, ScenicPart } from '../contract.ts';
 
 /**
@@ -40,8 +40,11 @@ const EAVES = 0.9;
 const COURSE = 0.62;
 /** The shadow the overhang casts on the wall, drawn rather than lit. */
 const EAVE_BAND = 0.34;
-/** Leaves the chimney room under the `dwelling` kind's 16-unit cap. */
-const CEILING = 13.6;
+/**
+ * Leaves the chimney room under the `dwelling` kind's 22-unit cap, and two
+ * storeys of `STOREY` under any roof: a third would be a tower on this plan.
+ */
+const CEILING = 19;
 /**
  * The shortest a house may come out, against the kind's 5-unit floor. A
  * one-storey house under a shallow roof would be a shed, so the storey count is
@@ -75,7 +78,9 @@ interface House {
 }
 
 const WINDOW_WIDTH = 1.35;
-const WINDOW_HEIGHT = 1.5;
+const WINDOW_HEIGHT = 2.8;
+/** A window's sill over its floor: its head level with the door's. */
+const SILL = DOOR_HEIGHT - WINDOW_HEIGHT;
 
 /** A row of windows a floor on the front, and a bare pane row stepped round the other walls. */
 function addWindows(ctx: SceneryContext, rng: Rng, group: Group, h: House): void {
@@ -93,7 +98,7 @@ function addWindows(ctx: SceneryContext, rng: Rng, group: Group, h: House): void
   // three-storey house shows all three. It costs no extra row.
   const firstSide = rng.between(0, 2);
   for (let floor = 0; floor < storeys; floor++) {
-    const sill = COURSE + floor * STOREY + STOREY * 0.38;
+    const sill = COURSE + floor * STOREY + SILL;
     const framed = floor < FRAMED_FLOORS;
     const ground = floor === 0;
     const row = windows({
@@ -176,7 +181,7 @@ export const gabledHouse: ScenicPart = {
   name: 'Gabled house',
   kind: 'dwelling',
   footprint: 7.4,
-  note: 'One to three storeys under a pitched roof, with a base course, an eave band and framed windows.',
+  note: 'One or two storeys under a pitched roof, with a base course, an eave band and framed windows.',
 
   build(ctx, rng, style) {
     const { THREE, box, tone, roof } = ctx;
@@ -281,7 +286,7 @@ export const gabledHouse: ScenicPart = {
     const doorSide = rng.sign();
     const doorX = (doorSide * bay) / 2;
     const doorWidth = 1.45;
-    const doorHeight = 2.45;
+    const doorHeight = DOOR_HEIGHT;
     const door = ctx.door({
       width: doorWidth,
       height: doorHeight,

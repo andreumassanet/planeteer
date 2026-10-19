@@ -1,5 +1,6 @@
 /** The sky dome's shaders: the gradient, the stars and the Milky Way. */
 import { unitAt } from '../sphere.ts';
+import { NIGHT_LIGHTS_GLSL } from './night-lights.ts';
 
 export const skyVertex = /* glsl */ `
   varying vec3 vWorld;
@@ -131,6 +132,7 @@ export const skyFragment = /* glsl */ `
     return fract((p.x + p.y) * p.z);
   }
   ${MILKY_WAY_GLSL}
+  ${NIGHT_LIGHTS_GLSL}
 
   void main() {
     vec3 dir = normalize(vWorld - cameraPosition);
@@ -177,6 +179,9 @@ export const skyFragment = /* glsl */ `
       float moonlit = 1.0 - 0.6 * air * smoothstep(0.82, 0.995, dot(dir, moonDir));
       color += milkyWay(galactic * dir) * (MILKY_WAY * milky * thin * moonlit);
     }
+
+    // The aurora, a shooting star and the moon's halo (\`sun/night-lights.ts\`).
+    color += auroraLight(dir) + meteorLight(dir) + moonHalo(dir);
 
     // Written straight out, with no colour-space conversion, and that is the
     // look: the uniforms arrive linear, so the screen shows a darker, more

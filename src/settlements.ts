@@ -130,6 +130,7 @@ export function createSettlements(
     parkedPaint: (id) => variants.parkedPaintOf(id),
     benchesNear: near.benchesNear,
     bikeSlotsNear: near.bikeSlotsNear,
+    signalsNear: near.signalsNear,
     hideParked: near.hideParked,
     showParked(id) {
       const index = Number(id.split(':')[1]);
@@ -210,6 +211,7 @@ function slotOf(world: World, place: Place, index: number, continentOf: Readonly
     onRelief: false,
     folk: [],
     lampHeads: null,
+    signalHeads: null,
     parked: [],
     benches: [],
     bikeSlots: [],

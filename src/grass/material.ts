@@ -4,7 +4,7 @@ import { GROUND_MARKS_GLSL, bindGroundWeather, groundWeatherChunk, groundWeather
 import { bindNearLights, nearLightsChunk, nearLightsGLSL } from '../lights.ts';
 import { shadeByClouds } from '../cloud-shade.ts';
 import { WIND } from '../wind.ts';
-import { GRASS_GRADIENT, GRASS_LIGHTS, GRASS_VERTEX_MAIN, grassVertexPars } from './shaders.ts';
+import { GRASS_GRADIENT, GRASS_LIGHTS, GRASS_SEASON_AT, GRASS_VERTEX_MAIN, grassVertexPars } from './shaders.ts';
 import { REFERENCE, TIP_GAIN_CAP, TRANSLUCENCY } from './types.ts';
 
 /** What every ring shares and nobody sets per ring. */
@@ -56,7 +56,7 @@ export function grassMaterial(uniforms: Record<string, THREE.IUniform>, ramp: TH
       // Another world's growth keeps the light and shade of Earth's blades and
       // takes its hue from its own ground alone: the tips' warmth, the lush
       // green and the yellow patches would make a grey regolith olive.
-      .replace('#include <beginnormal_vertex>', earth ? GRASS_VERTEX_MAIN : GRASS_VERTEX_MAIN.replace(PLAIN_AT, `${PLAIN_AT}\n${PLAIN_HUE}`))
+      .replace('#include <beginnormal_vertex>', earth ? GRASS_VERTEX_MAIN : GRASS_VERTEX_MAIN.replace(PLAIN_AT, `${PLAIN_AT}\n${PLAIN_HUE}`).replace(GRASS_SEASON_AT, ''))
       .replace('#include <begin_vertex>', 'vec3 transformed = grassLocal;');
     shader.fragmentShader = shader.fragmentShader
       .replace(

@@ -43,6 +43,7 @@ import { plannedSite, siteGap } from '../src/landmark-ground.ts';
 import type { LandmarkSite } from '../src/landmark-ground.ts';
 import { REGIONS, REGION_IDS } from '../src/scenery/regions.ts';
 import { createSceneryContext, measure } from '../src/scenery/contract.ts';
+import { MACHINES } from '../src/countryside-tile/types.ts';
 import { COUNTRY_PARTS, COUNTRY_VARIANTS, PIECE_TRIANGLES, buildRotor, pieceRng } from '../src/countryside-kit.ts';
 import type { RotorKind } from '../src/countryside-kit.ts';
 import { createCountryside, cropGrade, fieldSteepness, FEATURE_KINDS } from '../src/countryside.ts';
@@ -440,7 +441,8 @@ console.log('\nthe kit:');
   let worst = 0;
   let worstId = '';
   let builds = 0;
-  for (const part of Object.values(COUNTRY_PARTS)) {
+  // A vehicle that can be taken is the fleet's, held to its own budgets by `pnpm craft`.
+  for (const part of Object.values(COUNTRY_PARTS).filter((each) => !MACHINES.has(each.id))) {
     for (const regionId of REGION_IDS) {
       const style = REGIONS[regionId];
       for (let variant = 0; variant < COUNTRY_VARIANTS; variant++) {
@@ -576,6 +578,7 @@ console.log('\nthe tiles:');
       across.crossVectors(u, northward).normalize();
       const built = builder.build(plans, { level: 0, across, north: northward, inverse: new Matrix4() }, 0, undefined, false);
       for (const item of built.placed) {
+        if (item.machine !== undefined) continue;
         const e = item.matrix;
         for (let i = 0; i + 8 < item.flat.position.length; i += 9) {
           a.fromArray(item.flat.position, i).applyMatrix4(e);

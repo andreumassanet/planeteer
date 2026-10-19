@@ -32,12 +32,29 @@ import { buildBed, createBedMaterial } from './railway/bed.ts';
 import type { BedSource } from './railway/bed.ts';
 import { createStationBuilder } from './railway/station.ts';
 import { createTrainRunner } from './railway/trains.ts';
-import { bedHeightAt, collideRailway, stationBenchesNear } from './railway/contact.ts';
-import type { DrawnStation } from './railway/contact.ts';
+import type { Car } from './railway/trains.ts';
+import { bedHeightAt, collideRailway, platformAt, platformPoint, stationBenchesNear } from './railway/contact.ts';
+import type { DrawnStation, PlatformHit } from './railway/contact.ts';
+import { buildCarriage } from './railway/carriage.ts';
+import type { Carriage } from './railway/carriage.ts';
+import { consistOf } from './rails/trains.ts';
+import type { ConsistKind } from './rails/trains.ts';
+import { CARRIAGE, insideCarriage, passengerOn } from './rails/ride.ts';
 import { createCrossingLamps } from './railway/lamps.ts';
 import { disposeGroup, standAt } from './railway/stand.ts';
 
 export { BED_COLOURS } from './railway/constants.ts';
+export type { PlatformHit } from './railway/contact.ts';
+
+/** Who rides a train: the line, the car (counted from terminus A's end) and the seat (`rails/ride.ts`). */
+export interface RailRider {
+  line: number;
+  car: number;
+  seat: number;
+}
+
+/** A seated townsperson for a carriage, as `Folk.seated` makes one, of the region of `place`; null until the cast has loaded. */
+export type RailSitter = (key: string, place: Place) => THREE.Object3D | null;
 
 export interface RailwayFrame {
   dt: number;
@@ -64,6 +81,20 @@ export interface Railway {
   onHorn: ((near: number) => void) | null;
   /** The Train Kit's models, once they arrive: until then the track and the stations stand and no train runs. */
   setKit(kit: ReadonlyMap<string, Model>): void;
+  /** Whether the trains run: the kit has arrived. */
+  readonly running: boolean;
+  /** Which train a line runs and its cars, front to back from terminus A: pure in the line. */
+  consist(line: number): { kind: ConsistKind; cars: readonly string[] };
+  /** The standing station whose platform `point` is on, within `margin` of its edges, or null. */
+  platformAt(point: THREE.Vector3, margin?: number): PlatformHit | null;
+  /** A point of a platform's deck, `x` out from the track and `z` along it. */
+  platformPoint(hit: PlatformHit, x: number, z: number, out: THREE.Vector3): THREE.Vector3;
+  /** The car the player rides, whose carriage is drawn inside it while the eye is in it; null for none. */
+  setRider(rider: RailRider | null): void;
+  /** Who sits in a carriage beside the player. */
+  setSitter(sitter: RailSitter | null): void;
+  /** Whether the eye was inside the ridden carriage last frame. */
+  readonly eyeInside: boolean;
   enabled: boolean;
   readonly stats: { lines: number; chunks: number; stations: number; trains: number; cars: number; nearestMoving: number; ms: number };
 }
@@ -124,6 +155,8 @@ export function createRailway(options: RailwayOptions): Railway {
   const buildStation = createStationBuilder(continentOf);
 
   const stats = { lines: network.lines.length, chunks: 0, stations: 0, trains: 0, cars: 0, nearestMoving: Infinity, ms: 0 };
+  let kitReady = (options.kit?.size ?? 0) > 0;
+  const platformHit = { station: null as unknown as DrawnStation, line: 0, end: 0 as 0 | 1, x: 0, z: 0 };
   const runner = createTrainRunner({ group, network, places, material: options.material, kit: options.kit ?? new Map(), crossings, stats });
 
   const chunks = new Map<string, Chunk>();
@@ -234,6 +267,57 @@ export function createRailway(options: RailwayOptions): Railway {
     }
   }
 
+  // The ridden carriage: built on the car's holder while someone rides it.
+  let rider: RailRider | null = null;
+  let sitter: RailSitter | null = null;
+  let carriage: Carriage | null = null;
+  let carriageOn: Car | null = null;
+  let eyeInside = false;
+  const eyeLocal = new THREE.Vector3();
+  const consists = new Map<number, { kind: ConsistKind; cars: string[] }>();
+  const consistFor = (line: number): { kind: ConsistKind; cars: string[] } => {
+    let known = consists.get(line);
+    if (known === undefined) consists.set(line, (known = consistOf(network.lines[line]!, places, network.path(line).length)));
+    return known;
+  };
+
+  function dropCarriage(): void {
+    if (carriage !== null) carriage.dispose();
+    if (carriageOn !== null) carriageOn.body.visible = true;
+    carriage = null;
+    carriageOn = null;
+    eyeInside = false;
+  }
+
+  /** The ridden car's inside, drawn in place of its shell while the eye is in it. */
+  function serveCarriage(): void {
+    const car = rider === null ? undefined : runner.trains.get(rider.line)?.cars[rider.car];
+    if (rider === null || car === undefined) {
+      dropCarriage();
+      return;
+    }
+    if (carriageOn !== car) {
+      dropCarriage();
+      const ride = rider;
+      const line = network.lines[ride.line]!;
+      const home = places[line.a]!;
+      const roll = ((line.a * 31 + line.b * 17) % 97) / 97;
+      // A shell lower than the carriage's own height gets a carriage of its own height.
+      const height = Math.min(CARRIAGE.height, car.height * 0.86 - CARRIAGE.floor);
+      carriage = buildCarriage(height, roll, (seat) =>
+        seat !== ride.seat && passengerOn(ride.line, ride.car, seat) && sitter !== null ? sitter(`rail|${ride.line}|${ride.car}|${seat}`, home) : null,
+      );
+      car.holder.add(carriage.group);
+      carriageOn = car;
+    }
+    car.holder.updateMatrixWorld(true);
+    eyeLocal.copy(eye);
+    car.holder.worldToLocal(eyeLocal);
+    eyeInside = insideCarriage(eyeLocal, carriage!.height);
+    carriage!.group.visible = eyeInside;
+    car.body.visible = !eyeInside;
+  }
+
   const lamps = createCrossingLamps();
   group.add(lamps.points);
 
@@ -259,6 +343,7 @@ export function createRailway(options: RailwayOptions): Railway {
       }
       serveChunks();
       runner.run(frame.seconds, Math.min(TRAIN_REACH, frame.fogFar * 1.05), nearLines, eye, player, railway.onHorn);
+      serveCarriage();
       lamps.light(frame.seconds, lampPoints, runner.trains);
       stats.chunks = chunks.size;
       stats.stations = stations.size;
@@ -268,7 +353,25 @@ export function createRailway(options: RailwayOptions): Railway {
     collide: (point, radius, push) => collideRailway(runner.trains.values(), stations.values(), point, radius, push),
     benchesNear: (point, radius, out) => stationBenchesNear(stations.values(), point, radius, out),
     setKit(models) {
+      dropCarriage();
       runner.setKit(models);
+      kitReady = models.size > 0;
+    },
+    get running() {
+      return kitReady;
+    },
+    consist: consistFor,
+    platformAt: (point, margin = 0.5) => platformAt(stations.values(), point, margin, platformHit),
+    platformPoint: (hit, x, z, out) => platformPoint(hit.station, x, z, out),
+    setRider(next) {
+      if (next?.line !== rider?.line || next?.car !== rider?.car || next?.seat !== rider?.seat) dropCarriage();
+      rider = next === null ? null : { ...next };
+    },
+    setSitter(next) {
+      sitter = next;
+    },
+    get eyeInside() {
+      return eyeInside;
     },
     eachCar(visit) {
       for (const train of runner.trains.values()) {

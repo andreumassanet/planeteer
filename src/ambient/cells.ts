@@ -3,13 +3,14 @@ import * as THREE from 'three';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../globe.ts';
 import { BIOMES, biomeAt, biomeSample } from '../biome.ts';
 import type { BiomeSample } from '../biome.ts';
-import { shoreDistance } from '../terrain.ts';
+import { shoreAt, shoreDistance, shoreSample } from '../terrain.ts';
 import { latOf, lonOf, unitAt } from '../sphere.ts';
 import { isWater } from '../vehicles.ts';
 import { hash3 } from '../weather.ts';
 import {
-  ANCHORS, BUTTERFLY, CACHE_CAP, CELL, DEG, FIREFLY, GULL_CELL, GULL_COAST, GULL_RANGE, K_ANCHOR, K_CELL,
-  K_GULL, MOTE, POLAR, RANGE, WATERSIDE, WATER_LINE,
+  ANCHORS, BEACH_BIOMES, BEACH_FALL, BEACH_RISE, BEACH_SAND, BEACH_STRIDE, BEACH_TRIES, BUTTERFLY, CACHE_CAP,
+  CASTLE_ODDS, CELL, CRAB_BIOMES, CRAB_ODDS, DEG, FIREFLY, GULL_CELL, GULL_COAST, GULL_RANGE, K_ANCHOR, K_BEACH,
+  K_CELL, K_GULL, MOTE, POLAR, RANGE, WATERSIDE, WATER_LINE,
 } from './constants.ts';
 import { cellKey, columnLon, columnOf, columnsIn, frameAt, rowLat, rowOf } from './grid.ts';
 import type { AmbientContext, Cell, GullCell } from './types.ts';
@@ -37,6 +38,33 @@ export function createCells(ctx: AmbientContext): Cells {
   const probe = new THREE.Vector3();
   const point = new THREE.Vector3();
   const scanCell = new THREE.Vector3();
+  const shoreHere = shoreSample();
+  const beachSpots: number[] = [];
+
+  /**
+   * What lies on a beach cell: spots on dry, low, sandy ground at the water's
+   * edge, each a shell, now and then a sandcastle, and on a warm beach a crab.
+   * Null where nothing does.
+   */
+  function beachOf(row: number, column: number, up: THREE.Vector3, east: THREE.Vector3, north: THREE.Vector3, biome: string): Float32Array | null {
+    beachSpots.length = 0;
+    const warm = (CRAB_BIOMES as readonly string[]).includes(biome);
+    for (let i = 0; i < BEACH_TRIES; i++) {
+      const roll = (k: number): number => hash3(row, column, K_BEACH + i * 4 + k);
+      const e = (roll(0) - 0.5) * CELL;
+      const n = (roll(1) - 0.5) * CELL;
+      probe.copy(up).addScaledVector(east, e / PLANET_RADIUS).addScaledVector(north, n / PLANET_RADIUS).normalize();
+      point.copy(probe).multiplyScalar(PLANET_RADIUS);
+      const ground = options.groundAt(point);
+      if (isWater(ground) || ground - PLANET_RADIUS > BEACH_RISE || options.madeHeightAt(point) > 0) continue;
+      shoreAt(probe.x, probe.y, probe.z, shoreHere);
+      if (shoreHere.fall < BEACH_FALL || shoreHere.sand < BEACH_SAND) continue;
+      const pick = roll(2);
+      const kind = pick < CASTLE_ODDS ? 1 : warm && pick < CASTLE_ODDS + CRAB_ODDS ? 2 : 0;
+      beachSpots.push(kind, probe.x, probe.y, probe.z, ground, roll(3));
+    }
+    return beachSpots.length >= BEACH_STRIDE ? Float32Array.from(beachSpots) : null;
+  }
 
   function admit(row: number, column: number, columns: number): Cell {
     const lat = rowLat(row, CELL);
@@ -72,8 +100,12 @@ export function createCells(ctx: AmbientContext): Cells {
     const cell: Cell = {
       key: cellKey(row, column), row, column, up, east, north, biome, water, shore, town, meadow,
       fireflies, butterflies, motes, fish,
-      anchors: new Float32Array(ANCHORS * 4), anchorCount: 0, born: state.clock, fishIn: -1, fishOut: -1, fade: 0,
+      anchors: new Float32Array(ANCHORS * 4), anchorCount: 0, beach: null, born: state.clock, fishIn: -1, fishOut: -1, fade: 0,
     };
+    // A beach: near the coast, on land, in a biome with sand to lie on.
+    if (!water && !town && shore < GULL_COAST * 2 && (BEACH_BIOMES as readonly string[]).includes(biome)) {
+      cell.beach = beachOf(row, column, up, east, north, biome);
+    }
     // The anchors, only where something will use them: a cell of the desert
     // or of open sea far from anything asks no heights at all.
     if (fireflies + butterflies + motes > 0 || fish) {
@@ -110,9 +142,10 @@ export function createCells(ctx: AmbientContext): Cells {
     const ground = Math.max(PLANET_RADIUS, options.groundAt(probe));
     const shore = shoreDistance(lat, lon) * UNITS_PER_DEGREE;
     const coastal = shore < GULL_COAST || isWater(ground);
-    // Out at sea past sight of land there are gulls too, but fewer.
-    const odds = !coastal ? 0 : shore < GULL_COAST ? 0.45 : 0.12;
-    const count = hash3(row, column, K_GULL) < odds ? 1 + Math.floor(hash3(row, column, K_GULL + 1) * 3) : 0;
+    // Out at sea past sight of land there are gulls too, but fewer; over a harbour, more.
+    const harbour = coastal && (options.harbourNear?.(up) ?? false);
+    const odds = !coastal ? 0 : harbour ? 0.9 : shore < GULL_COAST ? 0.45 : 0.12;
+    const count = hash3(row, column, K_GULL) < odds ? (harbour ? 2 : 1) + Math.floor(hash3(row, column, K_GULL + 1) * 3) : 0;
     const altitude = ground + 14 + hash3(row, column, K_GULL + 2) * 16;
     return { key: cellKey(row, column), up, east, north, count, altitude, row, column, born: state.clock, fade: 0 };
   }
@@ -163,7 +196,7 @@ export function createCells(ctx: AmbientContext): Cells {
           cell = admit(row, column, columns);
           cells.set(key, cell);
         }
-        if (cell.anchorCount > 0) active.push(cell);
+        if (cell.anchorCount > 0 || cell.beach !== null) active.push(cell);
       });
     }
     activeGulls.length = 0;

@@ -39,8 +39,10 @@ export function checkGroundColour(ctx: WorldContext, mesh: LandMesh): void {
     v.fromBufferAttribute(position, t * 3);
     cb.fromBufferAttribute(position, t * 3 + 1);
     cc.fromBufferAttribute(position, t * 3 + 2);
-    // Tops only: a wall's colour is the top's times 0.72.
+    // Tops only: a wall's colour is the top's times 0.72, and an apron's,
+    // which leans like a hillside and goes under the sea, its own shade.
     if (Math.abs(n.dot(centre.copy(v).normalize())) < 0.5) continue;
+    if (Math.min(v.length(), cb.length(), cc.length()) < PLANET_RADIUS) continue;
     // The mesh paints per vertex, so ask at the first corner; a corner the
     // outlines call sea has no country to tint with.
     if (world.countryAtPoint(v) === 0) continue;

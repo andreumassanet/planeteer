@@ -320,7 +320,7 @@ function checkCourses(settled: Place[], roads: Road[], world: World): void {
   const ramp = emptyRamp();
   const stations: number[] = [];
   const near = Array.from({ length: 6 }, () => new Vector3());
-  const far = Array.from({ length: 6 }, () => new Vector3());
+  const far = Array.from({ length: 8 }, () => new Vector3());
   const unitAt = new Vector3();
   const offset = { x: 0, z: 0 };
   let vertices = 0;

@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { loadWorld } from '../src/geo.ts';
 import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import { decodeLakes, decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
-import { setDetailSites, setFlattenSites } from '../src/terrain.ts';
+import { SHORE_APRON, SHORE_LIP, SHORE_WATERLINE, setDetailSites, setFlattenSites } from '../src/terrain.ts';
 import { latOf, lonOf, unitAt } from '../src/sphere.ts';
 import { meanTemperature } from '../src/biome.ts';
 import {
@@ -85,6 +85,7 @@ console.log(`the coast: ${coastSegments()} segments indexed in ${Math.round(perf
 const p = new THREE.Vector3();
 const q = new THREE.Vector3();
 const sample = coastSample();
+const coastNear = coastSample();
 
 /** Places a reader can check: a reef, a kelp coast, the open ocean. */
 const SPOTS = {
@@ -115,12 +116,20 @@ console.log('the profile');
   let coastWorst = 0;
   for (let i = 0; i < 4000; i++) {
     unitAt((((i * 0.618034) % 1) * 2 - 1) * 80, ((i * 0.7548776) % 1) * 360 - 180, p);
-    shallowest = Math.min(shallowest, depthAtDistance(p.x, p.y, p.z, (i % 50) * 12));
+    shallowest = Math.min(shallowest, depthAtDistance(p.x, p.y, p.z, SHORE_APRON + (i % 50) * 12));
     deepest = Math.max(deepest, depthAtDistance(p.x, p.y, p.z, SEA_REACH));
-    coastWorst = Math.max(coastWorst, depthAtDistance(p.x, p.y, p.z, 0));
+    coastWorst = Math.max(coastWorst, depthAtDistance(p.x, p.y, p.z, SHORE_APRON + 2));
   }
-  check(shallowest >= MIN_DEPTH, 'never shallower than MIN_DEPTH', `${shallowest.toFixed(2)} against ${MIN_DEPTH}`);
-  check(coastWorst < COAST_DEPTH * 2.2, 'shallow at the coast', `at most ${coastWorst.toFixed(2)} at distance 0`);
+  check(shallowest >= MIN_DEPTH, 'never shallower than MIN_DEPTH past the apron', `${shallowest.toFixed(2)} against ${MIN_DEPTH}`);
+  check(coastWorst < COAST_DEPTH * 2.2, 'shallow at the apron\'s foot', `at most ${coastWorst.toFixed(2)} two units past it`);
+  const top = depthAtDistance(p.x, p.y, p.z, 0);
+  const waterline = depthAtDistance(p.x, p.y, p.z, SHORE_WATERLINE);
+  const foot = depthAtDistance(p.x, p.y, p.z, SHORE_APRON);
+  check(
+    Math.abs(top + SHORE_LIP) < 1e-9 && Math.abs(waterline) < 1e-9 && Math.abs(foot - COAST_DEPTH) < 1e-9,
+    'the apron runs from the lip at the coastline, under the sea at its waterline, to the shelf at its foot',
+    `${(-top).toFixed(2)} over the sea at 0, ${waterline.toFixed(2)} at ${SHORE_WATERLINE.toFixed(1)}, ${foot.toFixed(2)} under it at ${SHORE_APRON}`,
+  );
   check(deepest > OPEN_DEPTH * 0.7, 'deep far out', `${deepest.toFixed(1)} past the reach`);
 }
 {
@@ -146,7 +155,8 @@ console.log('the profile');
           where = name;
         }
         previous = depth;
-        if (isSeaAt(q.x, q.y, q.z)) {
+        // The apron's dry half is the beach, over the sea by design.
+        if (isSeaAt(q.x, q.y, q.z) && coastAt(q.x, q.y, q.z, SHORE_WATERLINE + 0.5, coastNear).distance === Infinity) {
           seaPoints++;
           if (PLANET_RADIUS - depth >= PLANET_RADIUS) aboveWater++;
         }
@@ -154,7 +164,7 @@ console.log('the profile');
     }
   }
   check(worst < 3.2, 'continuous along the ground, out from coasts', `worst ${worst.toFixed(2)} a two-unit step, off ${where}`);
-  check(aboveWater === 0, 'the floor is under the water wherever the outlines say sea', `${seaPoints} sea points, ${aboveWater} with a floor over the surface`);
+  check(aboveWater === 0, 'the floor is under the water wherever the outlines say sea, past the apron\'s waterline', `${seaPoints} sea points, ${aboveWater} with a floor over the surface`);
 }
 {
   const depths: string[] = [];
@@ -406,7 +416,8 @@ console.log('\nthe drawn sea');
   const [floorLow, floorHigh, floorUsed] = radii(floor);
   const [waterLow, waterHigh] = radii(water);
   const [, decorHigh, decorUsed] = radii(decor);
-  check(floorHigh < 0 && floorLow > -OPEN_DEPTH - 10, 'the floor is under the sea', `${floorUsed} vertices, ${floorLow.toFixed(1)} to ${floorHigh.toFixed(2)}`);
+  // Under the apron's dry half the drawn floor is tucked under the land's; past it, under the sea.
+  check(floorHigh < SHORE_LIP && floorLow > -OPEN_DEPTH - 10, 'the floor is under the sea, or under the apron', `${floorUsed} vertices, ${floorLow.toFixed(1)} to ${floorHigh.toFixed(2)}`);
   // Two of float32's steps at the planet's radius: the vertices are stored that far out.
   const floatStep = 2 * 2 ** (Math.floor(Math.log2(PLANET_RADIUS)) - 23);
   check(waterLow >= surfaceLift(Infinity) - floatStep && waterHigh <= surfaceLift(0) + floatStep, "the water stands on the ribbon's heights", `${waterLow.toFixed(3)} to ${waterHigh.toFixed(3)}`);
