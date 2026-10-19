@@ -62,6 +62,9 @@ export const LOOSE_SHARE = 0.4;
  * ground a tree is seated on.
  */
 export const SLOPE_CLEAR = 0.55;
+/** The share of a town's country cells off its edge slope that are a house in its yard, and of those beside a road out. */
+export const HOUSE_SHARE = 0.3;
+export const HOUSE_SHARE_BY_ROAD = 0.7;
 /** How far off a road's centre line the country keeps: the carriageway's half and a crown. */
 export const ROAD_KEEP = 7.5;
 

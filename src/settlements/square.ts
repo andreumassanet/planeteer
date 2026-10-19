@@ -1,7 +1,7 @@
 import type { World } from '../geo.ts';
 import type { Place } from '../places.ts';
 import { heldGates } from '../roads.ts';
-import { cellCentre, gatesOf, landmarkParcel, outskirtsOf, townGrid, townTerraces } from '../scenery/grid.ts';
+import { cellCentre, gatesOf, gridAround, landmarkParcel, outskirtsOf, townGrid, townTerraces } from '../scenery/grid.ts';
 import type { TownGrid } from '../scenery/grid.ts';
 import { MAX_CUT, cellKey } from '../scenery/ground.ts';
 import type { TownFrame } from './frame.ts';
@@ -34,16 +34,18 @@ export function* squareSteps(
     return null;
   }
 
-  const grid = townGrid(slot.radius);
-  frame.grid = grid;
+  const square = townGrid(slot.radius);
   parcels.length = 0;
   parcelOwners.length = 0;
   for (const keepout of keepouts) {
-    const parcel = landmarkParcel(grid, keepout.x, keepout.z, keepout.shape);
+    const parcel = landmarkParcel(square, keepout.x, keepout.z, keepout.shape);
     if (parcel === null) continue;
     parcels.push(parcel);
     parcelOwners.push(keepout);
   }
+  // A landmark's streets stay whole round it.
+  const grid = gridAround(slot.radius, parcels);
+  frame.grid = grid;
   frame.base = Math.max(0, world.elevationAt(up));
   frame.corners.clear();
   frame.shores.clear();

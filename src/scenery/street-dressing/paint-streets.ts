@@ -1,7 +1,7 @@
 import { PALETTE } from '../../theme.ts';
 import { tone } from '../../monuments/contract.ts';
 import { LINE_HALF, cellKey, pavementOf } from '../ground.ts';
-import { cellCentre, cellIndex } from '../grid.ts';
+import { cellCentre, cellIndex, streetSide } from '../grid.ts';
 import { rngFrom } from '../random.ts';
 import type { Rng } from '../random.ts';
 import { overlapping } from './aabb.ts';
@@ -112,13 +112,13 @@ function streetsOf(d: Dresser, col: number, row: number): Street[] {
   const z0 = cellCentre(grid, row) - pitch / 2;
   if (grid.avenue[col] === 1) list.push({ alongZ: true, line: x0 + pitch / 2, half: pitch / 2, side: 0 });
   else {
-    if (grid.low[col] === 1 && levels.has(cellKey(col - 1, row))) list.push({ alongZ: true, line: x0, half: band, side: 1 });
-    if (grid.high[col] === 1 && levels.has(cellKey(col + 1, row))) list.push({ alongZ: true, line: x0 + pitch, half: band, side: -1 });
+    if (streetSide(grid, col, row, 2) && levels.has(cellKey(col - 1, row))) list.push({ alongZ: true, line: x0, half: band, side: 1 });
+    if (streetSide(grid, col, row, 0) && levels.has(cellKey(col + 1, row))) list.push({ alongZ: true, line: x0 + pitch, half: band, side: -1 });
   }
   if (grid.avenue[row] === 1) list.push({ alongZ: false, line: z0 + pitch / 2, half: pitch / 2, side: 0 });
   else {
-    if (grid.low[row] === 1 && levels.has(cellKey(col, row - 1))) list.push({ alongZ: false, line: z0, half: band, side: 1 });
-    if (grid.high[row] === 1 && levels.has(cellKey(col, row + 1))) list.push({ alongZ: false, line: z0 + pitch, half: band, side: -1 });
+    if (streetSide(grid, col, row, 3) && levels.has(cellKey(col, row - 1))) list.push({ alongZ: false, line: z0, half: band, side: 1 });
+    if (streetSide(grid, col, row, 1) && levels.has(cellKey(col, row + 1))) list.push({ alongZ: false, line: z0 + pitch, half: band, side: -1 });
   }
   return list;
 }

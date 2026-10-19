@@ -1,6 +1,6 @@
 import { BENCH_DEPTH, BENCH_SIT_AHEAD } from '../../bench.ts';
 import { LAMP_POOL } from '../../lights.ts';
-import { cellCentre, cellIndex, cornerOffset, gateGlow, gateMouth } from '../../scenery/grid.ts';
+import { cellCentre, cellIndex, cornerOffset, gateGlow, gateMouth, streetSide } from '../../scenery/grid.ts';
 import { GROUND_LIFT, cellKey, pavementOf } from '../../scenery/ground.ts';
 import { rngFrom } from '../../scenery/index.ts';
 import {
@@ -99,6 +99,11 @@ export function placeLamps(job: GroundJob, urbanity: number): void {
       const ox = kerbOff(i, rng.chance(0.5) ? 1 : -1);
       const oz = kerbOff(j, rng.chance(0.5) ? 1 : -1);
       if (ox === null || oz === null) continue;
+      // Not where either band is a stretch given back to the blocks.
+      const col = ox > 0 ? i : i - 1;
+      const row = oz > 0 ? j : j - 1;
+      if (grid.high[i - 1] === 1 && !streetSide(grid, i - 1, row, 0)) continue;
+      if (grid.high[j - 1] === 1 && !streetSide(grid, col, j - 1, 1)) continue;
       if (!rng.chance(chance)) continue;
       const lx = cornerOffset(grid, i) + ox;
       const lz = cornerOffset(grid, j) + oz;

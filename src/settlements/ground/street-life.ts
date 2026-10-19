@@ -1,5 +1,5 @@
 import { BENCH_DEPTH } from '../../bench.ts';
-import { THROUGH_HALF_WIDTH, cellCentre, cellIndex, hasThroughStreets, mainStreetHalf, onThroughRoad, throughClear } from '../../scenery/grid.ts';
+import { THROUGH_HALF_WIDTH, cellCentre, cellIndex, hasThroughStreets, mainStreetHalf, onThroughRoad, streetSide, throughClear } from '../../scenery/grid.ts';
 import { cellKey } from '../../scenery/ground.ts';
 import { rngFrom } from '../../scenery/index.ts';
 import { CLEAR_BENCH, CLEAR_CAR, CLEAR_FOLK, PAIR_GAP, PAIR_SHARE, STROLL_MIN, STROLL_STEP } from '../rules.ts';
@@ -42,10 +42,10 @@ export function* streetLifeSteps(job: GroundJob, urbanity: number): Generator<vo
     const rng = rngFrom(slot.seed, 'street-life', col, row);
     // A band only where the cell across it is town too, as the street is drawn.
     const streets: CellStreet[] = [];
-    if (grid.low[col] === 1 && levels.has(cellKey(col - 1, row))) streets.push([true, x0 + band * 0.5, band]);
-    if (grid.high[col] === 1 && levels.has(cellKey(col + 1, row))) streets.push([true, x0 + pitch - band * 0.5, band]);
-    if (grid.low[row] === 1 && levels.has(cellKey(col, row - 1))) streets.push([false, z0 + band * 0.5, band]);
-    if (grid.high[row] === 1 && levels.has(cellKey(col, row + 1))) streets.push([false, z0 + pitch - band * 0.5, band]);
+    if (streetSide(grid, col, row, 2) && levels.has(cellKey(col - 1, row))) streets.push([true, x0 + band * 0.5, band]);
+    if (streetSide(grid, col, row, 0) && levels.has(cellKey(col + 1, row))) streets.push([true, x0 + pitch - band * 0.5, band]);
+    if (streetSide(grid, col, row, 3) && levels.has(cellKey(col, row - 1))) streets.push([false, z0 + band * 0.5, band]);
+    if (streetSide(grid, col, row, 1) && levels.has(cellKey(col, row + 1))) streets.push([false, z0 + pitch - band * 0.5, band]);
     // Along an avenue a car parks with its centre 1.9 in from the kerb.
     if (grid.avenue[col] === 1 && grid.avenue[row] !== 1) {
       streets.push([true, x0 + 1.9, 1.9], [true, x0 + pitch - 1.9, 1.9]);

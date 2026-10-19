@@ -1,6 +1,6 @@
 import { radiusOf } from '../places.ts';
 import type { TownPlan } from '../settlements.ts';
-import { cellCentre, gatesOf, isAvenue, outskirtsOf, townGrid } from '../scenery/grid.ts';
+import { cellCentre, gatesOf, isAvenue, outskirtsOf, streetSide, townGrid } from '../scenery/grid.ts';
 import { cellKey, groundStyleFor } from '../scenery/ground.ts';
 import { tone } from '../monuments/contract.ts';
 import type { TileView } from '../map-tiles.ts';
@@ -142,8 +142,8 @@ export function* paintPlan(f: FeatureCtx, view: TileView, raster: Raster, plan: 
       }
       if (banded) {
         const edge = cellCentre(grid, c) + half;
-        if (paved(c, k) || paved(c + 1, k)) pieces.push([edge, cellCentre(grid, k), plan.band, half]);
-        if (paved(k, c) || paved(k, c + 1)) pieces.push([cellCentre(grid, k), edge, half, plan.band]);
+        if ((paved(c, k) || paved(c + 1, k)) && streetSide(grid, c, k, 0)) pieces.push([edge, cellCentre(grid, k), plan.band, half]);
+        if ((paved(k, c) || paved(k, c + 1)) && streetSide(grid, k, c, 1)) pieces.push([cellCentre(grid, k), edge, half, plan.band]);
       }
     }
   }

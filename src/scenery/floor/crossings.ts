@@ -1,5 +1,5 @@
 import { GROUND_LIFT, STREET_GRADE, STREET_STEEPEST, cellKey } from '../ground.ts';
-import { gateFlare } from '../grid/square.ts';
+import { gateFlare, streetSide } from '../grid/square.ts';
 import type { FloorPlan, FloorStats } from '../floor.ts';
 import { EDGES, colOf, rowOf } from './edge-slope.ts';
 import { FLIGHT_INSET, FLIGHT_RUN, RAMP_GENTLEST, RAMP_LANDING, STEP_RISE, STEP_TREAD, overlap, rampGrade } from './flight.ts';
@@ -83,12 +83,12 @@ function findCrossings(plan: FloorPlan): Crossing[] {
         to = hi - FLIGHT_INSET;
         centre = lo + pitch * 0.5;
         half = pitch * 0.5;
-      } else if (grid.low[other] === 1) {
+      } else if (streetSide(grid, col, row, axis === 0 ? 3 : 2)) {
         from = lo;
         to = lo + band - FLIGHT_INSET;
         centre = lo;
         half = band;
-      } else if (grid.high[other] === 1) {
+      } else if (streetSide(grid, col, row, axis === 0 ? 1 : 0)) {
         from = hi - band + FLIGHT_INSET;
         to = hi;
         centre = hi;

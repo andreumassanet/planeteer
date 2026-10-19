@@ -12,13 +12,14 @@ import {
   isAvenue,
   outskirtScore,
   streetBand,
+  streetSide,
 } from '../scenery/grid.ts';
 import type { TownGrid } from '../scenery/grid.ts';
 import { cellKey } from '../scenery/ground.ts';
 import { VARIANTS, rngFrom } from '../scenery/index.ts';
 import type { Placed, RegionStyle, Weighted } from '../scenery/index.ts';
 import type { TownFrame } from './frame.ts';
-import { FACING_YAW, facingSides, fitIn, rectOf } from './plots.ts';
+import { FACING_YAW, blockSide, facingSides, fitIn, rectOf } from './plots.ts';
 import {
   KIND_OF,
   OUTER_FILL,
@@ -182,10 +183,10 @@ function plotsFor(job: PlanJob, col: number, row: number): Block[] {
   const options: Block[] = [[col, col, row, row]];
   const free = (c: number, r: number): boolean =>
     c >= 0 && r >= 0 && c < cells && r < cells && !isAvenue(grid, c, r) && !taken.has(cellKey(c, r));
-  if (col + 1 < cells && grid.high[col] === 0 && grid.low[col + 1] === 0 && free(col + 1, row)) options.push([col, col + 1, row, row]);
-  if (col > 0 && grid.low[col] === 0 && grid.high[col - 1] === 0 && free(col - 1, row)) options.push([col - 1, col, row, row]);
-  if (row + 1 < cells && grid.high[row] === 0 && grid.low[row + 1] === 0 && free(col, row + 1)) options.push([col, col, row, row + 1]);
-  if (row > 0 && grid.low[row] === 0 && grid.high[row - 1] === 0 && free(col, row - 1)) options.push([col, col, row - 1, row]);
+  if (col + 1 < cells && !streetSide(grid, col, row, 0) && free(col + 1, row)) options.push([col, col + 1, row, row]);
+  if (col > 0 && !streetSide(grid, col, row, 2) && free(col - 1, row)) options.push([col - 1, col, row, row]);
+  if (row + 1 < cells && !streetSide(grid, col, row, 1) && free(col, row + 1)) options.push([col, col, row, row + 1]);
+  if (row > 0 && !streetSide(grid, col, row, 3) && free(col, row - 1)) options.push([col, col, row - 1, row]);
   // The whole block last, only when both partners and the diagonal are free.
   const across = options.find(([c0, c1, r0, r1]) => r0 === r1 && c0 !== c1);
   const along = options.find(([c0, c1, r0, r1]) => c0 === c1 && r0 !== r1);
@@ -194,6 +195,10 @@ function plotsFor(job: PlanJob, col: number, row: number): Block[] {
     const dr = along[2] === row ? along[3] : along[2];
     if (free(dc, dr)) options.push([Math.min(col, dc), Math.max(col, dc), Math.min(row, dr), Math.max(row, dr)]);
   }
+  // A pair across a closed stretch first: one building where the street was.
+  const spansClosed = ([c0, c1, r0, r1]: Block): number =>
+    (c0 !== c1 && grid.high[c0] === 1) || (r0 !== r1 && grid.high[r0] === 1) ? 0 : 1;
+  options.sort((m, n) => spansClosed(m) - spansClosed(n));
   return options.filter(([c0, c1, r0, r1]) => level(job, c0, c1, r0, r1));
 }
 
@@ -208,6 +213,27 @@ function placeAny(job: PlanJob, ids: readonly string[], options: readonly Block[
   return placeFrom(job, ids, small, rng) ?? placeFrom(job, ids, large, rng);
 }
 
+/**
+ * Where along its frontage a building slides when the block has a closed
+ * stretch of street on a side across it: hard against it, so the street ends
+ * on a wall rather than a gap. Null where it has none.
+ */
+function closedSlide(grid: TownGrid, [c0, c1, r0, r1]: Block, side: number): number | null {
+  const closed = (s: number): boolean => {
+    for (let c = c0; c <= c1; c++) {
+      for (let r = r0; r <= r1; r++) {
+        const edge = s === 0 ? c === c1 : s === 1 ? r === r1 : s === 2 ? c === c0 : r === r0;
+        if (edge && (grid.shut[c * grid.cells + r]! & (1 << s)) !== 0) return true;
+      }
+    }
+    return false;
+  };
+  const across = side % 2 === 0 ? [1, 3] : [0, 2];
+  if (closed(across[0]!)) return 1;
+  if (closed(across[1]!)) return 0;
+  return null;
+}
+
 function placeFrom(job: PlanJob, ids: readonly string[], options: readonly Block[], rng: Rng): Block | null {
   const { grid, band, widened } = job;
   if (options.length === 0) return null;
@@ -216,7 +242,7 @@ function placeFrom(job: PlanJob, ids: readonly string[], options: readonly Block
     const flat = job.variantOf(id, job.style, variant);
     if (flat === null) continue;
     const scale = rng.spread(1, 0.09);
-    const slide = rng.unit();
+    const drawn = rng.unit();
     const pick = rng.unit();
     for (const option of options) {
       const [c0, c1, r0, r1] = option;
@@ -224,7 +250,7 @@ function placeFrom(job: PlanJob, ids: readonly string[], options: readonly Block
       if (blocked(job, rect)) continue;
       const sides = facingSides(grid, c0, c1, r0, r1);
       const side = sides[Math.floor(pick * sides.length)]!;
-      const fitted = fitIn(flat, rect, side, scale, slide);
+      const fitted = fitIn(flat, rect, side, scale, closedSlide(grid, option, side) ?? drawn);
       if (fitted === null) continue;
       job.placed.push({
         partId: id,
@@ -287,7 +313,8 @@ function placeCivic(job: PlanJob): void {
 /**
  * Every other cell, nearest the middle first: a building with the fill chance,
  * drawn from `mixAt`; past `OUTSKIRT_RING` built a little less often and only
- * with houses, so the edge is houses in yards rather than a wall of flats.
+ * with houses, so the edge is houses in yards rather than a wall of flats. A
+ * cell beside a closed stretch of street always tries for a building.
  */
 function* placeCells(job: PlanJob, urbanity: number): Generator<void, void, void> {
   const { grid, band, cells, style, slot, widened, taken } = job;
@@ -310,7 +337,9 @@ function* placeCells(job: PlanJob, urbanity: number): Generator<void, void, void
       : Math.max(Math.abs(cellCentre(grid, col)), Math.abs(cellCentre(grid, row))) / Math.max(1, grid.half);
     const edge = Math.min(1, score);
     const outer = ringed && score > OUTSKIRT_RING;
-    if (rng.chance(outer ? fill * OUTER_FILL : fill)) {
+    // A cell a closed street was given back to always builds: it is what the street ends against.
+    const closing = grid.shut[col * cells + row] !== 0;
+    if (rng.chance(outer ? fill * OUTER_FILL : fill) || closing) {
       let mix = mixAt(style, urbanity, edge, Infinity);
       if (outer) {
         const homes = mix.filter((entry) => KIND_OF.get(entry.item) !== 'block');
@@ -383,10 +412,10 @@ function plantParcels(job: PlanJob): void {
     // Off the band a side carries where the town goes on past it, and a kerb's width at the square's edge.
     const inset = (band: number, col: number, row: number): number =>
       (inGrid(grid, col, row) && frame.terraceAt(col, row) !== null ? band : 0) + 0.6;
-    const x0 = cellCentre(grid, parcel.c0) - grid.pitch * 0.5 + inset(grid.low[parcel.c0] === 1 ? band : 0, parcel.c0 - 1, parcel.r0);
-    const x1 = cellCentre(grid, parcel.c1) + grid.pitch * 0.5 - inset(grid.high[parcel.c1] === 1 ? band : 0, parcel.c1 + 1, parcel.r0);
-    const z0 = cellCentre(grid, parcel.r0) - grid.pitch * 0.5 + inset(grid.low[parcel.r0] === 1 ? band : 0, parcel.c0, parcel.r0 - 1);
-    const z1 = cellCentre(grid, parcel.r1) + grid.pitch * 0.5 - inset(grid.high[parcel.r1] === 1 ? band : 0, parcel.c0, parcel.r1 + 1);
+    const x0 = cellCentre(grid, parcel.c0) - grid.pitch * 0.5 + inset(blockSide(grid, parcel.c0, parcel.c1, parcel.r0, parcel.r1, 2) ? band : 0, parcel.c0 - 1, parcel.r0);
+    const x1 = cellCentre(grid, parcel.c1) + grid.pitch * 0.5 - inset(blockSide(grid, parcel.c0, parcel.c1, parcel.r0, parcel.r1, 0) ? band : 0, parcel.c1 + 1, parcel.r0);
+    const z0 = cellCentre(grid, parcel.r0) - grid.pitch * 0.5 + inset(blockSide(grid, parcel.c0, parcel.c1, parcel.r0, parcel.r1, 3) ? band : 0, parcel.c0, parcel.r0 - 1);
+    const z1 = cellCentre(grid, parcel.r1) + grid.pitch * 0.5 - inset(blockSide(grid, parcel.c0, parcel.c1, parcel.r0, parcel.r1, 1) ? band : 0, parcel.c0, parcel.r1 + 1);
     const px0 = owner.x + shape.cx - shape.hx;
     const px1 = owner.x + shape.cx + shape.hx;
     const pz0 = owner.z + shape.cz - shape.hz;

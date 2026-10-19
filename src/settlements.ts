@@ -7,8 +7,8 @@ import { landProbeOf } from './land-probe.ts';
 import { LANDMARK_KEEP, planShape } from './landmark-ground.ts';
 import { radiusOf } from './places.ts';
 import type { Place } from './places.ts';
-import { holdGates } from './roads.ts';
-import type { Road } from './roads.ts';
+import { holdGates, roadGeometryFor } from './roads.ts';
+import type { CoursePath, Road } from './roads.ts';
 import { groundStyleFor } from './scenery/ground.ts';
 import { createSceneryContext, regionFor } from './scenery/index.ts';
 import type { Placed } from './scenery/index.ts';
@@ -68,6 +68,7 @@ export function createSettlements(
   // The gates a town may not raise to make its streets climbable, because a road's ramps would meet.
   holdGates(options.roads ?? [], places, world);
   const roadGates = gatesByPlace(options.roads ?? [], places);
+  const roadPaths = pathsByPlace(options.roads ?? [], places);
   const ctx = createSceneryContext(options.context);
   const landProbe = options.land === undefined ? null : landProbeOf(options.land);
   const material = townMaterial();
@@ -90,7 +91,7 @@ export function createSettlements(
   const inTheCountry = new WeakSet<Placed>();
   const squareOf = (slot: Slot) => squareSteps(frame, world, slot, roadGates, broken);
   const planner = createPlanner(frame, roadGates, styleFor, variants.variantOf, (slot, grid, style) =>
-    countrysideSteps(frame, slots, roadGates, inTheCountry, slot, grid, style));
+    countrysideSteps(frame, slots, roadGates, roadPaths, inTheCountry, slot, grid, style));
   // Bound once the lifecycle exists: a plan built now makes way for the town under way.
   let lifecycle: Lifecycle | null = null;
   const plans = createMapPlans(world, frame, slots, variants, squareOf, planner.planTownSteps, inTheCountry, () => lifecycle!.endJob());
@@ -175,6 +176,23 @@ function gatesByPlace(roads: readonly Road[], places: readonly Place[]): Map<Pla
     }
   }
   return roadGates;
+}
+
+/** Each town's roads as their drawn paths, for what keeps off them round it. */
+function pathsByPlace(roads: readonly Road[], places: readonly Place[]): (place: Place) => CoursePath[] {
+  const byPlace = new Map<Place, number[]>();
+  for (let index = 0; index < roads.length; index++) {
+    for (const end of [roads[index]!.a, roads[index]!.b]) {
+      const place = places[end];
+      if (place === undefined) continue;
+      const list = byPlace.get(place) ?? [];
+      list.push(index);
+      byPlace.set(place, list);
+    }
+  }
+  if (roads.length === 0) return () => [];
+  const geometry = roadGeometryFor(roads, places);
+  return (place) => (byPlace.get(place) ?? []).map((index) => geometry.path(index));
 }
 
 /** A place's slot, before anything is built: its region, ground, radius, seed and the ground point under it. */

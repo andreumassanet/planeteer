@@ -223,7 +223,7 @@ function* planSteps(deps: PlanDeps, slot: Slot): Generator<void, TownPlan | null
       trees.push(entry.plot.x, entry.plot.z, footprintOf(entry.partId) * entry.scale);
       continue;
     }
-    if (country || (kind !== 'dwelling' && kind !== 'block' && kind !== 'civic')) continue;
+    if (country ? kind !== 'dwelling' : kind !== 'dwelling' && kind !== 'block' && kind !== 'civic') continue;
     const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, 0);
     solids.push(solid);
     flats.push(flat);

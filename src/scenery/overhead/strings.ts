@@ -1,7 +1,8 @@
 import { POLE_HEIGHT, POLE_WIDTH } from '../../roadside.ts';
 import { rngFrom } from '../random.ts';
 import type { Rng } from '../random.ts';
-import { cellCentre } from '../grid.ts';
+import { cellCentre, streetSide } from '../grid.ts';
+import type { TownGrid } from '../grid.ts';
 import { pavementOf } from '../ground.ts';
 import { anyToward, clearOfHosts, spanA, spanA1, spanB, spanB1, wallAnchor } from './anchors.ts';
 import type { Street } from './anchors.ts';
@@ -39,10 +40,17 @@ export function* stringStreetsSteps(h: Hanger): Generator<void, void, void> {
     const masts: MastState = { last: null, cell: -Infinity };
     for (let k = 0; k < grid.cells; k++) {
       if (out.triangles > SPAN_CAP) break;
-      if (grid.avenue[k] === 1) continue;
+      if (grid.avenue[k] === 1 || !streetOpenAt(grid, street, k)) continue;
       if (!stringSlot(h, street, k, kind, spec, chance, masts)) break;
     }
   }
+}
+
+/** Whether a street runs past cell `k` along it: an avenue always, a band unless that stretch is closed. */
+function streetOpenAt(grid: TownGrid, street: Street, k: number): boolean {
+  if (Number.isInteger(street.index)) return true;
+  const b = Math.floor(street.index);
+  return street.axis === 0 ? streetSide(grid, b, k, 0) : streetSide(grid, k, b, 1);
 }
 
 /** One cell's slot along a street. Returns false when the town's cap for this kind is spent. */

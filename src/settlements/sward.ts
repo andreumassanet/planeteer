@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../globe.ts';
 import { flightAt, floorLiftAt, shoreSide } from '../scenery/floor.ts';
-import { cellCentre, cellIndex, inGrid } from '../scenery/grid.ts';
+import { cellCentre, cellIndex, inGrid, streetSide } from '../scenery/grid.ts';
 import { cellKey } from '../scenery/ground.ts';
 import { solidAt } from '../scenery/solids.ts';
 import type { Registry } from './registry.ts';
@@ -35,12 +35,12 @@ function lawnTop(floor: SlotFloor, col: number, row: number, x: number, z: numbe
   const u = x - (cellCentre(grid, col) - grid.pitch * 0.5);
   const v = z - (cellCentre(grid, row) - grid.pitch * 0.5);
   // The streets through the cell, as the floor cuts them: a band only where the cell across is town too.
-  const street = (index: number, t: number, across: (step: number) => boolean): boolean =>
+  const street = (index: number, t: number, lowSide: number, across: (step: number) => boolean): boolean =>
     grid.avenue[index] === 1 ||
-    (grid.low[index] === 1 && t < band + margin && across(-1)) ||
-    (grid.high[index] === 1 && t > grid.pitch - band - margin && across(1));
-  if (street(col, u, (step) => field.terraces.has(cellKey(col + step, row))) ||
-    street(row, v, (step) => field.terraces.has(cellKey(col, row + step)))) return null;
+    (streetSide(grid, col, row, lowSide) && t < band + margin && across(-1)) ||
+    (streetSide(grid, col, row, lowSide - 2) && t > grid.pitch - band - margin && across(1));
+  if (street(col, u, 2, (step) => field.terraces.has(cellKey(col + step, row))) ||
+    street(row, v, 3, (step) => field.terraces.has(cellKey(col, row + step)))) return null;
   if (flightAt(field, x, z, margin) !== null) return null;
   for (const [x0, x1, z0, z1] of floor.mouths) {
     if (x > x0 - margin && x < x1 + margin && z > z0 - margin && z < z1 + margin) return null;

@@ -1,7 +1,7 @@
 import { FLOOR, LAND_GROUND } from '../../surfaces.ts';
 import type * as THREE from 'three';
 import { flightRect } from '../../scenery/floor.ts';
-import { cellCentre, cellIndex } from '../../scenery/grid.ts';
+import { cellCentre, cellIndex, streetSide } from '../../scenery/grid.ts';
 import { DASH, GROUND_LIFT, LINE_HALF, MARKED_STREET, ZEBRA, ZEBRA_STRIPE, cellKey, cellTone, pavementOf } from '../../scenery/ground.ts';
 import type { GroundJob, Mouth } from './job.ts';
 import { litAround } from './writer.ts';
@@ -135,21 +135,21 @@ function seaWall(job: GroundJob, s: PaveScratch, key: number, top: number): void
  */
 function streetsOf(job: GroundJob, col: number, row: number, plaza: boolean, crossing: boolean): { alongZ: Street[]; alongX: Street[] } {
   const { grid, pitch, band, levels, frame } = job;
-  const streetsOn = (index: number, across: (step: number) => boolean): Street[] => {
+  const streetsOn = (index: number, lowSide: number, across: (step: number) => boolean): Street[] => {
     const list: Street[] = [];
     if (grid.avenue[index] === 1) list.push({ centre: 0.5, half: pitch * 0.5 });
     else {
-      if (grid.low[index] === 1 && across(-1)) list.push({ centre: 0, half: band });
-      if (grid.high[index] === 1 && across(1)) list.push({ centre: 1, half: band });
+      if (streetSide(grid, col, row, lowSide) && across(-1)) list.push({ centre: 0, half: band });
+      if (streetSide(grid, col, row, lowSide - 2) && across(1)) list.push({ centre: 1, half: band });
     }
     return list;
   };
   const alongZ = crossing ? []
-    : plaza ? streetsOn(col, (step) => levels.has(cellKey(col + step, row)) && !frame.parcelCell(col + step, row)).filter((street) => street.centre !== 0.5)
-    : streetsOn(col, (step) => levels.has(cellKey(col + step, row)));
+    : plaza ? streetsOn(col, 2, (step) => levels.has(cellKey(col + step, row)) && !frame.parcelCell(col + step, row)).filter((street) => street.centre !== 0.5)
+    : streetsOn(col, 2, (step) => levels.has(cellKey(col + step, row)));
   const alongX = crossing ? []
-    : plaza ? streetsOn(row, (step) => levels.has(cellKey(col, row + step)) && !frame.parcelCell(col, row + step)).filter((street) => street.centre !== 0.5)
-    : streetsOn(row, (step) => levels.has(cellKey(col, row + step)));
+    : plaza ? streetsOn(row, 3, (step) => levels.has(cellKey(col, row + step)) && !frame.parcelCell(col, row + step)).filter((street) => street.centre !== 0.5)
+    : streetsOn(row, 3, (step) => levels.has(cellKey(col, row + step)));
   return { alongZ, alongX };
 }
 

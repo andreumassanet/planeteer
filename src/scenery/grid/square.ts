@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../../globe.ts';
 import { MAX_CUT, TERRACE_STEP, pavementOf } from '../ground.ts';
+import { closuresFor, sideOpen } from './closures.ts';
 
 /**
  * A town's square as pure functions of its built radius (`radiusOf`): its
@@ -103,6 +104,13 @@ export interface TownGrid {
   low: Uint8Array;
   high: Uint8Array;
   /**
+   * The stretches of band street given back to the blocks (`closuresFor`), as
+   * bits `1 << side` at `col * cells + row`. `low` and `high` are the plan the
+   * terraces and the gates are cut to; what is drawn as street is
+   * `streetSide`, which reads both.
+   */
+  shut: Uint8Array;
+  /**
    * Where a street meets the edge of the square, as offsets along any side
    * from its midpoint. The main street's end is always 0; a town of six or more
    * cells a side has secondary streets and more. This is where roads come in.
@@ -124,6 +132,7 @@ export function townGrid(radius: number): TownGrid {
   const pitch = (2 * half) / cells;
   const shift = (cells - 1) / 2;
   const { avenue, low, high } = streetsFor(cells);
+  const shut = closuresFor(cells, avenue, low, high, Math.round(radius * 1024));
   const slots = [0];
   for (let c = 0; c + 1 < cells; c++) {
     // A secondary band on the positive side of the centre, mirrored: the main
@@ -134,7 +143,7 @@ export function townGrid(radius: number): TownGrid {
     }
   }
   slots.sort((a, b) => a - b);
-  const grid: TownGrid = { half, cells, pitch, shift, avenue, low, high, slots };
+  const grid: TownGrid = { half, cells, pitch, shift, avenue, low, high, shut, slots };
   grids.set(radius, grid);
   return grid;
 }
@@ -204,6 +213,33 @@ export function cellIndex(grid: TownGrid, offset: number): number {
 
 export function inGrid(grid: TownGrid, col: number, row: number): boolean {
   return col >= 0 && row >= 0 && col < grid.cells && row < grid.cells;
+}
+
+/** How far round a landmark's parcel, in cells, no stretch of street is closed: the streets round it stay as they run. */
+export const PARCEL_OPEN = 2;
+
+/**
+ * The square a place built at `radius` stands on with no stretch closed within
+ * `PARCEL_OPEN` cells of any of `parcels`: the town's own copy, for a town
+ * with a landmark in it. The same grid where there is none.
+ */
+export function gridAround(radius: number, parcels: readonly { c0: number; c1: number; r0: number; r1: number }[]): TownGrid {
+  const grid = townGrid(radius);
+  if (parcels.length === 0) return grid;
+  const near = (col: number, row: number): boolean => parcels.some((parcel) =>
+    col >= parcel.c0 - PARCEL_OPEN && col <= parcel.c1 + PARCEL_OPEN && row >= parcel.r0 - PARCEL_OPEN && row <= parcel.r1 + PARCEL_OPEN);
+  const shut = closuresFor(grid.cells, grid.avenue, grid.low, grid.high, Math.round(radius * 1024), near);
+  return { ...grid, shut };
+}
+
+/**
+ * Whether a cell paves a band of street along its side `side` (`Gate.side`:
+ * 0 +x, 1 +z, 2 -x, 3 -z): the plan's band there, unless that stretch is
+ * closed. Out of the square, false.
+ */
+export function streetSide(grid: Pick<TownGrid, 'cells' | 'low' | 'high' | 'shut'>, col: number, row: number, side: number): boolean {
+  if (col < 0 || row < 0 || col >= grid.cells || row >= grid.cells) return false;
+  return sideOpen(grid.cells, grid.low, grid.high, grid.shut, col, row, side);
 }
 
 /** Whether a cell is street from edge to edge: on an avenue in either direction. */

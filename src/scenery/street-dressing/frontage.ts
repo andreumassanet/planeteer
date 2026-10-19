@@ -1,5 +1,5 @@
 import { cellKey, pavementOf } from '../ground.ts';
-import { cellCentre, cellIndex } from '../grid.ts';
+import { cellCentre, cellIndex, streetSide } from '../grid.ts';
 import { rngFrom } from '../random.ts';
 import type { Rng } from '../random.ts';
 import { disc, yawed } from '../solids.ts';
@@ -184,9 +184,9 @@ function stripsOf(d: Dresser): Strip[] {
     if (rect.x1 - rect.x0 < 1 || rect.z1 - rect.z0 < 1) continue;
     const central = Math.max(0, 1 - dist / Math.max(1, half));
     const street = (index: number, low: boolean, alongZ: boolean): boolean => {
-      const flag = low ? grid.low[index] : grid.high[index];
+      const open = streetSide(grid, col, row, (alongZ ? 0 : 1) + (low ? 2 : 0));
       const next = low ? index - 1 : index + 1;
-      if (flag === 1) return levels.has(alongZ ? cellKey(next, row) : cellKey(col, next));
+      if (open) return levels.has(alongZ ? cellKey(next, row) : cellKey(col, next));
       return next >= 0 && next < cells && grid.avenue[next] === 1;
     };
     const sides: [number, boolean][] = [

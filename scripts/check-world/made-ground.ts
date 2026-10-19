@@ -192,7 +192,7 @@ function checkFloorSurface(): { edge: number; hill: (i: number) => number; pitch
     if (at >= 0) flags[at] = 1;
     return flags;
   };
-  const grid = { pitch, shift: 1, avenue: lane(1), low: lane(-1), high: lane(-1) };
+  const grid = { pitch, shift: 1, cells: 3, avenue: lane(1), low: lane(-1), high: lane(-1), shut: new Uint8Array(9) };
   const floorOf = (level: (c: number) => number, ground: (i: number, j: number) => number | null) => {
     const terraces = new Map<number, number>();
     for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) terraces.set(cellKey(c, r), level(c));

@@ -1,5 +1,5 @@
 import { PLANET_RADIUS } from '../globe.ts';
-import { cellCentre, cellIndex } from '../scenery/grid.ts';
+import { cellCentre, cellIndex, streetSide } from '../scenery/grid.ts';
 import type { TownGrid } from '../scenery/grid.ts';
 import { GROUND_LIFT, cellKey } from '../scenery/ground.ts';
 import { yawed } from '../scenery/solids.ts';
@@ -8,6 +8,18 @@ import { EDGE_SETBACK, FIT_SCALE } from './rules.ts';
 import type { FlatVariant, Rect } from './types.ts';
 
 /** Where a building may stand in a block of cells, which way it faces, and how it fits. */
+
+/** Whether a street band is open along side `side` of a block anywhere on it. */
+export function blockSide(grid: TownGrid, c0: number, c1: number, r0: number, r1: number, side: number): boolean {
+  if (side % 2 === 0) {
+    const col = side === 0 ? c1 : c0;
+    for (let row = r0; row <= r1; row++) if (streetSide(grid, col, row, side)) return true;
+    return false;
+  }
+  const row = side === 1 ? r1 : r0;
+  for (let col = c0; col <= c1; col++) if (streetSide(grid, col, row, side)) return true;
+  return false;
+}
 
 /**
  * The ground a building may take over a block of cells: the cells, less the
@@ -31,10 +43,10 @@ export function rectOf(
     return most;
   };
   return {
-    x0: cellCentre(grid, c0) - half + (grid.low[c0] === 1 ? band + mouth(2, [c0, c0], [r0, r1]) : 0) + (c0 === 0 ? EDGE_SETBACK : 0),
-    x1: cellCentre(grid, c1) + half - (grid.high[c1] === 1 ? band + mouth(0, [c1, c1], [r0, r1]) : 0) - (c1 === last ? EDGE_SETBACK : 0),
-    z0: cellCentre(grid, r0) - half + (grid.low[r0] === 1 ? band + mouth(3, [c0, c1], [r0, r0]) : 0) + (r0 === 0 ? EDGE_SETBACK : 0),
-    z1: cellCentre(grid, r1) + half - (grid.high[r1] === 1 ? band + mouth(1, [c0, c1], [r1, r1]) : 0) - (r1 === last ? EDGE_SETBACK : 0),
+    x0: cellCentre(grid, c0) - half + (blockSide(grid, c0, c1, r0, r1, 2) ? band + mouth(2, [c0, c0], [r0, r1]) : 0) + (c0 === 0 ? EDGE_SETBACK : 0),
+    x1: cellCentre(grid, c1) + half - (blockSide(grid, c0, c1, r0, r1, 0) ? band + mouth(0, [c1, c1], [r0, r1]) : 0) - (c1 === last ? EDGE_SETBACK : 0),
+    z0: cellCentre(grid, r0) - half + (blockSide(grid, c0, c1, r0, r1, 3) ? band + mouth(3, [c0, c1], [r0, r0]) : 0) + (r0 === 0 ? EDGE_SETBACK : 0),
+    z1: cellCentre(grid, r1) + half - (blockSide(grid, c0, c1, r0, r1, 1) ? band + mouth(1, [c0, c1], [r1, r1]) : 0) - (r1 === last ? EDGE_SETBACK : 0),
   };
 }
 
@@ -45,10 +57,10 @@ export function rectOf(
 export function facingSides(grid: TownGrid, c0: number, c1: number, r0: number, r1: number): number[] {
   const last = grid.cells - 1;
   const sides: number[] = [];
-  if (grid.high[c1] === 1 || (c1 < last && grid.avenue[c1 + 1] === 1)) sides.push(0);
-  if (grid.high[r1] === 1 || (r1 < last && grid.avenue[r1 + 1] === 1)) sides.push(1);
-  if (grid.low[c0] === 1 || (c0 > 0 && grid.avenue[c0 - 1] === 1)) sides.push(2);
-  if (grid.low[r0] === 1 || (r0 > 0 && grid.avenue[r0 - 1] === 1)) sides.push(3);
+  if (blockSide(grid, c0, c1, r0, r1, 0) || (c1 < last && grid.avenue[c1 + 1] === 1)) sides.push(0);
+  if (blockSide(grid, c0, c1, r0, r1, 1) || (r1 < last && grid.avenue[r1 + 1] === 1)) sides.push(1);
+  if (blockSide(grid, c0, c1, r0, r1, 2) || (c0 > 0 && grid.avenue[c0 - 1] === 1)) sides.push(2);
+  if (blockSide(grid, c0, c1, r0, r1, 3) || (r0 > 0 && grid.avenue[r0 - 1] === 1)) sides.push(3);
   if (sides.length > 0) return sides;
   if (c1 === last) sides.push(0);
   if (r1 === last) sides.push(1);

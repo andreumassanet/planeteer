@@ -119,7 +119,7 @@ export function floorReach(field: FloorField): number {
 /** What `buildFloor` needs to know about one town. */
 export interface FloorPlan {
   /** The square: its pitch, shift and where its streets run. */
-  grid: Pick<TownGrid, 'pitch' | 'shift' | 'avenue' | 'low' | 'high'>;
+  grid: Pick<TownGrid, 'pitch' | 'shift' | 'cells' | 'avenue' | 'low' | 'high' | 'shut'>;
   /** Half the width of a band street, `streetBand`'s answer. */
   band: number;
   /** The paved cells and their levels, as `FloorField.terraces`. */

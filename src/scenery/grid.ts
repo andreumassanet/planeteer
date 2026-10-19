@@ -20,11 +20,13 @@ export {
   gateFlare,
   gateGlow,
   gateMouth,
+  gridAround,
   gatesOf,
   inGrid,
   isAvenue,
   offsetDirection,
   streetBand,
+  streetSide,
   townFrame,
   townGrid,
 } from './grid/square.ts';

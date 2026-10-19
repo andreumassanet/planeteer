@@ -3,17 +3,21 @@ import { BIGGEST_SETTLEMENT, isShown } from '../places.ts';
 import type { Place } from '../places.ts';
 import { COUNTRY_RING, cellCentre, cellIndex, countryReach, gatesOf, inGrid } from '../scenery/grid.ts';
 import type { TownGrid } from '../scenery/grid.ts';
+import type { CoursePath } from '../roads.ts';
 import { VARIANTS, rngFrom } from '../scenery/index.ts';
 import type { Placed, RegionStyle } from '../scenery/index.ts';
 import type { TownFrame } from './frame.ts';
-import { LOOSE_SHARE, ORCHARD_SHARE, ROAD_KEEP, SLOPE_CLEAR, fitting, keepoutReaches } from './rules.ts';
+import { FACING_YAW } from './plots.ts';
+import { HOUSE_SHARE, HOUSE_SHARE_BY_ROAD, KIND_OF, LOOSE_SHARE, ORCHARD_SHARE, ROAD_KEEP, SLOPE_CLEAR, fitting, footprintOf, keepoutReaches } from './rules.ts';
 import type { Slot } from './types.ts';
 
 /**
  * The country a town fades into: orchards, trees and bushes on the cells it
  * gave up to the outskirts and on the lattice's next cells out, as far as its
  * disc (`countryReach`), so a town does not end in a line against the clearing
- * the wood keeps round it.
+ * the wood keeps round it; and off the edge slope, a house in its yard here
+ * and there, more of them along the roads out, so the town thins out rather
+ * than stops.
  *
  * It keeps off the inner half of the edge slope, a strip `ROAD_KEEP` either
  * side of each road out of its gate, a landmark's ground and another built
@@ -25,6 +29,7 @@ export function* countrysideSteps(
   frame: TownFrame,
   slots: readonly Slot[],
   roadGates: ReadonlyMap<Place, number[]>,
+  roadPaths: (place: Place) => readonly CoursePath[],
   inTheCountry: WeakSet<Placed>,
   slot: Slot,
   grid: TownGrid,
@@ -45,7 +50,31 @@ export function* countrysideSteps(
     const lateral = Math.abs((x - gate.x) * gate.outZ - (z - gate.z) * gate.outX);
     return out < -1 || lateral > ROAD_KEEP;
   });
+  // Every piece of its roads near the town, in the town's frame, for the houses to keep off.
+  const reachOut = grid.half + (HOUSE_RING + 1) * grid.pitch;
+  const pieces: number[] = [];
+  for (const path of roadPaths(slot.place)) {
+    let x0 = NaN;
+    let z0 = NaN;
+    for (let k = 0; k < path.count; k++) {
+      const px = path.xyz[k * 3]!;
+      const py = path.xyz[k * 3 + 1]!;
+      const pz = path.xyz[k * 3 + 2]!;
+      const x = (px * frame.across.x + py * frame.across.y + pz * frame.across.z) * PLANET_RADIUS;
+      const z = (px * frame.north.x + py * frame.north.y + pz * frame.north.z) * PLANET_RADIUS;
+      if (k > 0 && Math.min(Math.hypot(x, z), Math.hypot(x0, z0)) < reachOut * 1.5) pieces.push(x0, z0, x, z);
+      x0 = x;
+      z0 = z;
+    }
+  }
   const half = grid.pitch * 0.5;
+  // A street with no road out ends on a house past the slope, square across its line.
+  const deadEnds = gates.filter((gate) => !used.includes(gate));
+  // The first cell past the slope where the street's paving stops, which is short of the square where the outskirts cut it.
+  const endsStreet = (col: number, row: number, cx: number, cz: number): boolean => deadEnds.some((gate) => {
+    const lateral = Math.abs((cx - gate.x) * gate.outZ - (cz - gate.z) * gate.outX);
+    return lateral < half && town(col - 2 * gate.outX, row - 2 * gate.outZ) && !town(col - gate.outX, row - gate.outZ);
+  });
   const disc = countryReach(slot.radius);
   const crowded = crowding(frame, slots, slot, disc, half);
   /** How far a point is from the nearest cell of the town, in world units. */
@@ -64,10 +93,12 @@ export function* countrysideSteps(
     return best;
   };
   const clear = (x: number, z: number): boolean => fromTown(x, z) >= grid.pitch * SLOPE_CLEAR;
-  for (let col = -COUNTRY_RING; col < cells + COUNTRY_RING; col++) {
+  for (let col = -HOUSE_RING; col < cells + HOUSE_RING; col++) {
     yield;
-    for (let row = -COUNTRY_RING; row < cells + COUNTRY_RING; row++) {
+    for (let row = -HOUSE_RING; row < cells + HOUSE_RING; row++) {
       if (town(col, row)) continue;
+      // How many cells out of the square: past `COUNTRY_RING` only a house, thinning out.
+      const ring = Math.max(-col, col - cells + 1, -row, row - cells + 1, 0);
       // A cell of the edge slope takes nothing on its inner half, where the slope stands over the ground.
       const onSlope = nearTown(col, row);
       const cx = cellCentre(grid, col);
@@ -76,6 +107,9 @@ export function* countrysideSteps(
       if (crowded(cx, cz)) continue;
       if (frame.keepouts.some((keepout) => keepoutReaches(keepout, cx - half, cx + half, cz - half, cz + half))) continue;
       const keep = (x: number, z: number): boolean => !((onSlope && !clear(x, z)) || !clearOfRoads(x, z));
+      const thinning = endsStreet(col, row, cx, cz) ? 1 / HOUSE_SHARE : ring > COUNTRY_RING ? 0.5 ** (ring - COUNTRY_RING) : 1;
+      if (!onSlope && standHouse(out, style, pieces, slot.seed, col, row, cx, cz, half, grid.pitch, thinning)) continue;
+      if (ring > COUNTRY_RING) continue;
       plantCell(out, style, grid, slot.seed, col, row, cx, cz, half, keep);
     }
   }
@@ -101,6 +135,60 @@ function crowding(frame: TownFrame, slots: readonly Slot[], slot: Slot, disc: nu
   return (x, z) =>
     Math.hypot(x, z) > slot.radius && neighbours.some((other) => Math.hypot(x - other.x, z - other.z) < other.radius + half);
 }
+
+/**
+ * A house in its yard on a country cell, sometimes: oftener beside a road out,
+ * facing it, else facing the town. Kept a road's crown and its own size off
+ * every road. Returns whether one was planned.
+ */
+function standHouse(
+  out: Placed[], style: RegionStyle, roads: readonly number[], seed: string, col: number, row: number,
+  cx: number, cz: number, half: number, pitch: number, thinning: number,
+): boolean {
+  const rng = rngFrom(seed, 'country-house', col, row);
+  // The nearest piece of road, and the point on it nearest the cell.
+  let off = Infinity;
+  let nx = 0;
+  let nz = 0;
+  for (let k = 0; k < roads.length; k += 4) {
+    const ax = roads[k]!;
+    const az = roads[k + 1]!;
+    const dx = roads[k + 2]! - ax;
+    const dz = roads[k + 3]! - az;
+    const length2 = dx * dx + dz * dz;
+    const t = length2 > 0 ? Math.max(0, Math.min(1, ((cx - ax) * dx + (cz - az) * dz) / length2)) : 0;
+    const d = Math.hypot(cx - ax - dx * t, cz - az - dz * t);
+    if (d < off) {
+      off = d;
+      nx = ax + dx * t;
+      nz = az + dz * t;
+    }
+  }
+  const byRoad = off < 2 * pitch;
+  if (!rng.chance((byRoad ? HOUSE_SHARE_BY_ROAD : HOUSE_SHARE) * thinning)) return false;
+  const homes = style.buildings.filter((entry) => KIND_OF.get(entry.item) === 'dwelling');
+  if (homes.length === 0) return false;
+  const id = rng.weighted(homes);
+  const scale = Math.min(1, (half * 1.15) / Math.max(1e-6, footprintOf(id)));
+  if (scale < HOUSE_SMALLEST) return false;
+  const reach = footprintOf(id) * scale;
+  if (off < ROAD_KEEP + reach) return false;
+  // Its front to the road beside it, or to the town's middle.
+  const fx = byRoad ? nx - cx : -cx;
+  const fz = byRoad ? nz - cz : -cz;
+  const facing = Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 0 : 2) : fz > 0 ? 1 : 3;
+  out.push({
+    partId: id, variant: rng.int(VARIANTS), scale,
+    plot: { x: cx, z: cz, yaw: FACING_YAW[facing]!, size: half * 2, distance: Math.hypot(cx, cz), seed: rng.unit() * 0x7fffffff, col, row },
+  });
+  return true;
+}
+
+/** How many cells past the square a house may stand, the disc permitting; each ring past `COUNTRY_RING` half as often. */
+const HOUSE_RING = 4;
+
+/** The smallest a house is drawn in the country, as a scale on its own size: under it the cell keeps its trees. */
+const HOUSE_SMALLEST = 0.7;
 
 /** One country cell: an orchard of one species in rows, a loose tree or two and a bush, or meadow. */
 function plantCell(
