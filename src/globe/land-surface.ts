@@ -325,6 +325,9 @@ export function landBumpChunk(height: string, amount: string): string {
     vec3 atlasR2 = cross(normal, atlasSigmaX);
     float atlasDet = dot(atlasSigmaX, atlasR1) * faceDirection;
     vec3 atlasGrad = sign(atlasDet) * (atlasBx * atlasR1 + atlasBy * atlasR2);
-    if (abs(atlasDet) > 0.0) normal = normalize(abs(atlasDet) * normal - atlasGrad);
+    // A face seen nearly on edge has a determinant whose square underflows, and its normalize is a NaN.
+    vec3 atlasBent = abs(atlasDet) * normal - atlasGrad;
+    float atlasSize = dot(atlasBent, atlasBent);
+    if (atlasSize > 1e-20) normal = atlasBent * inversesqrt(atlasSize);
   }`;
 }

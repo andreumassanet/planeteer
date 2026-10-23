@@ -178,6 +178,13 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
   // A scratch target the bloom pass's signature asks for and never writes.
   const scratch = new THREE.WebGLRenderTarget(1, 1, { type: target.texture.type });
   const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.22, 0.55, BLOOM_THRESHOLD);
+  // The blur takes one pixel to the whole frame, so a NaN or an infinity in the scene would black it
+  // out: the bright pass reads such a pixel as nothing.
+  bloom.materialHighPassFilter.fragmentShader = bloom.materialHighPassFilter.fragmentShader.replace(
+    'vec4 texel = texture2D( tDiffuse, vUv );',
+    'vec4 texel = texture2D( tDiffuse, vUv );\n'
+      + '\t\t\tif ( any( equal( floatBitsToUint( texel ) & 0x7f800000u, uvec4( 0x7f800000u ) ) ) ) texel = vec4( 0.0 );',
+  );
 
   const uniforms = gradeUniforms(target.texture, ao.target.texture, shafts.texture, target.depthTexture);
   const grade = new THREE.ShaderMaterial({

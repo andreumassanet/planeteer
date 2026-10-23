@@ -229,13 +229,22 @@ vec2 surfPattern(float code, vec3 p, vec3 n, vec3 colour, float px) {
   return surfMetal(uv, px, seed);
 }
 // Three's bump mapping (Mikkelsen's surface gradient), for a height known by finite differences.
+// A face seen exactly on edge has no gradient to bend by, and normalizing its zero is a NaN that the
+// bloom spreads over the whole frame: such a pixel keeps its normal.
 vec3 surfBend(vec3 surfPos, vec3 surfNorm, vec2 dHdxy, float faceDirection) {
-  vec3 vSigmaX = normalize(dFdx(surfPos));
-  vec3 vSigmaY = normalize(dFdy(surfPos));
+  vec3 vSigmaX = dFdx(surfPos);
+  vec3 vSigmaY = dFdy(surfPos);
+  float sx = dot(vSigmaX, vSigmaX);
+  float sy = dot(vSigmaY, vSigmaY);
+  if (!(sx > 1e-20 && sy > 1e-20)) return surfNorm;
+  vSigmaX *= inversesqrt(sx);
+  vSigmaY *= inversesqrt(sy);
   vec3 R1 = cross(vSigmaY, surfNorm);
   vec3 R2 = cross(surfNorm, vSigmaX);
   float fDet = dot(vSigmaX, R1) * faceDirection;
   vec3 vGrad = sign(fDet) * (dHdxy.x * R1 + dHdxy.y * R2);
-  return normalize(abs(fDet) * surfNorm - vGrad);
+  vec3 bent = abs(fDet) * surfNorm - vGrad;
+  float size = dot(bent, bent);
+  return size > 1e-20 ? bent * inversesqrt(size) : surfNorm;
 }
 `;
