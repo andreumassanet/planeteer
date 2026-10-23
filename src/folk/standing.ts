@@ -197,7 +197,7 @@ export interface Standing {
 
 export interface Townsfolk {
   group: THREE.Group;
-  /** `worldClock` is the sky's clock in seconds, which the traffic lights keep (`signals.ts`). */
+  /** `worldClock` is the traffic lights' clock in seconds (`signalClock` in `signals.ts`). */
   update(viewer: THREE.Vector3, dt: number, clock: number, frame: number, worldClock?: number): void;
   /**
    * Startles whoever stands within `HONK_REACH` of `point` (a horn, `horn`

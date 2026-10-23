@@ -64,7 +64,7 @@ export function standSignals(kit: RaiseKit, job: RaiseJob, ground: Ground): void
       at.set(heads[k * 3]!, heads[k * 3 + 1]!, heads[k * 3 + 2]!).applyMatrix4(matrix);
       job.signalHeads.push(at.x, at.y, at.z);
     }
-    job.signalHeads.push(axis, heads[9]!);
+    job.signalHeads.push(axis, heads[9]!, facing.x, facing.y, facing.z);
   }
 }
 
@@ -339,8 +339,11 @@ export function* standRackBikesSteps(kit: RaiseKit, job: RaiseJob): Generator<vo
   }
 }
 
-/** Numbers a traffic light publishes: its red, amber and green lamps' centres, the axis its traffic drives along, and a lamp's radius. */
-export const SIGNAL_HEAD = 11;
+/**
+ * Numbers a traffic light publishes: its red, amber and green lamps' centres, the axis its traffic
+ * drives along, a lamp's radius, and the way its lamps face.
+ */
+export const SIGNAL_HEAD = 14;
 /** Where the lamps sit up the lit housing, as shares of its height: Kenney's red, amber and green. */
 const LAMP_AT = [0.787, 0.5, 0.213] as const;
 /** A lamp's radius as a share of the housing's height. */
@@ -371,7 +374,7 @@ function darkSignal(lit: FlatVariant): { flat: FlatVariant; heads: Float32Array 
   const tall = Number.isFinite(y0) ? y1 - y0 : 0;
   const radius = tall * LAMP_RADIUS;
   const zc = (z0 + z1) / 2;
-  const heads = new Float32Array(SIGNAL_HEAD - 1);
+  const heads = new Float32Array(10);
   for (let k = 0; k < 3; k++) {
     heads[k * 3] = x0 - radius * 0.2;
     heads[k * 3 + 1] = y0 + tall * LAMP_AT[k]!;

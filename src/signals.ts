@@ -48,6 +48,15 @@ export function townHasSignals(grid: TownGrid, style: RegionStyle, pop: number):
   return grid.cells % 2 === 1 && grid.cells >= 3 && style.assets !== undefined && urbanityOf(pop) >= TOWER_URBANITY;
 }
 
+/**
+ * The clock the lights keep, in seconds: the real one, which every client
+ * shares, not the sky's. The sky's runs faster under a scrubbed rate, and a
+ * light that cycled with it would flash red and green every few frames.
+ */
+export function signalClock(): number {
+  return Date.now() / 1000;
+}
+
 /** A town's place in the cycle, in seconds, so neighbouring cities do not change together. */
 export function signalOffset(town: number): number {
   let h = (town * 2654435761) >>> 0;

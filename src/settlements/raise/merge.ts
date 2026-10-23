@@ -288,6 +288,10 @@ function publish(kit: RaiseKit, job: RaiseJob, ground: Ground, mesh: THREE.Mesh)
         heads[o + 1] = at.y;
         heads[o + 2] = at.z;
       }
+      at.set(heads[i + 11]!, heads[i + 12]!, heads[i + 13]!).applyQuaternion(mesh.quaternion);
+      heads[i + 11] = at.x;
+      heads[i + 12] = at.y;
+      heads[i + 13] = at.z;
     }
     slot.signalHeads = heads;
     registry.signalTowns.add(slot);

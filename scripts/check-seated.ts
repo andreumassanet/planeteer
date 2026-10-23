@@ -144,6 +144,7 @@ const { registerModelsFromDisk } = await import('./kit-node.ts');
 await registerModelsFromDisk();
 const { createSettlements } = await import('../src/settlements.ts');
 const { DECAL_LIFT } = await import('../src/scenery/street-dressing.ts');
+const { SIGNAL_HEAD } = await import('../src/settlements/raise/furniture.ts');
 const { createVegetation } = await import('../src/vegetation.ts');
 type PlantSeat = import('../src/vegetation.ts').PlantSeat;
 type GrassSite = import('../src/vegetation.ts').GrassSite;
@@ -314,10 +315,13 @@ function measureStreetFolk(centre: Vector3): void {
     }
   }
   settlements.signalsNear(viewer, 4000, (_town, heads) => {
-    for (let i = 0; i + 11 <= heads.length; i += 11) {
+    for (let i = 0; i + SIGNAL_HEAD <= heads.length; i += SIGNAL_HEAD) {
       streetFolk.lights++;
       let ok = heads[i + 10]! > 0 && (heads[i + 9] === 0 || heads[i + 9] === 1);
       for (let k = 0; k < 9; k++) ok &&= Number.isFinite(heads[i + k]!);
+      // The lamps face along the ground, square to the axis their traffic drives.
+      const facing = new Vector3(heads[i + 11]!, heads[i + 12]!, heads[i + 13]!);
+      ok &&= Math.abs(facing.length() - 1) < 1e-3 && Math.abs(facing.dot(new Vector3(heads[i]!, heads[i + 1]!, heads[i + 2]!).normalize())) < 0.05;
       // The red lamp over the amber over the green, along the town's up.
       const up = new Vector3(heads[i]!, heads[i + 1]!, heads[i + 2]!).normalize();
       const red = new Vector3(heads[i]!, heads[i + 1]!, heads[i + 2]!).dot(up);
