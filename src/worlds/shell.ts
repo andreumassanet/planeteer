@@ -141,6 +141,7 @@ export function createShell(world: ShellWorld): Shell {
     surface,
     tiles: paper.mapTiles,
     pads: paper.padsNear,
+    openSpan: () => paper.minimap.span,
     monuments: [],
     courses: () => world.roadLines(),
     places: geography.places,

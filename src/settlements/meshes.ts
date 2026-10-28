@@ -8,7 +8,8 @@ import type { Bay, FlatVariant } from './types.ts';
 
 /** The meshes a near town carries beside its merged buffer, and how a town mesh leaves. */
 
-export type LeafCard = { leaves: LeafArrays; matrix: THREE.Matrix4 };
+/** A near tree's cards and where they stand; `first` and `count` are its run in the leaves' mesh once merged. */
+export type LeafCard = { leaves: LeafArrays; matrix: THREE.Matrix4; first?: number; count?: number };
 
 /**
  * The near towns whose trees shed, each with its crowns in the world on
@@ -88,11 +89,14 @@ export function* townLeavesSteps(cards: readonly LeafCard[], count: number, name
   const wind = new Uint8Array(count * 4);
   let v = 0;
   let sliced = 0;
-  for (const { leaves: source, matrix } of cards) {
+  for (const card of cards) {
+    const { leaves: source, matrix } = card;
     if (v - sliced >= MESH_SLICE) {
       sliced = v;
       yield;
     }
+    card.first = v;
+    card.count = source.position.length / 3;
     const e = matrix.elements;
     const scale = Math.hypot(e[0]!, e[1]!, e[2]!);
     const inverse = scale === 0 ? 0 : 1 / scale;

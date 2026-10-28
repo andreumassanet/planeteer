@@ -26,7 +26,7 @@ import { HONK_REACH, createState } from './folk/standing.ts';
 import type { FolkSource, Talker, Townsfolk } from './folk/standing.ts';
 import type { Folk } from './folk/dressing.ts';
 import { update } from './folk/frame.ts';
-import { collide, crownOf, engage, nearest, startle } from './folk/queries.ts';
+import { collide, crownOf, engage, knock, nearest, startle } from './folk/queries.ts';
 
 export { createFolk, isWoman, isYoung } from './folk/dressing.ts';
 export type { Folk, SeatPose } from './folk/dressing.ts';
@@ -43,6 +43,7 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     setRigs: (rigs) => st.dogs.setRigs(rigs),
     startle: (point, horn) => startle(st, point, horn ? HONK_REACH : 0),
     collide: (point, radius, push) => collide(st, point, radius, push),
+    knock: (from, to, radius, velocity) => knock(st, from, to, radius, velocity),
     nearest: (point, reach): Talker | null => nearest(st, point, reach),
     engage: (key, towards) => engage(st, key, towards),
     crownOf: (key, out) => crownOf(st, key, out),

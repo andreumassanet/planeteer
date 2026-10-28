@@ -1,4 +1,5 @@
 import type { Honk } from '../../server/src/limits.ts';
+import type { KnockVoice } from '../breakables/kinds.ts';
 
 export type Surface = 'grass' | 'paving' | 'snow' | 'dirt';
 
@@ -66,6 +67,10 @@ export interface Soundscape {
    * surfacing.
    */
   underwater?: number;
+  /** On wheels: how fast the tyres slide across the bow, units a second, for the squeal. */
+  slip?: number;
+  /** Seconds of a drift's boost left: a new one is heard as a rush. */
+  boost?: number;
   /**
    * How much air there is to carry the wind, 1 on Earth and less on a world
    * with a thinner sky (`SkySpec.air`): none on the Moon, where nothing blows.
@@ -89,6 +94,12 @@ export interface Audio {
   /** One footfall on this surface; `weight` 1 is a walk, more is a run or a landing. */
   step(surface: Surface, weight?: number): void;
   cue(name: Cue): void;
+  /**
+   * Something small knocked over, or landing (`breakables.ts`): a wooden crack
+   * and thump, a metal clang, a soft thud, or a cartoon bonk; all synthesised.
+   * `near` is 1 beside you and 0 out of earshot.
+   */
+  knock(voice: KnockVoice, near: number): void;
   /**
    * A horn, once: the traffic kept waiting, a driver's own, another player's.
    * `near` is 1 beside you and 0 out of earshot. Every voice is synthesised (no

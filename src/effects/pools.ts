@@ -63,6 +63,7 @@ export function createPools() {
   /* --- foam: discs and ribbons, one buffer ------------------------------ */
   const foamPositions = new Float32Array(FOAM_VERTEX_CAP * 3);
   const foamNormals = new Float32Array(FOAM_VERTEX_CAP * 3);
+  const foamColors = new Float32Array(FOAM_VERTEX_CAP * 3);
   const foamGeo = new THREE.BufferGeometry();
   const foamAttribute = new THREE.BufferAttribute(foamPositions, 3);
   foamAttribute.setUsage(THREE.DynamicDrawUsage);
@@ -71,9 +72,14 @@ export function createPools() {
   const foamNormal = new THREE.BufferAttribute(foamNormals, 3);
   foamNormal.setUsage(THREE.DynamicDrawUsage);
   foamGeo.setAttribute('normal', foamNormal);
+  // White on the water; a skid mark's colour on the ground.
+  const foamColor = new THREE.BufferAttribute(foamColors, 3);
+  foamColor.setUsage(THREE.DynamicDrawUsage);
+  foamGeo.setAttribute('color', foamColor);
   foamGeo.setDrawRange(0, 0);
   const foamMat = shadeByClouds(new THREE.MeshToonMaterial({
     color: FOAM_COLOR,
+    vertexColors: true,
     gradientMap: createToonRamp(4),
     polygonOffset: true,
     polygonOffsetFactor: -1,
@@ -101,6 +107,12 @@ export function createPools() {
   /** The player's own boat's three: the stern and the two shoulders. */
   const MINE = new Int32Array([0, 1, 2]);
   for (const ribbon of MINE) ribbonOwned[ribbon] = 1;
+  /** The player's skid marks, left and right rear wheel: ribbons on the ground, which keep the height they were laid at. */
+  const MARKS = new Int32Array([3, 4]);
+  const ribbonOnGround = new Uint8Array(MAX_RIBBONS);
+  for (const ribbon of MARKS) ribbonOwned[ribbon] = ribbonOnGround[ribbon] = 1;
+  /** The first ribbon a followed boat may take. */
+  const FIRST_FREE = 5;
 
   /* --- debris --------------------------------------------------------- */
   const debrisGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -119,7 +131,7 @@ export function createPools() {
   const d = new Float64Array(MAX_DEBRIS * D_STRIDE);
 
   const stats: EffectsStats = {
-    enabled: true, puffs: 0, discs: 0, ribbonPoints: 0, ribbons: 0, foamVertices: 0,
+    enabled: true, puffs: 0, discs: 0, ribbonPoints: 0, ribbons: 0, foamVertices: 0, markVertices: 0,
     debris: 0, dropped: 0, jumps: 0, tracked: 0, calls: 0, updateMs: 0,
   };
   /** Where the meshes are this frame: every particle is written relative to it. */
@@ -171,9 +183,11 @@ export function createPools() {
     p,
     foamPositions,
     foamNormals,
+    foamColors,
     foamGeo,
     foamAttribute,
     foamNormal,
+    foamColor,
     foamMat,
     foam,
     f,
@@ -184,6 +198,9 @@ export function createPools() {
     ribbonActive,
     ribbonBroken,
     MINE,
+    MARKS,
+    ribbonOnGround,
+    FIRST_FREE,
     debrisGeo,
     debrisMat,
     debris,
@@ -241,6 +258,12 @@ export function createPools() {
     runNow: 0,
     bandInner: 0,
     bandOuter: 0,
+    /** The colour the foam's next vertices are written in, linear. */
+    tintR: 1,
+    tintG: 1,
+    tintB: 1,
+    /** The player's boost as last seen, so a new one bursts once. */
+    lastBoost: 0,
   };
 }
 
@@ -282,6 +305,7 @@ export function proxiesOf(fx: Pools): THREE.Object3D[] {
   const foamProxyGeo = new THREE.BufferGeometry();
   foamProxyGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1e-3, 0, 0, 0, 0, 1e-3]), 3));
   foamProxyGeo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array([0, 1, 0, 0, 1, 0, 0, 1, 0]), 3));
+  foamProxyGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(9).fill(1), 3));
   return [puffProxy, debrisProxy, new THREE.Mesh(foamProxyGeo, foamMat)];
 }
 

@@ -92,6 +92,7 @@ function* paintAndClose(d: Dresser): Generator<void, Dressed, void> {
     emits: sink.glow.some((value, i) => i % 2 === 0 && value > 0),
     solids: d.solids,
     seats: d.seats,
+    pieces: d.pieces,
     anchors: sink.anchors,
     counts: d.counts,
   };

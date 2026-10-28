@@ -18,7 +18,7 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
       { action: 'left', label: 'Left · bank left · rudder' },
       { action: 'right', label: 'Right · bank right · rudder' },
       { action: 'run', label: 'Run · swim faster · boost · gallop · descend in the air' },
-      { action: 'jump', label: 'Jump · climb · rise in a balloon or a helicopter · open or stow a parachute' },
+      { action: 'jump', label: 'Jump · handbrake and drift · climb · rise in a balloon or a helicopter · open or stow a parachute' },
       { action: 'descend', label: 'Descend and land · dive · sink' },
       { action: 'use', label: 'Get in or out · jump out under way · take the wheel · talk' },
       { action: 'horn', label: 'Horn · bell · snort, at the controls' },
@@ -27,10 +27,10 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
   {
     title: 'Flying a plane',
     rows: [
-      { action: 'pitchDown', label: 'Nose down · aerobatics' },
-      { action: 'pitchUp', label: 'Nose up · aerobatics' },
-      { action: 'rollLeft', label: 'Roll left · aerobatics' },
-      { action: 'rollRight', label: 'Roll right · aerobatics' },
+      { action: 'pitchDown', label: 'Nose down · descend in travel' },
+      { action: 'pitchUp', label: 'Nose up · climb in travel' },
+      { action: 'rollLeft', label: 'Roll left · roll into a turn in travel' },
+      { action: 'rollRight', label: 'Roll right · roll into a turn in travel' },
       { action: 'flightMode', label: 'Switch between travel and aerobatics' },
     ],
   },
@@ -102,17 +102,24 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
         out,
       ], true);
     case 'car':
-      return set('car', [{ keys: MOVE, label: 'Drive' }, { keys: ['run'], label: 'Boost' }, horn, out]);
+      return set('car', [{ keys: MOVE, label: 'Drive' }, { keys: ['run'], label: 'Boost' }, { keys: ['jump'], label: 'Drift' }, horn, out]);
     case 'boat':
       return set('boat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, horn, out]);
     case 'jetski':
-      return set('jetski', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Boost' }, horn, out]);
+      return set('jetski', [
+        { keys: MOVE, label: 'Steer' },
+        { keys: ['back'], label: 'With a turn, powerslide' },
+        { keys: ['run'], label: 'Boost' },
+        { keys: ['jump'], label: 'Leap' },
+        horn,
+        out,
+      ]);
     case 'sailboat':
-      return set('sailboat', [{ keys: MOVE, label: 'Steer' }, { keys: ['run'], label: 'Haul the sheet in' }, horn, out]);
+      return set('sailboat', [{ keys: MOVE, label: 'Steer · fastest across the wind' }, { keys: ['run'], label: 'Haul the sheet in' }, horn, out]);
     case 'bicycle':
-      return set('bicycle', [{ keys: MOVE, label: 'Pedal and steer' }, { keys: ['run'], label: 'Out of the saddle' }, { ...horn, label: 'Bell' }, out]);
+      return set('bicycle', [{ keys: MOVE, label: 'Pedal and steer' }, { keys: ['run'], label: 'Out of the saddle' }, { keys: ['jump'], label: 'Skid' }, { ...horn, label: 'Bell' }, out]);
     case 'motorbike':
-      return set('motorbike', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Full throttle' }, horn, out]);
+      return set('motorbike', [{ keys: MOVE, label: 'Ride' }, { keys: ['run'], label: 'Full throttle' }, { keys: ['jump'], label: 'Drift' }, horn, out]);
     case 'horse':
       return set('horse', [
         { keys: MOVE, label: 'Ride' },
@@ -145,7 +152,7 @@ export function boardingHints(mode: TravelMode, airborne = false, stranded = fal
               { keys: ['run', 'descend'], label: 'Descend · land on flat ground' },
               { keys: ['left', 'right'], label: 'Bank' },
               { keys: ['flightMode'], label: 'Travel ↔ aerobatics' },
-              { keys: ['pitchDown', 'rollLeft', 'pitchUp', 'rollRight'], label: 'Aerobatics: pitch and roll, rudder on the bank keys' },
+              { keys: ['pitchDown', 'rollLeft', 'pitchUp', 'rollRight'], label: 'Descend, climb and roll into a turn; in aerobatics, pitch and roll' },
               { ...bail, label: 'Jump out, with a parachute' },
             ],
             true,

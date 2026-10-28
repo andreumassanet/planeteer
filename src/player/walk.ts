@@ -23,6 +23,7 @@ import {
   SWIM_OUT,
   SWIM_SPEED,
   SWIM_SPRINT,
+  TURN_MIN_RATE,
   TURN_SMOOTHING,
   UNDER_FROM,
   WADE_JUMP,
@@ -126,7 +127,9 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
     target.copy(wish).multiplyScalar(top * amount);
     motion.projectOnPlane(up);
     const time = swimming ? SWIM_ACCELERATION_TIME : ACCELERATION_TIME;
-    motion.lerp(target, approach((s.airborne ? AIR_CONTROL : 1) / time, dt));
+    // In the air a push steers at `AIR_CONTROL` of the ground's authority and
+    // no push keeps the way the jump was going.
+    if (!s.airborne || amount > 1e-4) motion.lerp(target, approach((s.airborne ? AIR_CONTROL : 1) / time, dt));
     s.velocity = motion.length();
     // Otherwise the exponential leaves a millimetre per second of drift for ever.
     if (s.velocity < 0.05 && amount === 0) {
@@ -136,9 +139,15 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
 
     // No jumping out of the water: there is nothing to push off, nor much
     // to push against wading in it.
+    // A jump goes where the stick pushes, at once: the way turned onto the
+    // push and brought up to the pace asked for, never slowed.
     if (input.jump && !s.airborne && !swimming && wading < WADE_JUMP) {
       s.vertical = JUMP_SPEED;
       s.airborne = true;
+      if (amount > 1e-4) {
+        motion.copy(wish).multiplyScalar(Math.max(motion.length(), target.length()));
+        s.velocity = motion.length();
+      }
     }
 
     // What the frame actually moves: the motion, or in a town what the walls
@@ -175,7 +184,9 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
     } else backing = false;
     cues.back = backing && s.velocity > 1e-3;
     if (facing !== null && (amount > 1e-4 || gaze)) {
-      turn = angleAbout(forward, facing, up) * approach(TURN_SMOOTHING, dt);
+      // Eased, but never slower than `TURN_MIN_RATE`, so a turn lands rather than creeping in.
+      const off = angleAbout(forward, facing, up);
+      turn = Math.sign(off) * Math.min(Math.abs(off), Math.max(Math.abs(off) * approach(TURN_SMOOTHING, dt), TURN_MIN_RATE * dt));
       forward.applyAxisAngle(up, turn).normalize();
     }
     cues.turn = dt > 0 ? turn / dt : 0;

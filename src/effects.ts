@@ -7,8 +7,8 @@
  * - puffs: an instanced flat-shaded ball (smoke, spray, dust, flame) on the
  *   world's toon ramp, drawn without ink because a puff ends by shrinking and
  *   the pen is screen space;
- * - foam: discs and ribbons lying on the sea, rewritten into one buffer each
- *   frame and never see-through;
+ * - foam: discs and ribbons lying on the sea, and the skid marks lying on
+ *   the ground, rewritten into one buffer each frame and never see-through;
  * - debris: a few inked cubes thrown by a crash.
  *
  * Emission is frame-rate independent: a trail owes one point every so many
@@ -23,7 +23,7 @@
  */
 import { PALETTE } from './theme.ts';
 import { createAdvance } from './effects/advance.ts';
-import { H, FOAM_RADIUS, crashStrength, dustOf } from './effects/constants.ts';
+import { FALL, H, FOAM_RADIUS, REACH, crashStrength, dustOf } from './effects/constants.ts';
 import { createBursts } from './effects/bursts.ts';
 import { createEmitters } from './effects/emitters.ts';
 import { createFoam } from './effects/foam.ts';
@@ -39,8 +39,8 @@ export type { EffectsEvent, EffectsStats, EffectsSubject, Effects, OtherVisitor,
 
 export function createEffects(): Effects {
   const fx = createPools();
-  const { group, puffs, foamGeo, foamAttribute, foamNormal, foam, ribbonHead, ribbonCount, ribbonActive, ribbonBroken, debris, stats, anchor, eye, splashUp, mine, tracks, right, at, vel, fwdAt } = fx;
-  const { spawnPuff, spawnDisc } = createSpawners(fx);
+  const { group, puffs, foamGeo, foamAttribute, foamNormal, foamColor, foam, ribbonHead, ribbonCount, ribbonActive, ribbonBroken, debris, stats, anchor, eye, splashUp, mine, tracks, right, at, vel, fwdAt } = fx;
+  const { spawnPuff, spawnDisc, addAcross } = createSpawners(fx);
   const { smoke } = createEmitters(fx);
   const { plume, whirl, splash, dustBurst, crash } = createBursts(fx);
   const { playerMarks } = createPlayerMarks(fx);
@@ -136,6 +136,7 @@ export function createEffects(): Effects {
       if (fx.cursor > 0) {
         markRange(foamAttribute, fx.cursor * 3);
         markRange(foamNormal, fx.cursor * 3);
+        markRange(foamColor, fx.cursor * 3);
       }
       advanceDebris(dt);
       stats.puffs = fx.puffCount;
@@ -200,6 +201,29 @@ export function createEffects(): Effects {
       if (!fx.enabled) return;
       splashUp.copy(point).normalize();
       dustBurst(point, splashUp, reach, count, fx.dust ?? PALETTE.bone, H * 0.3);
+    },
+    leavesAt(point, hex, height, count) {
+      if (!fx.enabled || point.distanceToSquared(eye) > REACH * REACH) return;
+      splashUp.copy(point).normalize();
+      for (let i = 0; i < count; i++) {
+        // Off the crown and the trunk alike, thrown out a little, then sinking slowly as a leaf does.
+        at.copy(point).addScaledVector(splashUp, height * (0.3 + 0.7 * Math.random()));
+        addAcross(splashUp, rand(0, Math.max(0.5, height * 0.25)), at);
+        vel.copy(splashUp).multiplyScalar(rand(1, 4));
+        addAcross(splashUp, rand(2, 6), vel);
+        spawnPuff(at, vel, splashUp, rand(1.2, 2.2), H * 0.05, H * rand(0.07, 0.11), 0.6, hex, 0, 1.8, -1.6);
+      }
+    },
+    sparksAt(point, facing, count) {
+      if (!fx.enabled || point.distanceToSquared(eye) > REACH * REACH) return;
+      splashUp.copy(point).normalize();
+      for (let i = 0; i < count; i++) {
+        at.copy(point).addScaledVector(splashUp, H * rand(0.1, 0.5));
+        vel.copy(facing).multiplyScalar(rand(2, 8)).addScaledVector(splashUp, rand(3, 9));
+        addAcross(splashUp, rand(1, 5), vel);
+        const hex = Math.random() < 0.5 ? PALETTE.gold : PALETTE.white;
+        spawnPuff(at, vel, splashUp, rand(0.25, 0.5), H * 0.04, H * 0.015, 0.1, hex, 1, 0.5, -FALL);
+      }
     },
     crashAt(point, facing, strength) {
       if (!fx.enabled) return;

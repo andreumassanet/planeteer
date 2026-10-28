@@ -87,6 +87,7 @@ export function createVegetation(world: World, options: VegetationOptions = {}):
     landAccess,
     rebuildKeepouts: keepouts.rebuild,
   });
+  streamer.state.breakables = options.breakables ?? null;
 
   const grass: GrassGround | null =
     landAccess.land === undefined

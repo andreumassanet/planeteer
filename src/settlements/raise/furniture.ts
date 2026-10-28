@@ -32,8 +32,10 @@ export function standLamps(kit: RaiseKit, job: RaiseJob, ground: Ground): void {
     const flat = kit.variants.variantOf(LAMP_PART, slot.style, rng.int(VARIANTS));
     if (flat === null) break;
     at.set(ground.lamps[i]!, ground.lamps[i + 1]!, ground.lamps[i + 2]!);
-    const matrix = compose(kit.scratch, at, ground.lampYaws[i / 3] ?? 0, rng.range(0.94, 1.06));
-    job.standing.push({ flat, matrix: matrix.clone(), glow: rng.range(0.82, 1) });
+    const scale = rng.range(0.94, 1.06);
+    const matrix = compose(kit.scratch, at, ground.lampYaws[i / 3] ?? 0, scale);
+    const props = [{ kind: 'lamp' as const, first: 0, count: flat.position.length / 3, x: at.x, y: at.y, z: at.z, radius: 0.5, height: flat.height * scale, solid: null }];
+    job.standing.push({ flat, matrix: matrix.clone(), glow: rng.range(0.82, 1), props });
     job.vertices += flat.position.length / 3;
   }
 }
@@ -153,9 +155,11 @@ export function standBenches(kit: RaiseKit, job: RaiseJob, ground: Ground): void
     if (spot === null) continue;
     at.set(spot[0], ground.benches[i + 1]!, spot[1]);
     const matrix = compose(kit.scratch, at, yaw, 1);
-    job.standing.push({ flat, matrix: matrix.clone(), glow: 0 });
+    const solid = solidOf(flat, at.x, at.z, yaw, 1, frame.origin.length() - PLANET_RADIUS + at.y - GROUND_LIFT);
+    const props = [{ kind: 'bench' as const, first: 0, count: flat.position.length / 3, x: at.x, y: at.y, z: at.z, radius: BENCH_LONGEST / 2, height: flat.height, solid }];
+    job.standing.push({ flat, matrix: matrix.clone(), glow: 0, props });
     job.vertices += flat.position.length / 3;
-    job.solids.push(solidOf(flat, at.x, at.z, yaw, 1, frame.origin.length() - PLANET_RADIUS + at.y - GROUND_LIFT));
+    job.solids.push(solid);
     job.benches.push({
       position: new THREE.Vector3(Math.sin(yaw) * BENCH_SIT_AHEAD, 0, Math.cos(yaw) * BENCH_SIT_AHEAD).add(at),
       facing: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),

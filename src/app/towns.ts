@@ -11,6 +11,8 @@ import { createCityLights, fireGlows } from '../lights.ts';
 import type { CityLights } from '../lights.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
 import type { Settlements } from '../settlements.ts';
+import { createBreakables } from '../breakables.ts';
+import type { Breakables } from '../breakables.ts';
 import type { App } from './context.ts';
 import { stage } from './boot.ts';
 
@@ -22,6 +24,8 @@ export interface Towns {
   /** Every place as a point lit at night, for the far field the streamed towns do not reach. */
   cityLights: CityLights;
   roads: Roads;
+  /** The small things a vehicle knocks over, which the towns and the wood register with. */
+  breakables: Breakables;
 }
 
 export async function buildTowns(app: App): Promise<Towns> {
@@ -48,6 +52,14 @@ export async function buildTowns(app: App): Promise<Towns> {
   console.log(`${monuments.missing.length} placed landmarks have no model yet`);
 
   await stage('settling the country');
+  // Created before the towns, which register their props with it; what a
+  // knocked-over prop lands on asks the land and the towns' floors.
+  const breakables = createBreakables({
+    floorAt: (point) => Math.max(groundAt(point), settlements.madeHeightAt(point)),
+    onBreak: (knock) => app.onBreak?.(knock),
+    onLand: (point, kind, weight) => app.onLand?.(point, kind, weight),
+  });
+  scene.add(breakables.group);
   const { createSettlements } = await deferred.settlements;
   // The kit is registered before any part is built, or a part would be cached as refused.
   const [{ registerSceneryModels }, vehicleModels] = await Promise.all([deferred.scenery, app.vehicleKit]);
@@ -57,6 +69,7 @@ export async function buildTowns(app: App): Promise<Towns> {
     monuments: placements,
     roads: baked.roads,
     land,
+    breakables,
   });
   scene.add(settlements.group);
   const cityLights = createCityLights(places.all, settlements.anchors);
@@ -70,5 +83,5 @@ export async function buildTowns(app: App): Promise<Towns> {
   roads.setGround(groundAt);
   scene.add(roads.group);
 
-  return { ctx, monuments, settlements, cityLights, roads };
+  return { ctx, monuments, settlements, cityLights, roads, breakables };
 }

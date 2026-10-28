@@ -3,6 +3,7 @@ import { AVATAR_HEIGHT } from '../avatar.ts';
 import { SIT_EYE } from '../bench.ts';
 import { ASIDE_HOLD, PERSON_RADIUS, STEP_ASIDE, type Standing, type Talker, type TownsfolkState } from './standing.ts';
 import { startGesture } from './stroll.ts';
+import { flingOf, knockSolidAt } from '../breakables/knock.ts';
 
 /** A sitter's crown over the root, as a share of their standing height: the sitting clip's eye (`SIT_EYE`) and the head over it. */
 const SEATED_CROWN = SIT_EYE + 0.07;
@@ -12,6 +13,8 @@ export function collide(st: TownsfolkState, point: THREE.Vector3, radius: number
   const reach = radius + PERSON_RADIUS;
   const r = point.length();
   for (const entry of st.standing.values()) {
+    // Flying or lying, nobody is in the way.
+    if (!knockSolidAt(entry.knocked)) continue;
     st.gap.copy(point).sub(entry.position).sub(entry.aside);
     // Along the ground: the part of the gap that is not up.
     const up = st.gap.dot(point) / r;
@@ -38,6 +41,7 @@ export function nearest(st: TownsfolkState, point: THREE.Vector3, reach: number)
   let best: Standing | null = null;
   let bestD = reach;
   for (const entry of st.standing.values()) {
+    if (entry.knocked >= 0) continue;
     const d = entry.position.distanceTo(point);
     if (d < bestD) {
       bestD = d;
@@ -90,7 +94,7 @@ export function startle(st: TownsfolkState, point: THREE.Vector3, reach: number)
   const r = point.length();
   const near = Math.max(reach, PERSON_RADIUS * 3);
   for (const entry of st.standing.values()) {
-    if (entry.mode === 'sit' || entry.held) continue;
+    if (entry.mode === 'sit' || entry.held || entry.knocked >= 0) continue;
     st.gap.copy(entry.position).add(entry.aside).sub(point);
     st.gap.addScaledVector(point, -st.gap.dot(point) / (r * r));
     const d = st.gap.length();
@@ -100,4 +104,43 @@ export function startle(st: TownsfolkState, point: THREE.Vector3, reach: number)
     entry.asideFor = ASIDE_HOLD;
     entry.startledBy.copy(point);
   }
+}
+
+const sweep = new THREE.Vector3();
+const nearestOnSweep = new THREE.Vector3();
+
+export function knock(st: TownsfolkState, from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3): number {
+  const speed = velocity.length();
+  sweep.copy(to).sub(from);
+  const length2 = sweep.lengthSq();
+  const reach = radius + PERSON_RADIUS;
+  let count = 0;
+  for (const entry of st.standing.values()) {
+    if (entry.knocked >= 0 || entry.held) continue;
+    st.upAxis.set(0, 1, 0).applyQuaternion(entry.anchor.town);
+    st.gap.copy(entry.position).add(entry.aside).sub(from);
+    const t = length2 < 1e-9 ? 0 : THREE.MathUtils.clamp(st.gap.dot(sweep) / length2, 0, 1);
+    nearestOnSweep.copy(from).addScaledVector(sweep, t);
+    st.gap.copy(entry.position).add(entry.aside).sub(nearestOnSweep);
+    const rise = st.gap.dot(st.upAxis);
+    if (rise > AVATAR_HEIGHT || rise < -AVATAR_HEIGHT) continue;
+    st.gap.addScaledVector(st.upAxis, -rise);
+    const d = st.gap.length();
+    if (d >= reach) continue;
+    // Flung the way the vehicle goes, and off to the side it was hit on.
+    entry.knockDir.copy(velocity).projectOnPlane(st.upAxis).normalize().multiplyScalar(0.7);
+    if (d > 1e-6) entry.knockDir.addScaledVector(st.gap, 0.7 / d);
+    entry.knockDir.projectOnPlane(st.upAxis).normalize();
+    st.local.copy(entry.knockDir).applyQuaternion(st.inverse.copy(entry.anchor.town).invert());
+    entry.knockYaw = Math.atan2(st.local.x, st.local.z);
+    entry.knockFling = flingOf(speed);
+    entry.knocked = 0;
+    entry.asideFor = 0;
+    if (entry.gesture !== null) {
+      entry.gesture.stop();
+      entry.gesture = null;
+    }
+    count++;
+  }
+  return count;
 }

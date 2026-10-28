@@ -64,6 +64,13 @@ export interface Grazer {
   /** Where it is in the world this frame, for `collide`. */
   world: THREE.Vector3;
   facing: THREE.Vector3;
+  /** Knocked over by a vehicle (`breakables/knock.ts`): seconds since, -1 while not; from where, which way in the herd's plane, how far. */
+  knocked: number;
+  knockX: number;
+  knockZ: number;
+  knockDx: number;
+  knockDz: number;
+  knockFling: number;
 }
 
 /** The ground a herd was admitted on, as much of `HerdSite` as a near herd reads. */

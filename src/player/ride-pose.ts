@@ -4,55 +4,37 @@
 import * as THREE from 'three';
 import { AT_REST } from '../craft/motion.ts';
 import type { MotionInput } from '../craft/motion.ts';
-import { HELI_BANK, HELI_NOSE, HELI_SPEED, HELI_SPOOL, HELI_TURN, SUB_UNDER } from '../vehicles.ts';
+import { HELI_BANK, HELI_NOSE, HELI_SPEED, HELI_SPOOL, HELI_STRAFE, HELI_TURN } from '../vehicles.ts';
 import {
   AERO_PIVOT,
   BALLOON_PIVOT,
   BALLOON_SWING,
   BALLOON_SWING_MAX,
-  BANK_SMOOTHING,
-  BOW_LIFT,
-  BOW_RISE,
-  BOW_SETTLE,
-  BOW_SMOOTHING,
-  CHOP,
-  HEEL_OUT,
   HELI_ATTITUDE_EASE,
   LEAN_EASE,
   LEAN_PULL,
   MAX_NOSE,
   PLANE_BANK,
   REAR_AXLE,
-  SUB_PITCH,
   WHEELIE_MAX,
   isAir,
   roadOf,
-  waterOf,
 } from './constants.ts';
 import type { Held } from './core.ts';
 import { approach, clamp } from './math.ts';
 import type { PlayerCore } from './core.ts';
 import type { BodyRig } from './body.ts';
+import { createHullPose } from './hull-pose.ts';
 
 export function createRidePose(core: PlayerCore, body: BodyRig) {
   const { avatar, craft, seat, stick } = core;
   const s = core.fields;
   const { seatOf, seatOn } = body;
+  const hull = createHullPose(core);
 
   /** What the held vehicle's motion is handed each frame, rewritten rather than made. */
   const motionInput: MotionInput = { ...AT_REST };
   const hangFrom = new THREE.Vector3();
-
-  /**
-   * The launch's heel, eased after its rudder. A left turn is a positive
-   * `turnRate`, and a positive roll leans the hull right. Slow, the launch is a
-   * displacement hull and heels a little out of the turn; on the plane (`pace` 1) it
-   * banks into it the whole `limit`, as a planing hull does.
-   */
-  function bank(dt: number, limit: number, rate: number, pace: number): void {
-    const wanted = clamp(s.turnRate / rate, -1, 1) * limit * (HEEL_OUT - (1 + HEEL_OUT) * pace);
-    s.lean += (wanted - s.lean) * approach(BANK_SMOOTHING, dt);
-  }
 
   /**
    * The vehicle's own moving parts (springs, wheels, propeller) at what it is
@@ -74,6 +56,7 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
     const flown = driving && kind === 'plane' && !s.grounded;
     motionInput.elevator = flown ? s.elevator : 0;
     motionInput.aileron = flown ? s.aileron : 0;
+    if (held.model.medium === 'water') hull.dress(held, motionInput);
     held.motion.update(dt, motionInput);
   }
 
@@ -94,32 +77,7 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
     seat.position.y += held.motion.lift;
 
     if (held.model.medium === 'water') {
-      const handling = waterOf(kind);
-      // How far onto the plane the hull is: 0 standing, 1 at its cruise.
-      const pace = clamp(Math.abs(speed_) / handling.speed, 0, 1);
-      bank(dt, handling.heel, handling.turn, pace);
-      // The bow comes up as the hull climbs onto the plane and settles a
-      // little once it is over the hump, eased like the hull's own weight.
-      const wanted = handling.bow * pace - BOW_SETTLE * (handling.bow / BOW_LIFT) * clamp((speed_ - handling.speed) / (handling.boost - handling.speed), 0, 1);
-      s.bowLift += (wanted - s.bowLift) * approach(BOW_SMOOTHING, dt);
-      // A swell, so a moored boat is not a parked box: two frequencies that
-      // do not divide, or the roll and the pitch beat together and it reads
-      // as a loop. Under way the long swell gives way to a quick chop, and
-      // the hull rides higher on the plane; a jet ski skips off the chop, and
-      // a sail heels the hull over as it gathers way.
-      const calm = 1 - 0.5 * pace;
-      const heel = s.lean + Math.sin(s.swell * 0.9) * 0.05 * calm + handling.list * pace;
-      const skip = handling.hop * pace * pace * Math.max(0, Math.sin(s.swell * 5.3) * Math.sin(s.swell * 2.1 + 1));
-      craft.position.y = Math.sin(s.swell * 1.3) * 0.18 * calm + BOW_RISE * pace + skip;
-      craft.rotation.set(Math.sin(s.swell * 0.7) * 0.035 * calm + Math.sin(s.swell * 3.1) * CHOP * pace - s.bowLift - skip * 0.1, 0, heel);
-      if (kind === 'submarine') {
-        // Under the surface the swell lets go of it, and the bow goes down
-        // into a dive and up out of one: the attitude is the path.
-        const submerged = clamp(s.dive / SUB_UNDER, 0, 1);
-        craft.position.y *= 1 - submerged;
-        const trim = clamp(Math.atan2(s.diveRate, Math.max(Math.abs(speed_), 3)), -SUB_PITCH, SUB_PITCH);
-        craft.rotation.set(craft.rotation.x * (1 - submerged) + trim, 0, craft.rotation.z * (1 - 0.7 * submerged));
-      }
+      hull.ride(held, dt, speed_);
       return;
     }
     if (kind === 'helicopter') {
@@ -127,7 +85,9 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
       // the machine's own weight; square on its skids.
       const flying = s.grounded ? 0 : 1;
       s.nose += (HELI_NOSE * clamp(speed_ / HELI_SPEED, -0.5, 1) * flying - s.nose) * approach(HELI_ATTITUDE_EASE, dt);
-      s.lean += (-clamp(s.turnRate / HELI_TURN, -1, 1) * HELI_BANK * flying - s.lean) * approach(HELI_ATTITUDE_EASE, dt);
+      // A strafe to the right is a positive `sway` and, in this frame, a positive roll leans right: into it.
+      const bankInto = clamp(s.sway / HELI_STRAFE, -1, 1) - clamp(s.turnRate / HELI_TURN, -1, 1);
+      s.lean += (bankInto * HELI_BANK * flying - s.lean) * approach(HELI_ATTITUDE_EASE, dt);
       craft.rotation.set(s.nose, 0, s.lean);
       return;
     }

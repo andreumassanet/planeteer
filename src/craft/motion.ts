@@ -55,6 +55,13 @@ export interface MotionInput {
    */
   elevator: number;
   aileron: number;
+  /**
+   * A hull's wind: where it comes from against the bow, radians, positive
+   * from starboard, and its speed, metres a second. A sail's rig stands to
+   * it; a hull handed none rides head to wind, its boom amidships.
+   */
+  windFrom?: number;
+  windSpeed?: number;
 }
 
 export interface CraftMotion {
@@ -110,6 +117,17 @@ const MAX_ROLL = 0.06;
  */
 const SPRING = 90;
 const DAMPING = 9;
+/**
+ * A landing on wheels: the body squashes onto its springs and comes back up,
+ * by `LAND_SQUASH` of its height for a fall of `LAND_FULL` seconds or more
+ * (the impact grows with the time in the air), and the nose dips by
+ * `LAND_NOD` radians at the same. Under `LAND_FROM` seconds off the ground
+ * it was a bump, not a landing.
+ */
+const LAND_SQUASH = 0.12;
+const LAND_FULL = 0.6;
+const LAND_NOD = 0.04;
+const LAND_FROM = 0.06;
 /** How fast the measured acceleration is smoothed, per second: a frame's speed step is noise. */
 const ACCEL_SMOOTHING = 6;
 /** The idle: how far the body shakes on its mounts with the engine running and the car standing, in units and radians. */
@@ -155,6 +173,15 @@ const PITCH_WOBBLE = 0.006;
 const BOUNCE = 0.04;
 /** The speed a plane's ground roll is scaled to, units a second: its rotation speed, near enough (`PLANE_ROTATE`). */
 const ROLL_SCALE = 84;
+/**
+ * The air aloft is never quite still: a light aircraft's slow wobble in it,
+ * radians of roll and pitch and units of heave at its low cruise, on periods
+ * that do not divide; and the shiver a helicopter's rotor puts through it.
+ */
+const AIR_ROLL = 0.012;
+const AIR_PITCH = 0.006;
+const AIR_HEAVE = 0.05;
+const ROTOR_SHIVER = 0.012;
 /**
  * A launch on its mooring: heave in units, pitch and roll in radians, and
  * their periods' rates, none dividing another, so it never repeats as a loop.
@@ -274,6 +301,10 @@ interface Parts {
   discs: THREE.Mesh[];
   /** The point the body pitches and rolls about: the axles' height, on the axis. */
   pivotY: number;
+  /** A sail's boom with its mainsail, its jib, and the pennant at its masthead, each about its own +Y. */
+  booms: THREE.Object3D[];
+  jibs: THREE.Object3D[];
+  vanes: THREE.Object3D[];
 }
 
 const euler = new THREE.Euler();
@@ -302,6 +333,9 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   const rudders: THREE.Object3D[] = [];
   const elevators: THREE.Object3D[] = [];
   const ailerons: THREE.Object3D[] = [];
+  const booms: THREE.Object3D[] = [];
+  const jibs: THREE.Object3D[] = [];
+  const vanes: THREE.Object3D[] = [];
   const hinges = new Map<THREE.Object3D, number>();
   let rig: Rigged | null = null;
   let back: THREE.Bone | null = null;
@@ -337,6 +371,9 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
     else if (part.name === 'rudder') rudders.push(part);
     else if (part.name === 'elevator') elevators.push(part);
     else if (part.name === 'aileron') ailerons.push(part);
+    else if (part.name === 'boom') booms.push(part);
+    else if (part.name === 'jib') jibs.push(part);
+    else if (part.name === 'vane') vanes.push(part);
     // A wheel hung on a fork rolls with the others and steers with the fork.
     else if (part.name === 'wheel' && part.parent?.name === 'fork') wheels.push(part);
   });
@@ -386,7 +423,7 @@ function partsOf(group: THREE.Object3D, model: CraftModel): Parts {
   });
   return {
     sprung, wheels, radii, steered, props, blades, discs, pivotY, cranks, rotors, tails, steers, needles, rig, back, holder, jumps,
-    forks, rudders, elevators, ailerons, hinges,
+    forks, rudders, elevators, ailerons, hinges, booms, jibs, vanes,
   };
 }
 
@@ -619,6 +656,87 @@ function deflect(parts: Parts, surfaces: Surfaces, input: MotionInput, dt: numbe
   for (const part of parts.ailerons) part.rotation.x = parts.hinges.get(part)! + (part.position.x < 0 ? 1 : -1) * surfaces.aileron;
 }
 
+/**
+ * A sail's rig: how far out the boom goes close-hauled and dead before the
+ * wind, radians, and the jib's share of it; the boom's swing as a spring, so
+ * a gybe slams it across and it rebounds; how far past dead downwind the wind
+ * must come before it does; the shiver of a luffing sail, radians; and how
+ * fast the pennant follows the wind, per second, and how much it flutters.
+ */
+const BOOM_CLOSE = 0.1;
+const BOOM_RUN = 1.25;
+const JIB_SHARE = 0.7;
+const BOOM_SPRING = 14;
+const BOOM_DAMPING = 4.5;
+const GYBE_HOLD = 0.2;
+const LUFF_SHAKE = 0.1;
+/** Off the wind, radians, where the sail stops luffing and the boom starts easing out. */
+const CLOSE_HAULED = 0.7;
+const VANE_EASE = 6;
+const VANE_FLUTTER = 0.08;
+
+/**
+ * The boom and the jib out to leeward by how far off the wind the hull is,
+ * close in on the wind and squared off before it; shivering head to wind,
+ * where the sail luffs; and the pennant streaming where the wind blows. A
+ * boom to starboard (-X) is a positive turn about +Y.
+ */
+function createRigMotion(parts: Parts) {
+  const rigged = parts.booms.length + parts.jibs.length + parts.vanes.length > 0;
+  let boom = 0;
+  let boomRate = 0;
+  let side = 1;
+  let vane = 0;
+  let time = 0;
+  let shake = 0;
+
+  function apply(): void {
+    for (const part of parts.booms) part.rotation.y = boom + shake;
+    for (const part of parts.jibs) part.rotation.y = boom * JIB_SHARE + shake * 1.4;
+  }
+
+  return {
+    get busy(): boolean {
+      return rigged && Math.abs(boom) + Math.abs(boomRate) + Math.abs(vane) + Math.abs(shake) > 1e-3;
+    },
+    rest(): void {
+      boom = boomRate = vane = shake = 0;
+      side = 1;
+      apply();
+      for (const part of parts.vanes) part.rotation.y = 0;
+    },
+    update(dt: number, input: MotionInput): void {
+      if (!rigged) return;
+      time += dt;
+      const from = input.windFrom;
+      const windy = from !== undefined && Number.isFinite(from);
+      let wanted = 0;
+      let luff = 0;
+      if (windy) {
+        const off = Math.abs(from);
+        // The boom goes out on the side the wind leaves by; dead before it,
+        // it holds its side until the wind is clearly on the other quarter.
+        const lee = from > 0 ? -1 : 1;
+        if (lee !== side && Math.PI - off > GYBE_HOLD) side = lee;
+        wanted = side * (BOOM_CLOSE + (BOOM_RUN - BOOM_CLOSE) * clamp((off - CLOSE_HAULED) / (Math.PI - CLOSE_HAULED), 0, 1));
+        luff = clamp(1 - off / CLOSE_HAULED, 0, 1) * clamp((input.windSpeed ?? 3) / 4, 0.4, 1.5);
+      }
+      for (let left = dt; left > 1e-9; left -= 1 / 60) {
+        const step = Math.min(left, 1 / 60);
+        boomRate += ((wanted - boom) * BOOM_SPRING - boomRate * BOOM_DAMPING) * step;
+        boom += boomRate * step;
+      }
+      shake = luff * LUFF_SHAKE * (Math.sin(time * 19) + 0.5 * Math.sin(time * 31));
+      apply();
+      // The pennant streams where the wind blows to: its tail, aft at rest, turned by the wind's angle.
+      const toward = windy ? -from : 0;
+      vane += Math.atan2(Math.sin(toward - vane), Math.cos(toward - vane)) * approach(VANE_EASE, dt);
+      const flutter = windy ? VANE_FLUTTER * Math.sin(time * 17) : 0;
+      for (const part of parts.vanes) part.rotation.y = vane + flutter;
+    },
+  };
+}
+
 /** The steered parts' deflections, radians. */
 interface Surfaces {
   fork: number;
@@ -652,6 +770,11 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   const plane = kind === 'plane';
   const boat = model.medium === 'water';
   const motorbike = kind === 'motorbike';
+  /** On wheels and springs of some kind: what squashes on a landing. */
+  const wheeled = road || motorbike || kind === 'bicycle';
+  /** The squash's spring speed, radians a second, and its kick for a full landing, units a second. */
+  const omega = Math.sqrt(SPRING);
+  const landKick = LAND_SQUASH * model.size[2] * omega;
   /** How far the bicycle goes for one turn of its crank. */
   const gearing = model.gearing ?? 0;
   let crank = 0;
@@ -668,6 +791,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   const forkAxis = new THREE.Vector3();
   const forkAt = new THREE.Vector3();
   const rotors = createSpinMotion(parts);
+  const rig = createRigMotion(parts);
 
   let lastSpeed = 0;
   let accel = 0;
@@ -675,13 +799,19 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   let pitchRate = 0;
   let roll = 0;
   let rollRate = 0;
+  /** The squash of a landing, units (negative down), its rate, and the seconds since the wheels left the ground. */
+  let drop = 0;
+  let dropRate = 0;
+  let airTime = 0;
   let time = 0;
   let settling = false;
   const phase = (group.id * 2.39996) % (Math.PI * 2);
 
   function rest(): void {
     lastSpeed = accel = pitch = pitchRate = roll = rollRate = 0;
+    drop = dropRate = airTime = 0;
     rotors.rest();
+    rig.rest();
     horse?.rest();
     parts.sprung.position.set(0, 0, 0);
     parts.sprung.rotation.set(0, 0, 0);
@@ -705,7 +835,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       return crank;
     },
     get lift() {
-      return horse?.lift ?? 0;
+      return horse?.lift ?? drop;
     },
     get steer() {
       return wheelTurn;
@@ -757,10 +887,32 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         shakeRoll = ROLL_WOBBLE * k * (Math.sin(time * 11.3 + phase) + 0.6 * Math.sin(time * 17.9));
         shakePitch = PITCH_WOBBLE * k * Math.sin(time * 13.7 + phase);
         heave = BOUNCE * k * Math.abs(Math.sin(time * 7.9 + phase));
+      } else if (plane && !input.grounded) {
+        // Aloft: the wobble of the air, as much as it has speed through it.
+        const k = clamp(Math.abs(speed) / ROLL_SCALE, 0, 1);
+        shakeRoll = AIR_ROLL * k * (Math.sin(time * 1.7 + phase) + 0.5 * Math.sin(time * 2.9));
+        shakePitch = AIR_PITCH * k * Math.sin(time * 2.3 + phase);
+        heave = AIR_HEAVE * k * Math.sin(time * 1.3 + phase);
+      } else if (kind === 'helicopter' && !input.grounded) {
+        heave = ROTOR_SHIVER * (Math.sin(time * 31 + phase) + 0.5 * Math.sin(time * 2.1));
       } else if (boat && input.moored) {
         heave = MOOR_HEAVE * Math.sin(time * 1.1 + phase);
         shakePitch = MOOR_PITCH * Math.sin(time * 0.63 + phase * 1.7);
         shakeRoll = MOOR_ROLL * Math.sin(time * 0.81 + phase * 0.6);
+      }
+      if (wheeled) {
+        // Down again after a flight: the springs take the fall.
+        if (!input.grounded) airTime += dt;
+        else if (airTime > 0) {
+          if (airTime > LAND_FROM) {
+            const hard = clamp(airTime / LAND_FULL, 0, 1);
+            dropRate -= landKick * hard;
+            if (road) pitchRate += LAND_NOD * omega * hard;
+          }
+          airTime = 0;
+        }
+        dropRate += (-drop * SPRING - dropRate * DAMPING) * step;
+        drop += dropRate * step;
       }
       pitchRate += ((pitchTarget - pitch) * SPRING - pitchRate * DAMPING) * step;
       pitch += pitchRate * step;
@@ -772,7 +924,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       euler.set(pitch + shakePitch, 0, roll + shakeRoll);
       parts.sprung.rotation.copy(euler);
       offset.set(0, parts.pivotY, 0).applyEuler(euler);
-      parts.sprung.position.set(-offset.x, parts.pivotY - offset.y + heave, -offset.z);
+      parts.sprung.position.set(-offset.x, parts.pivotY - offset.y + heave + drop, -offset.z);
 
       horse?.update(dt, input);
 
@@ -801,6 +953,7 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       }
 
       rotors.update(dt, input);
+      rig.update(dt, input);
       deflect(parts, surfaces, input, dt);
 
       const steered = isDeflected(parts, wheelTurn, surfaces);
@@ -810,8 +963,9 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
         (horse !== null && horse.busy) ||
         steered ||
         rotors.spin > 0 ||
+        rig.busy ||
         Math.abs(speed) > 0.01 ||
-        Math.abs(pitch) + Math.abs(roll) + Math.abs(pitchRate) + Math.abs(rollRate) > 1e-4;
+        Math.abs(pitch) + Math.abs(roll) + Math.abs(pitchRate) + Math.abs(rollRate) + Math.abs(drop) + Math.abs(dropRate) > 1e-4;
     },
   };
   group.userData.motion = motion;

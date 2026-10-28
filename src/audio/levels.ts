@@ -33,6 +33,8 @@ export const STEP_LEVEL: Record<Surface, number> = { grass: 0.2, paving: 0.16, s
 /** How long every loop takes to follow a change, in seconds: long enough that a frame's jitter is inaudible. */
 export const FOLLOW = 0.35;
 
+/** A knocked-over prop's crack, clang or thud. */
+export const KNOCK_LEVEL = 0.34;
 export const WIND_LEVEL = 0.14;
 export const SEA_LEVEL = 0.3;
 export const BOAT_LEVEL = 0.14;
@@ -43,6 +45,17 @@ export const ROTOR_LEVEL = 0.16;
 export const SAUCER_LEVEL = 0.07;
 export const TICK_LEVEL = 0.05;
 export const HOOF_LEVEL = 0.22;
+/**
+ * Tyres sliding at full (`SKID_FULL` units a second across the bow, from
+ * `SKID_FROM`), and a drift's boost paid out: a rush of air rising.
+ */
+export const SKID_LEVEL = 0.08;
+export const SKID_FROM = 4;
+export const SKID_FULL = 30;
+export const BOOST_LEVEL = 0.16;
+/** The gears a motor's note climbs through between idle and flat out, and how far a change drops it back. */
+export const GEARS: Partial<Record<Soundscape['mode'], number>> = { car: 4, heavy: 3, motorbike: 5 };
+export const GEAR_DROP = 0.55;
 
 /**
  * The motor loop's voice for each mode that has one: its level, the putt's pitch

@@ -9,6 +9,8 @@ import { crownOf } from '../../scenery/tree-forms.ts';
 import type { Ground } from '../ground/build.ts';
 import { timedSteps } from '../budget.ts';
 import { rectOf } from '../plots.ts';
+import { DRESSING_KIND } from '../../breakables/kinds.ts';
+import type { StandingProp } from './job.ts';
 import { CLEAR_FOLK, CLEAR_LAMP, DRESS_LEAST, DRESS_MOST, DRESS_SHARE, KIND_OF, footprintOf, urbanityOf } from '../rules.ts';
 import type { FlatVariant } from '../types.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
@@ -160,7 +162,14 @@ export function* dressStreetsSteps(kit: RaiseKit, job: RaiseJob, ground: Ground,
   const closing = performance.now();
   if (dressed.triangles > 0) {
     const count = dressed.triangles * 3;
-    job.standing.push({ flat: runOf(dressed, count), matrix: new THREE.Matrix4(), glow: 1 });
+    // The pieces a vehicle may knock over, as runs of the dressing's own vertices.
+    const props: StandingProp[] = [];
+    for (const piece of dressed.pieces) {
+      const kind = DRESSING_KIND[piece.kind];
+      if (kind === undefined || piece.count === 0) continue;
+      props.push({ kind, first: piece.first, count: piece.count, x: piece.x, y: piece.y, z: piece.z, radius: piece.radius, height: piece.height, solid: piece.solid });
+    }
+    job.standing.push({ flat: runOf(dressed, count), matrix: new THREE.Matrix4(), glow: 1, props });
     job.vertices += count;
     job.solids.push(...dressed.solids);
     // In the town's frame here; into the world's with the benches once the mesh is placed.

@@ -22,10 +22,11 @@ import type { RoadHandling, WaterHandling } from '../vehicles.ts';
 
 /** Time constant of the speed ramp, seconds: full speed lands at about three of these. */
 export const ACCELERATION_TIME = 0.085;
-/** Share of that authority kept in the air. */
-export const AIR_CONTROL = 0.25;
-/** How fast the avatar swings round to face where it is going, per second. */
-export const TURN_SMOOTHING = 11;
+/** Share of that authority a push keeps in the air; let go, the body keeps the way it jumped. */
+export const AIR_CONTROL = 0.6;
+/** How fast the avatar swings round to face where it is going, per second, and the least turn rate, radians a second, it ever swings at. */
+export const TURN_SMOOTHING = 20;
+export const TURN_MIN_RATE = 7;
 /** How fast height settles when the ground drops away under a step. A rise is followed exactly. */
 export const HEIGHT_SMOOTHING = 8;
 
@@ -101,8 +102,15 @@ export const PLANE_BANK = 0.6;
 export const BOAT_HEEL = 0.2;
 /** How fast the launch's heel follows its rudder. */
 export const BANK_SMOOTHING = 4;
-/** The plane's roll time constant, seconds: the stick rolls the plane and the roll turns it. */
+/** The plane's control surfaces' time constant, seconds. */
 export const PLANE_ROLL_TIME = 0.2;
+/**
+ * The plane's roll in travel, a critically damped spring at this rate a
+ * second (`spring`): into a turn and out of it the bank eases, with no snap as
+ * a key goes down or comes up, about two thirds of the way in 0.3 s. The stick
+ * rolls the plane and the roll turns it.
+ */
+export const PLANE_ROLL_SPRING = 7;
 /** Steepest the nose is allowed to point while climbing or diving. */
 export const MAX_NOSE = 0.5;
 
@@ -187,15 +195,13 @@ export const TILT_SMOOTHING = 10;
 /**
  * The launch under way: how far its bow comes up onto the plane at its
  * cruise, radians, and how much of that it gives back flat out; how fast the
- * bow follows; how much higher the hull rides on the plane, in units; the
- * chop's pitch at speed; and the share of the full heel it leans out of a turn
- * when slow.
+ * bow follows; how much higher the hull rides on the plane, in units; and the
+ * share of the full heel it leans out of a turn when slow.
  */
 export const BOW_LIFT = 0.09;
 export const BOW_SETTLE = 0.035;
 export const BOW_SMOOTHING = 1.5;
 export const BOW_RISE = 0.25;
-export const CHOP = 0.012;
 export const HEEL_OUT = 0.3;
 
 /** The balloon's basket on its pendulum: the pivot as a share of the balloon's height, and how far a turn swings it out. */
@@ -312,8 +318,17 @@ export const LAUNCH: WaterHandling = {
   astern: 0.35,
   heel: BOAT_HEEL,
   bow: BOW_LIFT,
-  hop: 0,
   list: 0,
+  coastTime: 3.2,
+  brakeTime: 1,
+  grip: 6.5,
+  carve: 0.5,
+  still: 0.3,
+  slide: 0,
+  kick: 0.7,
+  jump: 0,
+  punch: 0.5,
+  bySail: false,
 };
 export const waterOf = (kind: CraftKind): WaterHandling => (kind === 'boat' ? LAUNCH : WATER_HANDLING[kind] ?? LAUNCH);
 
@@ -349,7 +364,51 @@ export const LEAN_EASE = 7;
 /** A wheelie's most, radians, and how much of the length behind the middle the rear axle is. */
 export const WHEELIE_MAX = 0.3;
 export const REAR_AXLE = 0.34;
+/**
+ * Off a crest: over `CREST_FROM` of its cruise and climbing at least
+ * `CREST_CLIMB` units a second, a vehicle on wheels leaves the ground when the
+ * ground under it falls away `CREST_DROP` units a second faster than its nose
+ * was climbing, taking that climb with it, no more than `CREST_RISE`. The
+ * least climb keeps the mesh's small kinks from bouncing it. In the air its
+ * nose follows its arc at `AIR_TILT_EASE` a second, up to `AIR_TILT` of `MAX_NOSE`.
+ */
+export const CREST_FROM = 0.4;
+export const CREST_CLIMB = 4;
+export const CREST_DROP = 6;
+export const CREST_RISE = 16;
+export const AIR_TILT_EASE = 3;
+export const AIR_TILT = 0.6;
 /** A helicopter's floor over water, in units: its skids are kept this clear of the waves. */
 export const HELI_WATER_FLOOR = 2;
 /** How fast a helicopter's nose and bank follow its speed and turn, per second. */
 export const HELI_ATTITUDE_EASE = 2.5;
+
+// ---- the course's pull (`PlayerInput.assist`) --------------------------------
+//
+// In travel an aircraft handed a target is eased onto it while the keys leave
+// the heading or the height alone; a key held takes that axis back at once.
+
+/** Nearer than this to the target, units, the pull lets go: the ring is being flown through. */
+export const ASSIST_NEAR = 60;
+/**
+ * The turn onto the target, per radian of bearing error, per second: the arc
+ * that passes through it turns at `2 v / d`, held between these two so a far
+ * ring is lined up on well before it is reached (the floor settles the bearing
+ * in about a second, a third of the way to a course's next ring) and a near
+ * one does not snatch the bank. Against the roll's `PLANE_ROLL_SPRING` the
+ * ceiling is still short of overshooting.
+ */
+export const ASSIST_GAIN_MIN = 2;
+export const ASSIST_GAIN_MAX = 3;
+/** The most of the plane's full bank the pull may take, so a player's touch always reads over it. */
+export const ASSIST_BANK = 0.6;
+/**
+ * The climb onto the target's height, per unit of height, per second: the
+ * line that arrives level with it climbs at `v / d`, taken `ASSIST_LEAD` times
+ * early and held between these two.
+ */
+export const ASSIST_LEAD = 1.5;
+export const ASSIST_RISE_MIN = 0.5;
+export const ASSIST_RISE_MAX = 1.2;
+/** The most of a helicopter's full yaw rate the pull may take. */
+export const HELI_ASSIST_TURN = 0.7;

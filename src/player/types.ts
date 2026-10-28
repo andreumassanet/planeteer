@@ -8,14 +8,18 @@ import type { CraftModel, PlayerState, WirePose } from '../craft/contract.ts';
  *
  * - `swim`, `ashore`: into the water on foot, and back out of it.
  * - `took-off`, `landed`: a plane or a balloon leaving the ground and coming back to it.
- * - `water-refused`, `steep-refused`: a plane let down onto the sea, or onto a
- *   hillside, which goes round again.
+ * - `water-refused`, `steep-refused`: an aircraft let down onto the sea where it
+ *   will not ditch, or onto a hillside, which goes round again.
  * - `crashed`: a car, or a plane on its wheels, driven into a wall or a parked
  *   vehicle hard enough to count (`CRASH_SPEED`); told with the speed the knock
  *   took off it.
- * - `foundered`: a vehicle driven into water it cannot float on.
+ * - `foundered`: a vehicle driven into water it cannot float on, or a plane
+ *   come down on it.
+ * - `broke`: a vehicle on wheels knocked something small over (`breakables.ts`);
+ *   told with how hard the knock was, 0 to `MAX_JOLT`.
+ * - `boosted`: a drift let go paid its boost; told with the tier, 1 or 2.
  */
-export type PlayerEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
+export type PlayerEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered' | 'broke' | 'boosted';
 
 export interface PlayerInput {
   move: { x: number; y: number };
@@ -33,12 +37,25 @@ export interface PlayerInput {
   dive?: boolean;
   /**
    * Held, a plane's stick: `pitch` positive pulls the nose up, `roll`
-   * positive rolls right. Either off zero in the air takes the plane into
-   * aerobatics (`player/aerobatics.ts`).
+   * positive rolls right. In aerobatics (`player/aerobatics.ts`) it is the
+   * stick; in travel `roll` turns as the movement keys do and `pitch` climbs
+   * and descends (`liftOf`), and a helicopter strafes on `roll`.
    */
   attitude?: { pitch: number; roll: number };
-  /** Edge: a plane's flight switches between travel and aerobatics. */
+  /** Edge: a plane's flight switches between travel and aerobatics; the only way between them. */
   flightMode?: boolean;
+  /**
+   * A point an aircraft is being led to (a ring course's next ring), and how
+   * firmly, 0 to 1: in travel the flight eases its heading and its height
+   * towards it while the keys leave them alone, and the keys always win.
+   */
+  assist?: FlightAssist | null;
+}
+
+/** See `PlayerInput.assist`. */
+export interface FlightAssist {
+  target: THREE.Vector3;
+  strength: number;
 }
 
 /**
@@ -74,6 +91,15 @@ export interface Player {
   speed: number;
   /** Units a second away from the planet's centre this frame: a climb, a fall. */
   climb: number;
+  /**
+   * At the controls of a vehicle on wheels: its speed across the bow, units a
+   * second, positive to the left (`player/drift.ts`); 0 anywhere else.
+   */
+  slip: number;
+  /** Drifting: the boost tier its charge has earned so far, 0 to 2; -1 while not drifting. */
+  driftTier: number;
+  /** Seconds of a drift's boost left, 0 when none. */
+  boost: number;
   /**
    * Out of an aircraft in flight and not yet down: falling, and then under a
    * canopy (`CHUTE_FORCED`), steered by the movement keys.
@@ -256,4 +282,22 @@ export interface PlayerOptions {
    * under the surface, and the water's edge is a step into a swim.
    */
   seaFloorAt?: (point: THREE.Vector3) => number;
+  /**
+   * The wind where the player is (`WeatherView.here`): where it comes from,
+   * compass degrees, and its speed, metres a second. Asked a few times a
+   * second afloat; a sail is driven by it and the sea rises with it. Without
+   * it a light westerly blows.
+   */
+  windAt?: () => { from: number; speed: number };
+  /** A hull threw water up at `point`, `reach` units across: a leap coming down, a powerslide, a submarine breaking the surface. */
+  onSplash?: (point: THREE.Vector3, reach: number) => void;
+  /**
+   * A vehicle on wheels, `radius` wide, swept from `from` to `to` going
+   * `velocity`, hitting as hard as `punch` (`punchOf` in `breakables.ts`):
+   * whatever small thing stands in its way is knocked over and whoever is
+   * knocked down, and how hard that was felt comes back (it costs no speed),
+   * 0 for nothing hit. Asked before the walls, so a knocked-over wall no longer stops it;
+   * only past `BREAK_SPEED`. Without it everything stays a wall.
+   */
+  strike?: (from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3, punch: number) => number;
 }

@@ -6,6 +6,19 @@ export const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const approach = (rate: number, dt: number): number => 1 - Math.exp(-rate * dt);
 
 /**
+ * One exact step of a critically damped spring: `x` going at `v` a second,
+ * pulled to `target` at `omega` a second, with no overshoot and no jerk at
+ * the start. The new value and rate go into `out`, the same at any `dt`.
+ */
+export function spring(x: number, v: number, target: number, omega: number, dt: number, out: [number, number]): void {
+  const e = Math.exp(-omega * dt);
+  const off = x - target;
+  const k = v + omega * off;
+  out[0] = target + (off + k * dt) * e;
+  out[1] = (v - omega * k * dt) * e;
+}
+
+/**
  * The movement keys as a vehicle reads them: two levers (stick and throttle),
  * not a direction. `input.ts` scales a diagonal to unit length, which on foot is
  * right, but in a vehicle it coupled the two controls. This stretches the vector

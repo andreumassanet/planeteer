@@ -1,12 +1,12 @@
 /** Putting particles into the pools, and where and when an emitter owes one. */
 import * as THREE from 'three';
-import { MAX_PUFFS, MAX_DISCS, MAX_DEBRIS, MAX_RIBBONS, RIBBON_POINTS, FOAM_RADIUS, FRAME_BURST } from './constants.ts';
-import { P_POS, P_VEL, P_UP, P_AGE, P_LIFE, P_S0, P_S1, P_HOLD, P_COLOR, P_GLOW, P_DRAG, P_RISE, P_ROT, P_STRIDE, F_POS, F_VEL, F_E1, F_E2, F_AGE, F_LIFE, F_R0, F_R1, F_RING, F_DRAG, F_STRIDE, R_POS, R_VEL, R_SIDE, R_AGE, R_LIFE, R_W0, R_W1, R_DRAG, R_LINK, R_HOLLOW, R_STRIDE, D_POS, D_VEL, D_UP, D_AGE, D_LIFE, D_SIZE, D_COLOR, D_AXIS, D_SPIN, D_ANGLE, D_FLOOR, D_STRIDE } from './layout.ts';
+import { MAX_PUFFS, MAX_DISCS, MAX_DEBRIS, MAX_RIBBONS, RIBBON_POINTS, FOAM_COLOR, FOAM_RADIUS, FRAME_BURST } from './constants.ts';
+import { P_POS, P_VEL, P_UP, P_AGE, P_LIFE, P_S0, P_S1, P_HOLD, P_COLOR, P_GLOW, P_DRAG, P_RISE, P_ROT, P_STRIDE, F_POS, F_VEL, F_E1, F_E2, F_AGE, F_LIFE, F_R0, F_R1, F_RING, F_DRAG, F_STRIDE, R_POS, R_VEL, R_SIDE, R_AGE, R_LIFE, R_W0, R_W1, R_DRAG, R_LINK, R_HOLLOW, R_COLOR, R_STRIDE, D_POS, D_VEL, D_UP, D_AGE, D_LIFE, D_SIZE, D_COLOR, D_AXIS, D_SPIN, D_ANGLE, D_FLOOR, D_STRIDE } from './layout.ts';
 import { rand, clamp, linearOf, p3, writeRotation } from './helpers.ts';
 import type { Pools } from './pools.ts';
 
 export function createSpawners(fx: Pools) {
-  const { p, f, r, ribbonHead, ribbonCount, ribbonOwned, ribbonActive, ribbonBroken, MINE, d, stats, delta, foamUp, foamVel, foamE1, foamE2, e1, e2, quaternion, axis } = fx;
+  const { p, f, r, ribbonHead, ribbonCount, ribbonOwned, ribbonActive, ribbonBroken, ribbonOnGround, FIRST_FREE, d, stats, delta, foamUp, foamVel, foamE1, foamE2, e1, e2, quaternion, axis } = fx;
   function spawnPuff(
     pos: THREE.Vector3, v: THREE.Vector3, up: THREE.Vector3,
     life: number, s0: number, s1: number, hold: number,
@@ -74,16 +74,18 @@ export function createSpawners(fx: Pools) {
   /**
    * A point on ribbon `ribbon`, joined to the one before it if the ribbon's
    * emitter ran last frame or earlier this one; a full ribbon gives up its
-   * oldest point.
+   * oldest point. On the water it is put on the foam's sphere and is white;
+   * a ribbon on the ground keeps the height it is given and takes `hex`.
    */
   function pushPoint(
     ribbon: number, pos: THREE.Vector3, v: THREE.Vector3, side: THREE.Vector3,
-    life: number, w0: number, w1: number, drag: number, hollow: number,
+    life: number, w0: number, w1: number, drag: number, hollow: number, hex = FOAM_COLOR,
   ): void {
     if (ribbonCount[ribbon] === RIBBON_POINTS) {
       ribbonHead[ribbon] = (ribbonHead[ribbon]! + 1) % RIBBON_POINTS;
       ribbonCount[ribbon] = RIBBON_POINTS - 1;
-      stats.dropped++;
+      // A skid mark's oldest point giving way is the mark wearing off, not a refusal.
+      if (ribbonOnGround[ribbon] === 0) stats.dropped++;
     }
     const index = (ribbonHead[ribbon]! + ribbonCount[ribbon]!) % RIBBON_POINTS;
     const o = (ribbon * RIBBON_POINTS + index) * R_STRIDE;
@@ -91,7 +93,8 @@ export function createSpawners(fx: Pools) {
     ribbonBroken[ribbon] = 0;
     ribbonCount[ribbon] = ribbonCount[ribbon]! + 1;
     foamUp.copy(pos).normalize();
-    p3(r, o + R_POS, foamUp.x * FOAM_RADIUS, foamUp.y * FOAM_RADIUS, foamUp.z * FOAM_RADIUS);
+    const lay = ribbonOnGround[ribbon] === 1 ? pos.length() : FOAM_RADIUS;
+    p3(r, o + R_POS, foamUp.x * lay, foamUp.y * lay, foamUp.z * lay);
     foamVel.copy(v).addScaledVector(foamUp, -v.dot(foamUp));
     p3(r, o + R_VEL, foamVel.x, foamVel.y, foamVel.z);
     foamE1.copy(side).addScaledVector(foamUp, -side.dot(foamUp)).normalize();
@@ -103,12 +106,13 @@ export function createSpawners(fx: Pools) {
     r[o + R_DRAG] = drag;
     r[o + R_LINK] = joined ? 1 : 0;
     r[o + R_HOLLOW] = hollow;
+    r[o + R_COLOR] = hex;
     ribbonActive[ribbon] = fx.frame;
   }
 
   /** A ribbon nobody holds and that has drained, for a newly followed boat; -1 if every one is busy. */
   function takeRibbon(): number {
-    for (let i = MINE.length; i < MAX_RIBBONS; i++) {
+    for (let i = FIRST_FREE; i < MAX_RIBBONS; i++) {
       if (ribbonOwned[i] === 0 && ribbonCount[i] === 0) {
         ribbonOwned[i] = 1;
         ribbonBroken[i] = 1;

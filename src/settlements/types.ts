@@ -11,6 +11,7 @@ import type { TownGrid } from '../scenery/grid.ts';
 import type { GroundStyle } from '../scenery/ground.ts';
 import type { RegionStyle } from '../scenery/index.ts';
 import type { Solid, SolidField } from '../scenery/solids.ts';
+import type { Breakables, PropHost } from '../breakables/types.ts';
 import type { PlanShape } from '../landmark-ground.ts';
 
 /** The public and internal records the settlement modules share. */
@@ -251,7 +252,12 @@ export interface SettlementOptions {
    * stand on the relief, and the town is built again once it does.
    */
   land?: THREE.Mesh;
+  /** Where a standing town registers what a vehicle may knock over (`breakables.ts`). Without it nothing in a town breaks. */
+  breakables?: PropSink;
 }
+
+/** The part of `Breakables` a streamer talks to. */
+export type PropSink = Pick<Breakables, 'register' | 'forget'>;
 
 // ---------------------------------------------------------------------------
 // Internal records
@@ -395,4 +401,6 @@ export interface Slot {
   bikeSlots: BikeSlot[];
   /** Its traffic lights' lamps, in world space, `SIGNAL_HEAD` numbers each; null where it has none. */
   signalHeads: Float32Array | null;
+  /** What in the standing mesh may be knocked over, as registered; null while nothing is. */
+  host: PropHost | null;
 }

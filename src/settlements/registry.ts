@@ -3,7 +3,7 @@ import { createFader } from '../fade.ts';
 import { PLANET_RADIUS } from '../globe.ts';
 import { createCrowns, retireMesh } from './meshes.ts';
 import type { LeafCard } from './meshes.ts';
-import type { Slot, TownSeat } from './types.ts';
+import type { PropSink, Slot, TownSeat } from './types.ts';
 
 /**
  * What stands: the towns with a floor, people, lamps, takeable vehicles,
@@ -40,6 +40,8 @@ export interface Registry {
   floorChanges(since: number, into: number[]): number;
   /** Takes a town mesh out of the world; see `retireMesh`. */
   retire(mesh: THREE.Mesh, instant: boolean): void;
+  /** Where a town's props are registered while it stands, or null. */
+  breakables: PropSink | null;
 }
 
 /**
@@ -70,6 +72,7 @@ export function createRegistry(): Registry {
     townCrowns,
     seatLog: null,
     parkedTaken: () => false,
+    breakables: null,
     noteFloor(slot) {
       const floor = slot.floor;
       if (floor === null) return;
@@ -119,5 +122,7 @@ export function unpublish(registry: Registry, slot: Slot): void {
   registry.rackTowns.delete(slot);
   slot.signalHeads = null;
   registry.signalTowns.delete(slot);
+  if (slot.host !== null) registry.breakables?.forget(slot.host);
+  slot.host = null;
   slot.mesh = null;
 }

@@ -12,14 +12,15 @@ import {
   HELI_SINK,
   HELI_SPEED,
   HELI_SPOOL,
+  HELI_STRAFE,
   HELI_TOUCHDOWN,
   HELI_TURN,
   HELI_VERTICAL_TIME,
   WATERLINE,
   isWater,
 } from '../vehicles.ts';
-import { AIR_LOW, HELI_WATER_FLOOR, RUDDER_TIME } from './constants.ts';
-import { approach, levers } from './math.ts';
+import { AIR_LOW, HELI_ASSIST_TURN, HELI_WATER_FLOOR, RUDDER_TIME } from './constants.ts';
+import { approach, clamp, levers } from './math.ts';
 import type { PlayerInput } from './types.ts';
 import type { PlayerCore } from './core.ts';
 import type { Frame } from './frame.ts';
@@ -38,29 +39,34 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
     position,
     probe,
     query,
+    side,
     standingRadius,
     stick,
     up,
   } = core;
   const s = core.fields;
-  const { advance, pointAhead, travel } = frame;
+  const { pointAhead, travel } = frame;
   const { airWalls, throughWalls } = wallSet;
-  const { liftOf, refuse } = flight;
+  const { assistClimb, assistTurn, liftOf, pullOf, refuse } = flight;
   const { craftSplash, spray } = ring;
 
   /**
    * Goes straight up on the climb key once its rotor has wound up (`HELI_SPOOL`),
-   * hovers where it is let go, flies forward and back on `W` and `S`, turns on its
-   * tail rotor with `A` and `D`, and comes down on the descend key, setting down on
-   * any land flatter than `HELI_LANDING_GRADE` and holding its skids clear of
-   * water. Buildings are walls at its skids' height and at its rotor's.
+   * hovers where it is let go, flies forward and back on `W` and `S`, sideways
+   * on `J` and `L`, turns on its tail rotor with `A` and `D`, and comes down on
+   * the descend key, setting down on any land flatter than `HELI_LANDING_GRADE`
+   * and holding its skids clear of water. A course's ring turns it and lifts it
+   * while the pedals and the collective are left alone. Buildings are walls at
+   * its skids' height and at its rotor's.
    */
   function hover(dt: number, input: PlayerInput, model: CraftModel): void {
     s.sinceRefusal += dt;
     levers(input.move, stick);
     const lift = liftOf(input);
+    const strafe = clamp(input.attitude?.roll ?? 0, -1, 1);
     if (s.grounded) {
       s.speed = 0;
+      s.sway = 0;
       s.velocity = 0;
       s.turnRate = 0;
       s.steering = 0;
@@ -76,38 +82,51 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
       options.onEvent?.('took-off', 0);
     }
     s.spool = HELI_SPOOL;
-    // The pedals: the tail rotor yaws it, eased like a rudder.
-    s.steering += (stick.x - s.steering) * approach(1 / RUDDER_TIME, dt);
-    if (stick.x === 0 && Math.abs(s.steering) < 1e-3) s.steering = 0;
+    const pull = s.goAround > 0 ? null : pullOf(input);
+    // The pedals: the tail rotor yaws it, eased like a rudder. With them
+    // centred the ring turns it, hovering too, so it faces the next one.
+    let pedal = stick.x;
+    if (stick.x === 0 && pull !== null) pedal = -assistTurn(Math.abs(s.speed), pull, HELI_TURN * HELI_ASSIST_TURN) / HELI_TURN;
+    s.steering += (pedal - s.steering) * approach(1 / RUDDER_TIME, dt);
+    if (pedal === 0 && Math.abs(s.steering) < 1e-3) s.steering = 0;
     const turn = -s.steering * HELI_TURN * dt;
     if (turn !== 0) forward.applyAxisAngle(up, turn).normalize();
     s.turnRate = dt > 0 ? turn / dt : 0;
-    // The cyclic: forward and back, and let go it slows to a hover.
+    // The cyclic: forward and back, and sideways; let go it slows to a hover.
     const wanted = stick.y >= 0 ? HELI_SPEED * stick.y : HELI_REVERSE * stick.y;
     s.speed += (wanted - s.speed) * approach(1 / HELI_ACCELERATION_TIME, dt);
     if (stick.y === 0 && Math.abs(s.speed) < 0.05) s.speed = 0;
+    s.sway += (HELI_STRAFE * strafe - s.sway) * approach(1 / HELI_ACCELERATION_TIME, dt);
+    if (strafe === 0 && Math.abs(s.sway) < 0.05) s.sway = 0;
 
     // The collective: a climb and a sink it eases into, the sink slowing near the ground.
     let ground = standingRadius(position);
     let water = isWater(ground);
     let floor = water ? PLANET_RADIUS + WATERLINE + HELI_WATER_FLOOR : ground;
     const over = Math.max(0, s.height - floor);
+    const headroom = Math.max(0, PLANET_RADIUS + HELI_CEILING - s.height) * 0.5;
     let asked = 0;
-    if (lift > 0) asked = Math.min(HELI_CLIMB, Math.max(0, PLANET_RADIUS + HELI_CEILING - s.height) * 0.5);
+    if (lift > 0) asked = Math.min(HELI_CLIMB, headroom);
     else if (lift < 0) asked = -Math.min(HELI_SINK, Math.max(HELI_TOUCHDOWN, over * 0.8));
+    else if (pull !== null) asked = assistClimb(Math.abs(s.speed), pull, -HELI_SINK, Math.min(HELI_CLIMB, headroom));
     s.climbing += (asked - s.climbing) * approach(1 / HELI_VERTICAL_TIME, dt);
 
+    // `side` is the left; the sway is positive to the right.
+    side.crossVectors(up, forward).normalize();
+    motion.copy(forward).multiplyScalar(s.speed).addScaledVector(side, -s.sway);
+    moved.copy(motion).multiplyScalar(dt);
     if (airWalls !== null) {
       // The skids and the rotor's disc, as a balloon's basket and envelope.
       s.airHeight = s.height;
       s.airLow = s.height - ground < AIR_LOW;
       s.airEnvelope = model.size[1] * 0.4;
       s.airEnvelopeHeight = s.height + model.size[2] * 0.85;
-      motion.copy(forward).multiplyScalar(s.speed);
-      moved.copy(motion).multiplyScalar(dt);
-      if (throughWalls(dt, airWalls, Math.min(model.size[0], model.size[1]) * 0.2)) s.speed = motion.dot(forward);
-      travel();
-    } else advance(forward, (s.speed * dt) / position.length());
+      if (throughWalls(dt, airWalls, Math.min(model.size[0], model.size[1]) * 0.2)) {
+        s.speed = motion.dot(forward);
+        s.sway = -motion.dot(side);
+      }
+    }
+    travel();
 
     ground = standingRadius(position);
     water = isWater(ground);
@@ -141,6 +160,7 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
           s.grounded = true;
           s.airborne = false;
           s.speed = 0;
+          s.sway = 0;
           s.climbing = 0;
           s.spool = 0;
           s.goAround = 0;
@@ -158,7 +178,7 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
     s.climbRate = dt > 0 ? (s.height - before) / dt : 0;
     position.setLength(s.height);
     s.altitude = s.height - PLANET_RADIUS;
-    s.velocity = Math.abs(s.speed);
+    s.velocity = Math.hypot(s.speed, s.sway);
     s.clearance = s.height - floor + (water ? HELI_WATER_FLOOR : 0);
     s.overWater = water;
   }

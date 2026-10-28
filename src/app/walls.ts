@@ -6,6 +6,7 @@
  */
 import * as THREE from 'three';
 import type { Fleet } from '../fleet.ts';
+import { BODY_JOLT, MAX_JOLT } from '../breakables.ts';
 import type { App } from './context.ts';
 
 type Collide = (point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean;
@@ -26,12 +27,19 @@ export interface Walls {
   collideStill: Collide;
   /** The nearest spot clear of every still wall and vehicle. */
   freeSpotNear: FreeSpot;
+  /**
+   * A vehicle on wheels sweeping over the small things and the people: the
+   * props are knocked over (`breakables.ts`), the townsfolk, the walkers and
+   * the near animals knocked down; how hard it was all felt comes back.
+   * See `PlayerOptions.strike`.
+   */
+  strike(from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3, punch: number): number;
   /** Adds the fleet's vehicles as walls, once the fleet exists. */
   setFleet(fleet: Fleet): void;
 }
 
 export function createWalls(app: App): Walls {
-  const { settlements, roads, monuments, railway, vegetation, launchPads, harbours, townsfolk, life, personRadius } = app;
+  const { settlements, roads, monuments, railway, vegetation, launchPads, harbours, townsfolk, life, personRadius, breakables } = app;
   const stillWalls = [settlements, monuments, vegetation, launchPads, harbours] as const;
   let vehicleWalls: Collide | null = null;
   let vehicleSpot: FreeSpot | null = null;
@@ -116,6 +124,13 @@ export function createWalls(app: App): Walls {
     setFleet(fleet) {
       vehicleWalls = (point, radius, push) => fleet.collide(point, radius, push);
       vehicleSpot = (point, radius, out) => fleet.freeSpotNear(point, radius, out);
+    },
+
+    strike(from, to, radius, velocity, punch) {
+      let jolt = breakables.strike(from, to, radius, velocity, punch);
+      const bodies = townsfolk.knock(from, to, radius, velocity) + life.knock(from, to, radius, velocity);
+      jolt += bodies * BODY_JOLT;
+      return Math.min(MAX_JOLT, jolt);
     },
   };
 }

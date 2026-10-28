@@ -2,6 +2,8 @@
  * Standing up off a bench, and coming to a standing start.
  */
 import { STAND_STEP } from './constants.ts';
+import { resetDrift } from './drift.ts';
+import { resetHull } from './hull.ts';
 import type { PlayerCore } from './core.ts';
 
 export function createStance(core: PlayerCore) {
@@ -34,12 +36,14 @@ export function createStance(core: PlayerCore) {
     s.bowLift = 0;
     s.surge = 0;
     s.wheelie = 0;
+    resetDrift(s.drift);
     s.spool = 0;
     s.nose = 0;
+    s.sway = 0;
     s.swing = 0;
     s.aloft = 0;
     s.turnRate = 0;
-    s.roll = 0;
+    s.roll = s.rollRate = 0;
     s.aerobatic = false;
     s.recovering = false;
     s.attitude.identity();
@@ -54,6 +58,7 @@ export function createStance(core: PlayerCore) {
     s.diveRate = 0;
     s.founder = -1;
     s.founderWay = 0;
+    resetHull(s.hull);
     controls.lift = 0;
   }
 

@@ -88,6 +88,7 @@ export function createFlats(
           footprint: spec.footprint,
           tilt: 0,
           solid: spec.afloat === true ? undefined : spec.body ?? 'walls',
+          breaks: spec.afloat === true ? undefined : spec.breaks,
         };
         const walls = WALLS_OF[spec.id];
         if (walls !== undefined) {

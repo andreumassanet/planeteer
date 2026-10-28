@@ -3,11 +3,12 @@ import { cellCentre, cellIndex, streetSide } from '../grid.ts';
 import { rngFrom } from '../random.ts';
 import type { Rng } from '../random.ts';
 import { disc, yawed } from '../solids.ts';
+import type { Solid } from '../solids.ts';
 import { aabbOf, overlapping } from './aabb.ts';
 import type { Aabb } from './aabb.ts';
 import { CLEAR, FRONTAGE_DEPTH, FRONTAGE_SHARE, ITEM_GAP, LINE_BACK, M, WALL_CLEAR } from './config.ts';
 import type { Dresser } from './dresser.ts';
-import { FOOTPRINTS } from './footprints.ts';
+import { FOOTPRINTS, LOOSE_HEIGHT } from './footprints.ts';
 import type { Piece } from './footprints.ts';
 import { drawPiece } from './furniture.ts';
 
@@ -106,7 +107,7 @@ interface Stander {
 
 /** The obstacle index and the placement test every piece on the building line goes through. */
 function createStander(d: Dresser): Stander {
-  const { input, grid, sink, solids, seats, matrix, at, style } = d;
+  const { input, grid, sink, solids, seats, pieces, matrix, at, style } = d;
   // Everything in the way, and what this places, bucketed by the cells each
   // box reaches: a city stands a thousand walls, and a strip asks about its own.
   const buckets = new Map<number, Aabb[]>();
@@ -156,16 +157,26 @@ function createStander(d: Dresser): Stander {
     const yaw = FACING_YAW[side]!;
     matrix.makeRotationY(yaw).setPosition(at[0]!, at[1]!, at[2]!);
     sink.place(matrix);
+    const first = sink.position.length / 3;
     const fits = d.afford(() => drawPiece(sink, rng, piece, style, input.iso, input.models));
     if (!fits) return false;
     file(box);
     seats.push({ kind: piece, x: at[0]!, y: at[1]!, z: at[2]!, lift: 0 });
     d.count(piece);
     const wall = foot.solid;
+    let solid: Solid | null = null;
     if (wall !== null) {
       const top = input.floorRadius(level) + wall.height;
-      solids.push(wall.round ? disc(x, z, wall.hx, top) : yawed(x, z, yaw, wall.hx, wall.hz, top));
+      solid = wall.round ? disc(x, z, wall.hx, top) : yawed(x, z, yaw, wall.hx, wall.hz, top);
+      solids.push(solid);
     }
+    pieces.push({
+      kind: piece, first, count: sink.position.length / 3 - first,
+      x: at[0]!, y: at[1]!, z: at[2]!,
+      radius: Math.hypot(foot.width, foot.depth) / 2,
+      height: wall?.height ?? LOOSE_HEIGHT[piece as keyof typeof LOOSE_HEIGHT] ?? M,
+      solid,
+    });
     return true;
   };
   return { stand, refused };

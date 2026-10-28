@@ -5,13 +5,15 @@ import { MACHINE_BED } from '../craft/parked.ts';
 import type { Solid } from '../scenery/solids.ts';
 import type { CountryMachine } from '../countryside-tile.ts';
 import type { Placed } from './frame.ts';
-import type { TileMachine } from './tiles.ts';
+import type { TileMachine, TileProp } from './tiles.ts';
 
 export interface Packed {
   geometry: THREE.BufferGeometry;
   /** The leaf cards' geometry, or null when the tile has none. */
   cardGeometry: THREE.BufferGeometry | null;
   machines: TileMachine[];
+  /** The trees and the small country pieces a vehicle knocks over, as runs of the buffers, where `propWalls` is given. */
+  props: TileProp[];
 }
 
 /*
@@ -165,6 +167,7 @@ export function packTile(
   leafVertices: number,
   cards: boolean,
   machineWalls: Map<CountryMachine, Solid[]>,
+  propWalls: Map<Placed, Solid[]> | null = null,
 ): Packed {
   const surfaced = placed.some((item) => item.flat.surface !== undefined);
   const glazed = placed.some((item) => item.flat.pane !== undefined && item.flat.pane !== null);
@@ -186,20 +189,38 @@ export function packTile(
     leafCursor: 0,
   };
   const machines: TileMachine[] = [];
+  const props: TileProp[] = [];
   for (const item of placed) {
     const e = item.matrix.elements;
     // Uniform scale (`validatePart` refuses a variant that scales itself), so
     // the normal transform is the rotation and dividing by the scale normalises.
     const scale = Math.hypot(e[0]!, e[1]!, e[2]!);
     const inverseScale = scale === 0 ? 0 : 1 / scale;
+    const leafFirst = b.leafCursor / 3;
     const count = writeWood(b, item, inverseScale);
     if (item.machine !== undefined) machines.push(recordMachine(b, item.machine, count, machineWalls));
+    // A tree with a trunk, or a small country piece that says so, is what a
+    // vehicle knocks over; a tree's cards, written below, go with it.
+    const breaks = item.flat.breaks ?? (item.flat.solid === 'trunk' ? 'tree' : undefined);
+    if (propWalls !== null && breaks !== undefined && item.machine === undefined) {
+      props.push({
+        kind: breaks,
+        x: e[12]!, y: e[13]!, z: e[14]!,
+        radius: Math.max(0.5, item.flat.footprint * scale * 0.35),
+        height: item.flat.height * scale,
+        start: (b.cursor - count) / 3, count: count / 3,
+        leafStart: leafFirst, leafCount: 0,
+        solids: propWalls.get(item) ?? [],
+      });
+    }
     if (item.sways !== true) continue;
     // The plant's phase, off where it stands: a tree sways the same way however often its tile is built.
     const phase = Math.round((((e[12]! * 0.1373 + e[14]! * 0.3117) % 1) + 1) % 1 * 255);
     const bend = scale / WIND_REACH;
     writeWoodWind(b, item, count, phase, bend);
     writeLeaves(b, item, phase, bend, inverseScale);
+    const prop = props[props.length - 1];
+    if (prop !== undefined && prop.start === (b.cursor - count) / 3) prop.leafCount = b.leafCursor / 3 - leafFirst;
   }
-  return { ...geometryOf(b, leafVertices), machines };
+  return { ...geometryOf(b, leafVertices), machines, props };
 }

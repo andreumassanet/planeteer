@@ -13,6 +13,10 @@
  *   heights, decor under the surface, the window open, fish in the water, the
  *   camera underwater.
  * - The submarine: its sites are in deep enough sea at big towns.
+ * - The hulls on the open sea: a jet ski slides out of a turn, powerslides
+ *   tighter, leaps on Space with spray and never leaves its waterline; a
+ *   sailboat crawls in irons and flies on a beam reach, its boom and heel to
+ *   leeward and its pennant downwind.
  *
  *   node scripts/check-sea.ts
  */
@@ -681,6 +685,102 @@ console.log('\nthe submarine');
   check(player.depth <= SUB_MAX_DEPTH + 1e-6, 'and goes no deeper than SUB_MAX_DEPTH', `${player.depth.toFixed(1)}`);
   step(15, { climb: true });
   check(player.depth === 0 && player.leave() !== null, 'up to the surface, it can be left', `${player.depth.toFixed(2)}`);
+
+  // --- the hulls on the open sea: the slide, the powerslide, the leap, the sail by the wind ---
+  console.log('\nthe hulls');
+  const { WATER_HANDLING } = await import('../src/vehicles.ts');
+  const open = unitAt(0, -30, new THREE.Vector3());
+  const northAt = new THREE.Vector3(0, 1, 0).projectOnPlane(open).normalize();
+  const eastAt = new THREE.Vector3().crossVectors(northAt, open).normalize();
+  const afloat = open.clone().multiplyScalar(PLANET_RADIUS + 0.5);
+  const drive = (who: typeof player, seconds: number, input: { x?: number; y?: number; run?: boolean; jump?: boolean }, each?: () => void): void => {
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      heading.copy(who.forward);
+      // As `input.ts` hands a diagonal over: unit length.
+      const x = input.x ?? 0;
+      const y = input.y ?? 0;
+      const length = Math.max(1, Math.hypot(x, y));
+      who.update(1 / 60, { move: { x: x / length, y: y / length }, run: input.run ?? false, jump: input.jump === true && t === 0, heading });
+      each?.();
+    }
+  };
+  const take = (who: typeof player, id: string, facing: THREE.Vector3): THREE.Group => {
+    const hull = craft.get(id)!;
+    const group = hull.build(0);
+    who.board({ vehicle: `${id}:0:0`, seat: 0, model: hull, group }, writePose(afloat, facing, open, []));
+    return group;
+  };
+  const turned = (from: THREE.Vector3, to: THREE.Vector3, about: THREE.Vector3): number => Math.atan2(new THREE.Vector3().crossVectors(from, to).dot(about), from.dot(to));
+  {
+    const jet = WATER_HANDLING.jetski!;
+    const splashed: number[] = [];
+    const rider = createPlayer(world, 0, -30, { seaFloorAt: floorAt, onSplash: (_, reach) => splashed.push(reach) });
+    take(rider, 'jet-ski', northAt);
+    let wet = 0;
+    const waterline = (): void => {
+      if (Math.abs(rider.position.length() - PLANET_RADIUS - 0.5) > 1e-6) wet++;
+    };
+    drive(rider, 4, { y: 1 }, waterline);
+    check(Math.abs(rider.velocity - jet.speed) < jet.speed * 0.1, 'a jet ski runs up to its cruise', `${rider.velocity.toFixed(1)} of ${jet.speed}`);
+    // Into a hard right: the way it had carries it on across its bow.
+    const before = rider.position.clone();
+    let slid = 0;
+    drive(rider, 0.6, { x: 1, y: 1 }, () => {
+      waterline();
+      const moved = rider.position.clone().sub(before).projectOnPlane(rider.up);
+      before.copy(rider.position);
+      if (moved.lengthSq() > 1e-8) slid = Math.max(slid, Math.abs(turned(rider.forward, moved.normalize(), rider.up)));
+    });
+    check(slid > 0.08, 'out of a hard turn at speed it slides across its bow', `${slid.toFixed(2)} rad between the bow and the way`);
+    drive(rider, 2, { y: 1 }, waterline);
+    const carving = rider.forward.clone();
+    drive(rider, 0.8, { x: 1, y: 1 }, waterline);
+    const carved = Math.abs(turned(carving, rider.forward, rider.up));
+    drive(rider, 2, { y: 1 }, waterline);
+    const sliding = rider.forward.clone();
+    drive(rider, 0.8, { x: 1, y: -1 }, waterline);
+    const slid2 = Math.abs(turned(sliding, rider.forward, rider.up));
+    check(slid2 > carved * 1.3 && rider.velocity > jet.speed * 0.4, 'turn and the stern key powerslide it round tighter, keeping way', `${slid2.toFixed(2)} rad against ${carved.toFixed(2)} in 0.8 s, ${rider.velocity.toFixed(1)} units/s after`);
+    // Space throws it clear of the water; it comes down with spray.
+    drive(rider, 2, { y: 1 }, waterline);
+    const hull = rider.object.children[0]!;
+    let top = 0;
+    splashed.length = 0;
+    drive(rider, 1.2, { y: 1, jump: true }, () => {
+      waterline();
+      top = Math.max(top, hull.position.y);
+    });
+    check(top > 1 && top < 2.5, 'Space leaps a jet ski clear of the water', `${top.toFixed(2)} units up`);
+    check(splashed.length >= 2 && Math.max(...splashed) > 1.5, 'off with spray, and down with more', `${splashed.length} splashes, the biggest ${Math.max(0, ...splashed).toFixed(1)} across`);
+    check(wet === 0, 'and through all of it the jet ski is on its waterline', `${wet} frames off it`);
+    rider.leave();
+  }
+  {
+    // A sailboat in a northerly: in irons it barely moves, on a beam reach it flies,
+    // the boom out to leeward and the hull heeled to it.
+    const sailor = createPlayer(world, 0, -30, { seaFloorAt: floorAt, windAt: () => ({ from: 0, speed: 7 }) });
+    const sail = WATER_HANDLING.sailboat!;
+    take(sailor, 'sailboat', northAt);
+    drive(sailor, 10, { y: 1 });
+    const irons = sailor.velocity;
+    sailor.leave();
+    const rigged = take(sailor, 'sailboat', eastAt);
+    let heel = 0;
+    let frames = 0;
+    drive(sailor, 10, { y: 1 }, () => {
+      heel += sailor.object.children[0]!.rotation.z;
+      frames++;
+    });
+    const reach = sailor.velocity;
+    const boom = rigged.getObjectByName('boom')!.rotation.y;
+    const vane = rigged.getObjectByName('vane')!.rotation.y;
+    check(reach > sail.speed * 0.8 && irons < reach * 0.3, 'a sailboat sails by the wind: in irons it crawls, on a beam reach it flies', `${irons.toFixed(1)} against ${reach.toFixed(1)} units/s`);
+    // Heading east in a northerly, the wind is on the port beam: the lee is to starboard.
+    check(boom > 0.3, 'the boom stands out to leeward', `${boom.toFixed(2)} rad`);
+    check(heel / frames > 0.05, 'and the hull heels to leeward', `${(heel / frames).toFixed(3)} rad on average`);
+    check(Math.abs(vane - Math.PI / 2) < 0.2, 'the masthead pennant streams downwind', `${vane.toFixed(2)} rad`);
+    sailor.leave();
+  }
 }
 
 console.log(failures === 0 ? '\nall good' : `\n${failures} failed`);

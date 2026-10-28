@@ -33,7 +33,8 @@ export const F_STRIDE = 18;
 
 // A ribbon point: position, velocity along the water, the side the band
 // spreads across, age, life, start and end half-width, drag, whether it is
-// joined to the point before it, and how it goes (1 hollowing, 0 narrowing).
+// joined to the point before it, how it goes (1 hollowing, 0 narrowing), and
+// its colour (white foam, or a skid mark's).
 export const R_POS = 0;
 export const R_VEL = 3;
 export const R_SIDE = 6;
@@ -44,7 +45,8 @@ export const R_W1 = 12;
 export const R_DRAG = 13;
 export const R_LINK = 14;
 export const R_HOLLOW = 15;
-export const R_STRIDE = 16;
+export const R_COLOR = 16;
+export const R_STRIDE = 17;
 
 // A piece of debris: position, velocity, up, age, life, size, colour, spin
 // axis, spin rate, angle, and the ground's radius it bounces on.
@@ -75,7 +77,10 @@ export const E_SWIM = 8;
 export const E_TAXI = 9;
 export const E_ROOSTER = 10;
 export const E_WASH = 11;
-export const E_SLOTS = 12;
+export const E_MARK = 12;
+export const E_SPARK = 13;
+export const E_BOOST = 14;
+export const E_SLOTS = 15;
 
 // A followed vehicle: last position, frame last seen, speed and climb eased,
 // and its emitter slots.

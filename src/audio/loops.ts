@@ -9,6 +9,7 @@ export interface Loops {
   rotor: { gain: GainNode; chop: OscillatorNode; whine: GainNode };
   saucer: { gain: GainNode; low: OscillatorNode; high: OscillatorNode; warble: OscillatorNode; depth: GainNode; filter: BiquadFilterNode };
   rain: { hiss: GainNode; drum: GainNode };
+  skid: { gain: GainNode; tone: OscillatorNode; band: BiquadFilterNode; squeal: GainNode };
   nature: GainNode;
   rumbleNoise: AudioBuffer;
   crackNoise: AudioBuffer;
@@ -170,6 +171,35 @@ function buildRain(ctx: AudioContext, out: AudioNode, white: AudioBuffer, pink: 
   return { hiss, drum };
 }
 
+/**
+ * Tyres sliding: a narrow band of white noise, the scrub, under a triangle
+ * that wavers, the squeal; the band and the pitch follow how hard they slide
+ * and the squeal can be closed for bare earth.
+ */
+function buildSkid(ctx: AudioContext, out: AudioNode, white: AudioBuffer): Loops['skid'] {
+  const band = ctx.createBiquadFilter();
+  band.type = 'bandpass';
+  band.frequency.value = 1600;
+  band.Q.value = 4;
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  loop(ctx, white).connect(band).connect(gain).connect(out);
+  const tone = ctx.createOscillator();
+  tone.type = 'triangle';
+  tone.frequency.value = 1050;
+  const waver = ctx.createOscillator();
+  waver.frequency.value = 13;
+  const depth = ctx.createGain();
+  depth.gain.value = 35;
+  waver.connect(depth).connect(tone.frequency);
+  const squeal = ctx.createGain();
+  squeal.gain.value = 0.18;
+  tone.connect(squeal).connect(gain);
+  tone.start();
+  waver.start();
+  return { gain, tone, band, squeal };
+}
+
 export function buildLoops(ctx: AudioContext, out: AudioNode): Loops {
   const pink = noiseBuffer(ctx, 'pink', 5);
   const brown = noiseBuffer(ctx, 'brown', 6);
@@ -184,5 +214,6 @@ export function buildLoops(ctx: AudioContext, out: AudioNode): Loops {
   nature.gain.value = 1;
   nature.connect(out);
   const rain = buildRain(ctx, out, white, pink);
-  return { wind, sea, boat, plane, rotor, saucer, nature, rain, rumbleNoise: brown, crackNoise: white };
+  const skid = buildSkid(ctx, out, white);
+  return { wind, sea, boat, plane, rotor, saucer, nature, rain, skid, rumbleNoise: brown, crackNoise: white };
 }

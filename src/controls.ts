@@ -54,9 +54,9 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   // `craft/contract.ts`); `H`, the letter a horn would want, hides the overlay.
   horn: ['KeyQ'],
   // A light plane's stick, as `I J K L` and the numpad's arrows: `I` pushes the
-  // nose down and `K` pulls it up, `J` and `L` roll. Any of them aloft takes
-  // the plane into aerobatics (`player/aerobatics.ts`); `X` switches between
-  // travel and aerobatics.
+  // nose down and `K` pulls it up, `J` and `L` roll. In travel they descend,
+  // climb and roll into a turn; only `X` switches between travel and
+  // aerobatics (`player/aerobatics.ts`), where they are the stick itself.
   pitchDown: ['KeyI', 'Numpad8'],
   pitchUp: ['KeyK', 'Numpad5'],
   rollLeft: ['KeyJ', 'Numpad4'],

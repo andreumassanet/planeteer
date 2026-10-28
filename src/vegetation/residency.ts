@@ -2,6 +2,12 @@
 import type * as THREE from 'three';
 import { createFader } from '../fade.ts';
 import { LEVELS } from '../tile-grid.ts';
+import { solidField } from '../scenery/solids.ts';
+import type { Solid } from '../scenery/solids.ts';
+import type { Breakables, PropHost } from '../breakables/types.ts';
+
+/** The part of `Breakables` a tile talks to. */
+type PropSink = Pick<Breakables, 'register' | 'forget'>;
 import { overlaps } from './tiles.ts';
 import type { Standing, Tile } from './tiles.ts';
 import type { Built } from './tiles.ts';
@@ -20,6 +26,8 @@ export interface StreamState {
   crowned: Set<Standing>;
   /** Drawn tiles with a vehicle that can be taken. */
   machined: Set<Standing>;
+  /** Where a drawn tile registers the trees a vehicle may knock over, or null. */
+  breakables: PropSink | null;
 }
 
 /** Everything the streamer keeps about what stands and what has been decided. */
@@ -54,6 +62,7 @@ export function createResidency(): Residency {
     walled: new Set(),
     crowned: new Set(),
     machined: new Set(),
+    breakables: null,
     barren: new Set(),
     residentTriangles: 0,
     residentByLevel: new Array<number>(LEVELS).fill(0),
@@ -64,10 +73,51 @@ export function createResidency(): Residency {
   };
 }
 
+/** Takes some of a drawn tile's walls down, in one rebuild of its field. */
+export function dropTileSolids(r: StreamState, entry: Standing, gone: readonly Solid[]): void {
+  const walls = entry.walls;
+  if (walls === null || gone.length === 0) return;
+  const lost = new Set(gone);
+  walls.solids = walls.solids.filter((solid) => !lost.has(solid));
+  if (walls.solids.length > 0) walls.field = solidField(walls.solids);
+  else {
+    entry.walls = null;
+    r.walled.delete(entry);
+  }
+}
+
+/** A drawn tile as a host of its trees for `breakables.ts`: each tree's wood and cards as runs of the tile's meshes. */
+function hostOf(r: StreamState, entry: Standing): PropHost | null {
+  const props = entry.props;
+  if (props === null) return null;
+  const { mesh, leaves } = entry;
+  const material = mesh.material as THREE.Material;
+  return {
+    mesh,
+    props: props.map((prop) => ({
+      kind: prop.kind,
+      x: prop.x, y: prop.y, z: prop.z,
+      radius: prop.radius, height: prop.height,
+      ranges: leaves !== null && prop.leafCount > 0
+        ? [
+            { mesh, start: prop.start, count: prop.count, material, depth: mesh.customDepthMaterial },
+            { mesh: leaves, start: prop.leafStart, count: prop.leafCount, material: leaves.material as THREE.Material, depth: leaves.customDepthMaterial },
+          ]
+        : [{ mesh, start: prop.start, count: prop.count, material, depth: mesh.customDepthMaterial }],
+      solids: prop.solids,
+    })),
+    dropSolids: (gone) => dropTileSolids(r, entry, gone),
+  };
+}
+
 export function release(r: Residency, group: THREE.Group, entry: Standing): void {
   r.walled.delete(entry);
   r.crowned.delete(entry);
   r.machined.delete(entry);
+  if (entry.host !== null) {
+    r.breakables?.forget(entry.host);
+    entry.host = null;
+  }
   // The geometry is this tile's; the material is shared by every tile.
   const mesh = entry.mesh;
   const leaves = entry.leaves;
@@ -138,6 +188,11 @@ export function settle(r: Residency, group: THREE.Group): void {
     }
     if (held) continue;
     group.add(entry.mesh);
+    // Registered before the fade, which swaps the mesh's material for a dissolving clone the copies must not borrow.
+    if (r.breakables !== null && entry.props !== null) {
+      entry.host = hostOf(r, entry);
+      if (entry.host !== null) r.breakables.register(entry.host);
+    }
     r.fader.in(entry.mesh);
     if (entry.leaves !== null) r.fader.in(entry.leaves);
     entry.shown = true;
@@ -167,6 +222,8 @@ export function admit(r: Residency, tile: Tile, result: Built): void {
     walls: result.walls,
     crowns: result.crowns,
     machines: result.machines,
+    props: result.props,
+    host: null,
   });
   if (result.provisional) r.provisional.add(tile.key);
   else r.provisional.delete(tile.key);

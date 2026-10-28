@@ -139,6 +139,12 @@ export interface Life {
    * animal that is touched bolts.
    */
   collide(point: THREE.Vector3, radius: number, personRadius: number, push: THREE.Vector3): boolean;
+  /**
+   * A vehicle of `radius` swept from `from` to `to` going `velocity`: every
+   * walker and near animal in its way is knocked down, and gets up again
+   * (`breakables/knock.ts`). Returns how many. Local to this client.
+   */
+  knock(from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3): number;
   /** Every boat drawn by the last `update`, for `effects.ts`'s wakes. Allocates nothing. */
   eachBoat(visit: (mesh: THREE.Object3D) => void): void;
   /**

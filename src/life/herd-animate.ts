@@ -158,6 +158,7 @@ export function createHerdAnimator(deps: AnimatorDeps): HerdAnimator {
       timer: rngFrom(mover.key, 'first', index).range(0.5, 4),
       draws: 0, bolt: 0, stuck: 0, bob: 0,
       world: new THREE.Vector3(), facing: new THREE.Vector3(),
+      knocked: -1, knockX: 0, knockZ: 0, knockDx: 0, knockDz: 1, knockFling: 0,
     };
   }
 

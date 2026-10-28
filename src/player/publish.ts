@@ -4,9 +4,10 @@
 import * as THREE from 'three';
 import type { TravelMode } from '../controls.ts';
 import { PLANET_RADIUS } from '../globe.ts';
-import { FOUNDER_TIME } from '../vehicles.ts';
+import { FOUNDER_TIME, ROAD_HANDLING } from '../vehicles.ts';
 import { MAX_NOSE, MODE_OF, PLANE_BANK, isAir } from './constants.ts';
 import { clamp } from './math.ts';
+import { tierOf } from './drift.ts';
 import type { PlayerCore } from './core.ts';
 
 const nose = new THREE.Vector3();
@@ -49,6 +50,10 @@ export function createPublish(core: PlayerCore) {
     player.velocity = s.velocity;
     player.speed = s.ride !== null && s.ride.seat === 0 ? s.speed : s.velocity;
     player.climb = s.climb;
+    const wheels = s.ride !== null && s.ride.seat === 0 && ROAD_HANDLING[s.ride.model.kind] !== undefined;
+    player.slip = wheels ? s.drift.slide : 0;
+    player.driftTier = wheels && s.drift.loose >= 0.5 ? tierOf(s.drift.charge) : -1;
+    player.boost = wheels ? s.drift.boost : 0;
     player.parachute = s.chute;
     player.canopy = s.chute && s.canopy > 0;
     player.airborne = kind !== null && isAir(kind) ? !s.grounded : s.airborne;

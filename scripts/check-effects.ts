@@ -5,7 +5,8 @@
  * player's boat) and checks that caps hold, particles die, no instance matrix
  * is a reflection (the outline would draw it as a solid blob), foam stays on
  * the water, at most four draw calls are used, wakes look the same at 10 and
- * 120 fps, and a teleport throws no burst.
+ * 120 fps, a teleport throws no burst, and a drift's skid marks lie on the
+ * ground, its sparks and its boost's flame come and go.
  *
  *   node scripts/check-effects.ts
  */
@@ -123,7 +124,8 @@ function audit(effects: Effects): void {
     } else if ((child as Mesh).isMesh) {
       const mesh = child as Mesh;
       const positions = mesh.geometry.getAttribute('position') as BufferAttribute;
-      for (let v = 0; v < mesh.geometry.drawRange.count; v++) {
+      // The skid marks are the buffer's last vertices, and lie on the ground.
+      for (let v = 0; v < mesh.geometry.drawRange.count - effects.stats.markVertices; v++) {
         p.fromBufferAttribute(positions, v).add(anchor);
         // A band of a few units is flat on a sphere of 16,000: its rim sits a
         // hair over the sphere, never more than a sagitta of a few mm.
@@ -373,6 +375,55 @@ console.log('everybody else');
     boat.updateMatrixWorld();
   });
   check(far.stats.ribbonPoints === 0 && far.stats.discs === 0, 'a boat out of reach leaves nothing');
+}
+
+console.log('a drift');
+{
+  // A car sliding round a corner on a road: smoke, two marks on the ground,
+  // sparks once the drift has earned its boost, and the boost's flame.
+  type Drifter = Stand & { slip: number; driftTier: number; boost: number };
+  const drift = (fps: number, seconds: number): { effects: Effects; s: Drifter } => {
+    const effects = createEffects();
+    effects.setGround(true, 'temperate');
+    const s = Object.assign(stand(41.4, 2.2, 3), { state: 'seated' as PlayerState, ride: { model: CAR }, slip: 0, driftTier: -1, boost: 0 });
+    frames(effects, s, 0.2, () => move(s, 40, 1 / fps), 1 / fps);
+    s.slip = 18;
+    s.driftTier = 2;
+    frames(effects, s, seconds, () => move(s, 40, 1 / fps, 0, 0.9), 1 / fps);
+    return { effects, s };
+  };
+  const { effects, s } = drift(60, 2);
+  check(effects.stats.markVertices > 0, 'a sliding car lays skid marks', `${effects.stats.markVertices} vertices`);
+  const foam = effects.group.getObjectByName('effects-foam') as Mesh;
+  const positions = foam.geometry.getAttribute('position') as BufferAttribute;
+  const ground = s.position.length();
+  let off = 0;
+  const v = new Vector3();
+  for (let i = foam.geometry.drawRange.count - effects.stats.markVertices; i < foam.geometry.drawRange.count; i++) {
+    v.fromBufferAttribute(positions, i).add(effects.group.position);
+    if (Math.abs(v.length() - ground - 0.07) > 0.05) off++;
+  }
+  check(off === 0, 'and they lie on the ground it slides over, not on the sea', `${off} off`);
+  const glowing = (): number => {
+    const puffs = effects.group.getObjectByName('effects-puffs') as InstancedMesh;
+    const glow = puffs.geometry.getAttribute('fxGlow') as BufferAttribute;
+    let lit = 0;
+    for (let i = 0; i < puffs.count; i++) if (glow.getX(i) > 0.5) lit++;
+    return lit;
+  };
+  check(glowing() > 0, 'a drift that has earned its boost throws sparks', `${glowing()} sparks`);
+  s.slip = 0;
+  s.driftTier = -1;
+  s.boost = 1;
+  frames(effects, s, DT, () => move(s, 70, DT));
+  check(glowing() >= 10, 'the boost bursts out of the exhaust in flame', `${glowing()} flames`);
+  check(effects.stats.dropped === 0, 'and none of it runs a pool out', `${effects.stats.dropped} refused`);
+  s.boost = 0;
+  frames(effects, s, 7, () => move(s, 0, DT));
+  check(effects.stats.markVertices === 0 && glowing() === 0 && effects.stats.puffs <= 4, 'the marks wear off, the sparks die and the smoke clears to the idle', `${effects.stats.markVertices} mark vertices, ${effects.stats.puffs} puffs`);
+  const slow = drift(10, 2).effects.stats.ribbonPoints;
+  const fast = drift(120, 2).effects.stats.ribbonPoints;
+  check(Math.abs(slow - fast) <= Math.max(4, fast * 0.08), 'a skid mark at 10 fps holds as many points as at 120', `${slow} against ${fast}`);
 }
 
 console.log('the ground');

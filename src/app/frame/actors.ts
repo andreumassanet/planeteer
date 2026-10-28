@@ -9,7 +9,7 @@ import type { App } from '../context.ts';
 import type { Tick } from './tick.ts';
 
 export function createActors(app: App): (tick: Tick) => void {
-  const { guard, player, rig, sky, airTraffic, railway, passingSound, townsfolk, signalLamps, conversation, fleet, rockets, peers, horns, effects, ambient, weather } = app;
+  const { guard, player, rig, sky, airTraffic, railway, passingSound, townsfolk, signalLamps, conversation, fleet, rockets, peers, horns, effects, ambient, weather, breakables } = app;
   const passingVoices: Parameters<PassingSound['update']>[1] = {};
   // The townsfolk keep their own clock: breathing does not speed up with `setRate`.
   let townsfolkClock = 0;
@@ -40,6 +40,8 @@ export function createActors(app: App): (tick: Tick) => void {
       horns.key.update(now, horns.inHand());
       horns.chorus.update(now, horns.near);
     });
+    // What was knocked over falls and lies; what regrows returns.
+    guard('breakables', () => breakables.update(dt));
     // After everything that moves, so a wake starts where the boat now is.
     guard('effects', () => effects.update(dt, player, rig.camera));
     ambientFrame.cameraHeight = eyeOverGround;

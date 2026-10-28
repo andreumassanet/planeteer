@@ -181,7 +181,7 @@ export function soupOf(group: THREE.Object3D): Soup {
  * on its own axle: a front wheel `on` its fork.
  */
 export interface Turning {
-  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank' | 'steer' | 'needle' | 'fork' | 'rudder' | 'elevator' | 'aileron';
+  name: 'prop' | 'rotor' | 'wheel' | 'tail' | 'crank' | 'steer' | 'needle' | 'fork' | 'rudder' | 'elevator' | 'aileron' | 'boom' | 'jib' | 'vane';
   at: THREE.Vector3;
   soup: Soup;
   tilt?: number;

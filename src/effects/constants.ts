@@ -12,8 +12,8 @@ export const H = AVATAR_HEIGHT;
 export const MAX_PUFFS = 384;
 export const MAX_DISCS = 256;
 export const MAX_DEBRIS = 40;
-/** Ribbons, three to a boat: the player's own and seven other boats'. */
-export const MAX_RIBBONS = 24;
+/** Ribbons, three to a boat: the player's own and seven other boats'; and two skid marks, the player's rear wheels. */
+export const MAX_RIBBONS = 26;
 /** Points one ribbon holds: a stern trail at full boost needs about 120 of them. */
 export const RIBBON_POINTS = 192;
 /** Round a foam disc: sides, which is what the silhouette of one reads as. */
@@ -47,6 +47,24 @@ export const FALL = 30;
  * so it never shapes a trail; it only bounds a pathological one.
  */
 export const FRAME_BURST = 48;
+/**
+ * Skid marks: two ribbons laid on the ground under the rear wheels while the
+ * tyres slide more than `SKID_SLIP` units a second across the bow, a point
+ * every `MARK_SPACING` units or more at speed, `MARK_LIFT` over the ground
+ * (the foam's polygon offset does the rest), lasting `MARK_LIFE` seconds and
+ * narrowing away over the second half of it. They are the foam's buffer, in
+ * the colour of what they are laid on, so they cost no draw call of their own.
+ */
+export const SKID_SLIP = 4;
+export const MARK_SPACING = 1;
+export const MARK_LIFT = 0.07;
+export const MARK_LIFE = 6;
+export const MARK_ON_ROAD = PALETTE.steel;
+export const MARK_ON_EARTH = PALETTE.bark;
+export const MARK_ON_GRASS = PALETTE.darkOlive;
+/** A drift's sparks by the tier its charge has reached, and a boost's flame. */
+export const SPARKS = [PALETTE.white, PALETTE.skyBlue, PALETTE.apricot] as const;
+export const BOOST_FLAME = [PALETTE.gold, PALETTE.apricot, PALETTE.orange] as const;
 /** Faster than anybody runs, for the foot's pose-jump guard. */
 export const FOOT_TOP = 40;
 

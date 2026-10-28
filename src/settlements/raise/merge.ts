@@ -7,7 +7,10 @@ import { LAMP_HEAD } from '../rules.ts';
 import { SIGNAL_HEAD } from './furniture.ts';
 import { unpublish } from '../registry.ts';
 import { writeSurface } from '../surfaces.ts';
-import type { RaiseJob, RaiseKit } from './job.ts';
+import type { RaiseJob, RaiseKit, TownProp } from './job.ts';
+import type { Slot } from '../types.ts';
+import type { Prop, PropHost, PropRange } from '../../breakables/types.ts';
+import { solidField } from '../../scenery/solids.ts';
 
 /**
  * The town's one buffer: everything standing, transformed into the town's
@@ -43,8 +46,15 @@ export function swapNearTrees(kit: RaiseKit, job: RaiseJob): { cards: LeafCard[]
     if (near === undefined) continue;
     job.vertices += (near.wood.position.length - item.flat.position.length) / 3;
     item.flat = near.wood;
-    cards.push({ leaves: near.leaves, matrix: item.matrix });
+    const card: LeafCard = { leaves: near.leaves, matrix: item.matrix };
+    cards.push(card);
     leafVertices += near.leaves.position.length / 3;
+    // The tree's prop covers the wood it is now, and its cards go with it.
+    const prop = item.props?.[0];
+    if (prop !== undefined) {
+      prop.count = near.wood.position.length / 3;
+      prop.leaf = card;
+    }
   }
   return { cards, leafVertices };
 }
@@ -100,6 +110,7 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
     }
     color.set(source.color, cursor - count);
     const written = count / 3;
+    if (item.props !== undefined) for (const prop of item.props) job.props.push({ ...prop, start: vertex + prop.first });
     if (item.surface !== undefined) writeSurface(surface, pane, vertex, source, item.surface);
     if (item.bay !== undefined) {
       item.bay.start = vertex;
@@ -227,6 +238,10 @@ export function commitTown(kit: RaiseKit, job: RaiseJob, ground: Ground, town: T
   if (leafMesh !== null) registry.fader.in(leafMesh);
   if (glassMesh !== null) registry.fader.in(glassMesh);
   publish(kit, job, ground, mesh);
+  if (kit.breakables !== null && job.props.length > 0) {
+    slot.host = hostOf(kit, slot, mesh, leafMesh, job.props);
+    kit.breakables.register(slot.host);
+  }
 
   slot.mesh = mesh;
   const glassVertices = glassMesh === null ? 0 : glassMesh.geometry.getAttribute('position').count;
@@ -234,6 +249,34 @@ export function commitTown(kit: RaiseKit, job: RaiseJob, ground: Ground, town: T
   slot.parts = job.standing.length;
   // Three float triples, two light bytes, three ink bytes, a surface byte and two pane bytes: 44 bytes a vertex.
   slot.bytes = town.total * (3 * 4 * 3 + 2 + 3 + 1 + 2) + town.leafVertices * 26 + glassVertices * 36;
+}
+
+/**
+ * The town as a host of what may be knocked over (`breakables.ts`): each
+ * prop's run in the town's buffer and, for a near tree, in its leaves' mesh;
+ * a prop's wall comes down out of the floor's own field.
+ */
+function hostOf(kit: RaiseKit, slot: Slot, mesh: THREE.Mesh, leafMesh: THREE.Mesh | null, props: readonly TownProp[]): PropHost {
+  const list: Prop[] = [];
+  for (const prop of props) {
+    const ranges: PropRange[] = [{ mesh, start: prop.start, count: prop.count, material: kit.material }];
+    const leaf = prop.leaf;
+    if (leafMesh !== null && leaf?.first !== undefined && leaf.count !== undefined) {
+      ranges.push({ mesh: leafMesh, start: leaf.first, count: leaf.count, material: kit.leaves, depth: leafMesh.customDepthMaterial });
+    }
+    list.push({ kind: prop.kind, x: prop.x, y: prop.y, z: prop.z, radius: prop.radius, height: prop.height, ranges, solids: prop.solid === null ? [] : [prop.solid] });
+  }
+  return {
+    mesh,
+    props: list,
+    dropSolids(gone) {
+      const floor = slot.floor;
+      if (floor === null || floor.solids === null) return;
+      const lost = new Set(gone);
+      const rest = floor.solids.solids.filter((solid) => !lost.has(solid));
+      floor.solids = rest.length > 0 ? solidField(rest) : null;
+    },
+  };
 }
 
 /** Moves the town's people, lamps, bays, benches and racks into the world's frame, and registers the town for each. */

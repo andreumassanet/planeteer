@@ -1,18 +1,20 @@
 /** The player's own marks: what his craft leaves as he moves it. */
 import { PALETTE } from '../theme.ts';
-import { CAR_BOOST, PLANE_ROTATE } from '../vehicles.ts';
+import { CAR_BOOST, FOUNDER_FLOAT, PLANE_ROTATE } from '../vehicles.ts';
 import type { EffectsSubject } from './types.ts';
 import { H, topSpeed, HULLS, SUBMERGED, ENGINES, QUIET, isJump } from './constants.ts';
-import { E_DUST, E_SKID, E_RING, E_SWIM, E_TAXI } from './layout.ts';
+import { E_DUST, E_RING, E_SWIM, E_TAXI } from './layout.ts';
 import { rand, clamp } from './helpers.ts';
 import type { Pools } from './pools.ts';
 import { createSpawners } from './spawn.ts';
 import { createEmitters } from './emitters.ts';
+import { createTyres } from './tyres.ts';
 
 export function createPlayerMarks(fx: Pools) {
   const { ribbonBroken, MINE, stats, last, lastForward, mine, right, at, motion, delta, fwdAt, axis } = fx;
   const { spawnDisc, local, owed, spaced, shareOf } = createSpawners(fx);
   const { wake, contrail, exhaust, wheels, flame, rooster, downwash } = createEmitters(fx);
+  const { tyres, boostFlame } = createTyres(fx);
   /* --- the player's own marks ------------------------------------------ */
 
   /** Forget the player's motion: the next frame starts his emitters afresh and joins no ribbon to the last. */
@@ -24,6 +26,7 @@ export function createPlayerMarks(fx: Pools) {
     fx.climb = 0;
     fx.accel = 0;
     fx.turnRate = 0;
+    fx.lastBoost = 0;
     mine.fill(0);
     for (let i = 0; i < 3; i++) ribbonBroken[MINE[i]!] = 1;
   }
@@ -82,6 +85,9 @@ export function createPlayerMarks(fx: Pools) {
     if (kind !== null && HULLS.has(kind)) {
       wake(mine, MINE, s.position, fwd, up, right, along, run, length, width, dt);
       if (kind === 'jetski') rooster(mine, s.position, fwd, up, right, speed, length, dt);
+    } else if ((s.foundering ?? -1) >= 0 && s.foundering! < FOUNDER_FLOAT) {
+      // Into the water on wheels or come down on it: a wake while it floats and its way dies.
+      wake(mine, MINE, s.position, fwd, up, right, along, run, length, width, dt);
     } else if (kind === 'helicopter') {
       if (s.airborne) downwash(mine, s.position, up, s.clearance ?? Infinity, s.overWater === true, Math.max(length, width) * 0.5, dt);
     } else if (kind === 'plane') {
@@ -100,18 +106,17 @@ export function createPlayerMarks(fx: Pools) {
       if (!s.airborne && !fx.paved && fx.dust !== null && speed > 8) {
         wheels(mine, E_DUST, s.position, fwd, up, right, motion, length, width * 0.5, 22 * clamp(speed / 30, 0, 1), fx.dust, H * 0.3, dt);
       }
+      // A bicycle's back wheel skids on one track; a horse never slides.
+      if (!s.airborne && kind === 'bicycle') tyres(s, s.position, fwd, up, right, motion, speed, run, 0, length * 0.35, width, dt);
     } else if (kind !== null && ENGINES.has(kind)) {
       exhaust(mine, s.position, fwd, up, right, along, fx.accel, motion, length, width, height, dt);
+      boostFlame(s, s.position, fwd, up, right, motion, length, width, height, dt);
       if (!s.airborne) {
         if (!fx.paved && fx.dust !== null && speed > 10) {
           wheels(mine, E_DUST, s.position, fwd, up, right, motion, length, width, 30 * clamp(speed / CAR_BOOST, 0, 1), fx.dust, H * 0.4, dt);
         }
-        // Sliding: a hard turn at speed smokes the tyres on a road and throws
-        // dust off one.
-        const lateral = Math.abs(fx.turnRate) * speed;
-        if (speed > 20 && lateral > 24) {
-          wheels(mine, E_SKID, s.position, fwd, up, right, motion, length, width, 25, fx.paved || fx.dust === null ? PALETTE.bone : fx.dust, H * 0.3, dt);
-        }
+        // Sliding: smoke and marks off the rear tyres, one track on two wheels.
+        tyres(s, s.position, fwd, up, right, motion, speed, run, kind === 'motorbike' ? 0 : width * 0.76, length * 0.33, width, dt);
       }
     } else if (kind === 'balloon') {
       const burner = model.burner;

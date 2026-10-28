@@ -1,6 +1,7 @@
 /** The countryside builder's types and the constants its meshes share. */
 import type * as THREE from 'three';
 import type { BodyKind } from '../scenery/occupancy.ts';
+import type { PropKind } from '../breakables/kinds.ts';
 import type { LeafArrays } from '../scenery/tree-forms.ts';
 import type { LandProbe } from '../land-probe.ts';
 import type { CountryPlan } from '../countryside.ts';
@@ -34,6 +35,8 @@ export interface CountryFlat {
   tilt: number;
   /** What it is to a body walking into it; absent, nothing. */
   solid?: BodyKind;
+  /** What a vehicle knocks it over as (`breakables.ts`); absent, it never is. */
+  breaks?: PropKind;
   /** A building's `atlasSurface` bytes, one a vertex (`src/surfaces.ts`); absent, drawn as it is. */
   surface?: Uint8Array;
   /** Its panes' corners, two bytes a vertex, where it has glass. */

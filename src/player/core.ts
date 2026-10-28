@@ -14,7 +14,11 @@ import type { CraftMotion } from '../craft/motion.ts';
 import { newChuteSwing } from '../craft/parachute.ts';
 import { buildSplash } from '../vehicles.ts';
 import { CRASH_QUIET, REFUSAL_QUIET, SPLASH_TIME, SWIM_SPLASH } from './constants.ts';
+import { newDrift } from './drift.ts';
+import type { DriftState } from './drift.ts';
 import type { Player, PlayerOptions, Ride } from './types.ts';
+import { newHull } from './hull.ts';
+import type { HullState } from './hull.ts';
 
 /** The vehicle held: the ride handed over by the fleet, and its springs, wheels and propeller (`craft/motion.ts`). */
 export interface Held extends Ride {
@@ -83,10 +87,12 @@ export interface PlayerFields {
   turnRate: number;
   /** How far the plane is rolled into a turn, -1 to 1, positive to the left. */
   roll: number;
+  /** How fast that roll is changing, a second: the roll is a damped spring, never a snap. */
+  rollRate: number;
   /** The plane in full control (`aerobatics.ts`), and levelling off on its way back to simple control. */
   aerobatic: boolean;
   recovering: boolean;
-  /** The plane's chosen flight: aerobatics (`X`, or the stick aloft) or travel, the default. */
+  /** The plane's chosen flight: aerobatics (`X`) or travel, the default. */
   aeroWanted: boolean;
   /** In full control, the plane's attitude in the surface frame (side, up, forward): pitch and roll, no yaw. */
   attitude: THREE.Quaternion;
@@ -98,9 +104,13 @@ export interface PlayerFields {
   /** How hard a vehicle on wheels is pulling away, eased; and a motorbike's front wheel off the road for it. */
   surge: number;
   wheelie: number;
+  /** A vehicle on wheels: its slide across the bow, how loose the rear is, and the drift's charge and boost (`drift.ts`). */
+  drift: DriftState;
   /** A helicopter's rotor winding up on the ground, seconds of it, and its nose down into its speed. */
   spool: number;
   nose: number;
+  /** A helicopter's sideways speed on the strafe keys, units a second, positive to the right. */
+  sway: number;
   /** A helicopter's height over what is under it, and whether that is water. */
   clearance: number;
   overWater: boolean;
@@ -116,6 +126,8 @@ export interface PlayerFields {
   /** The splash ring's age and its widest radius. */
   splashAge: number;
   splashReach: number;
+  /** A hull's slide, sea, leap and wind (`hull.ts`). */
+  hull: HullState;
 }
 
 export interface PlayerCore {
@@ -236,6 +248,7 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     sinceCrash: CRASH_QUIET,
     turnRate: 0,
     roll: 0,
+    rollRate: 0,
     aerobatic: false,
     recovering: false,
     aeroWanted: false,
@@ -246,8 +259,10 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     swell: 0,
     surge: 0,
     wheelie: 0,
+    drift: newDrift(),
     spool: 0,
     nose: 0,
+    sway: 0,
     clearance: Infinity,
     overWater: false,
     sinceRefusal: REFUSAL_QUIET,
@@ -258,6 +273,7 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     airEnvelopeHeight: 0,
     splashAge: SPLASH_TIME,
     splashReach: SWIM_SPLASH,
+    hull: newHull(),
   };
 
   const drawnAt = options.groundAt ?? ((at: THREE.Vector3): number => groundRadius(world, at));

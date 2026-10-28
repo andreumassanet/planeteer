@@ -9,7 +9,7 @@ import type { Aabb } from './aabb.ts';
 import { STYLES, BASE } from './styles.ts';
 import type { DressStyle } from './styles.ts';
 import { Sink } from './sink.ts';
-import type { DressInput, DressSeat } from './types.ts';
+import type { DressInput, DressSeat, DressedPiece } from './types.ts';
 
 /**
  * The state one town's dressing shares across its three phases (façades,
@@ -25,6 +25,7 @@ export interface Dresser {
   readonly field: FloorField;
   readonly solids: Solid[];
   readonly seats: DressSeat[];
+  readonly pieces: DressedPiece[];
   readonly counts: Record<string, number>;
   readonly budget: number;
   /** The triangles the town may spend so far; each phase raises it. */
@@ -63,6 +64,7 @@ export function createDresser(input: DressInput): Dresser {
     field,
     solids: [],
     seats: [],
+    pieces: [],
     counts,
     budget,
     cap: budget,

@@ -113,7 +113,11 @@ function standPlot(kit: RaiseKit, job: RaiseJob, entry: Placed, flat: FlatVarian
   const shine = flat.emits ? lit.range(INSTANCE_DIM, 1) : 0;
   const bedShift = flat.emits ? Math.round(lit.jitter() * INSTANCE_BED) : 0;
   const surface = standsOnFloor ? wallSurfaceOf(slot.style.id, entry.partId, kind, rngFrom(slot.seed, 'surface', entry.plot.col, entry.plot.row)) : undefined;
-  job.standing.push({ flat, matrix: scratch.transform.clone(), glow: shine, bed: bedShift, surface });
+  // A tree is knocked over whole: its trunk's width about its foot, its full height.
+  const props = kind === 'tree'
+    ? [{ kind: 'tree' as const, first: 0, count: flat.position.length / 3, x: scratch.local.x, y: scratch.local.y, z: scratch.local.z, radius: Math.max(0.5, footprint * 0.35), height: flat.height * entry.scale, solid: null }]
+    : undefined;
+  job.standing.push({ flat, matrix: scratch.transform.clone(), glow: shine, bed: bedShift, surface, props });
   job.vertices += flat.position.length / 3;
   if (kind === 'tree') job.treesAt.push(entry.plot.x, entry.plot.z, footprint);
   if (shine > 0) {

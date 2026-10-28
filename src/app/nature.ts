@@ -29,7 +29,7 @@ export interface Nature {
 }
 
 export async function plantCountry(app: App): Promise<Nature> {
-  const { deferred, world, places, placements, baked, scene, ctx, settlements, life, land, takenGround, groundAt } = app;
+  const { deferred, world, places, placements, baked, scene, ctx, settlements, life, land, takenGround, groundAt, breakables } = app;
 
   await stage('planting the country');
   const { createVegetation } = await deferred.vegetation;
@@ -43,6 +43,7 @@ export async function plantCountry(app: App): Promise<Nature> {
     lawns: settlements,
     // Vehicle fields and the railway, so no tree grows through a wing or a track.
     fields: takenGround,
+    breakables,
   });
   scene.add(vegetation.group);
   life.setCountry(vegetation.countryside);

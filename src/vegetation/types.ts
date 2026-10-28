@@ -8,6 +8,7 @@ import type { ParkedCar, Settlements } from '../settlements.ts';
 import type { FieldIndex } from '../fleet.ts';
 import type { Countryside, CountrysideStats } from '../countryside.ts';
 import type { CountryMotionRows } from '../countryside-tile.ts';
+import type { Breakables } from '../breakables/types.ts';
 
 /** What the grass needs to know at one point. */
 export interface GrassSite {
@@ -208,4 +209,6 @@ export interface VegetationOptions {
    * a wing. The grass grows in them, mown on an airstrip's strip.
    */
   fields?: FieldIndex;
+  /** Where a drawn tile registers the trees a vehicle may knock over (`breakables.ts`). Without it no tree breaks. */
+  breakables?: Pick<Breakables, 'register' | 'forget'>;
 }

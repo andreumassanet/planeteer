@@ -36,6 +36,9 @@ const RADIUS = 1.25 * M;
 /** The bow and the stern. */
 const BOW = 4.2 * M;
 const STERN = -4.3 * M;
+/** Where the dive planes forward and the stern planes stand along the hull. */
+const BOW_PLANES = 2.2 * M;
+const STERN_PLANES = STERN + 0.75 * M;
 /** The seats' hips, low in the hull, one behind the other. */
 const HIP = AXIS - 0.62 * M;
 const FRONT = 0.9 * M;
@@ -96,6 +99,8 @@ function buildSubmarine(variant: number): THREE.Group {
   hatch.position.set(0, TOWER_TOP, TOWER_Z);
   group.add(hatch);
   // Windows in the tower's sides and portholes down the hull's, in slate.
+  const bowPlanes = new THREE.Group();
+  const sternPlanes = new THREE.Group();
   for (const side of [-1, 1]) {
     const pane = box(PROUD, 0.26 * M, 0.5 * M, glass);
     pane.position.set(side * (TOWER_WIDE + PROUD * 0.3), TOWER_TOP - 0.62 * M, TOWER_Z + 0.25 * M);
@@ -114,11 +119,11 @@ function buildSubmarine(variant: number): THREE.Group {
     }
     // The dive planes forward, and the stern planes.
     const plane = box(0.7 * M, 0.08 * M, 0.5 * M, trim);
-    plane.position.set(side * (RADIUS + 0.2 * M), AXIS - 0.04 * M, 2.2 * M);
-    group.add(plane);
+    plane.position.set(side * (RADIUS + 0.2 * M), AXIS - 0.04 * M, BOW_PLANES);
+    bowPlanes.add(plane);
     const stern = box(0.8 * M, 0.08 * M, 0.55 * M, trim);
-    stern.position.set(side * (RADIUS * 0.55 + 0.3 * M), AXIS - 0.04 * M, STERN + 0.75 * M);
-    group.add(stern);
+    stern.position.set(side * (RADIUS * 0.55 + 0.3 * M), AXIS - 0.04 * M, STERN_PLANES);
+    sternPlanes.add(stern);
   }
   // The rudder, above and below the stern.
   const steering = new THREE.Group();
@@ -157,6 +162,11 @@ function buildSubmarine(variant: number): THREE.Group {
     { name: 'prop', at: new V(0, AXIS, STERN - 0.12 * M), soup: soupOf(screw) },
     // About its leading edge.
     turningAbout('rudder', soupOf(steering), new V(0, AXIS, STERN + 1.1 * M)),
+    // The planes about their middles, as elevators: the stern pair's trailing
+    // edges go down into a dive, and the bow pair, stood upside down at rest,
+    // go the other way.
+    turningAbout('elevator', soupOf(sternPlanes), new V(0, AXIS - 0.04 * M, STERN_PLANES)),
+    turningAbout('elevator', soupOf(bowPlanes), new V(0, AXIS - 0.04 * M, BOW_PLANES), Math.PI),
   ];
 
   return assemble('submarine', [soupOf(group)], turning, { glass: [dome()], cabin: [cabinOf(soupOf(shell))] });

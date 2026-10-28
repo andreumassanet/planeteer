@@ -57,6 +57,8 @@ export interface Mover {
   heads?: number;
   /** A walker drawn from the cast, when there is one: its own skinned body. */
   person?: { holder: THREE.Group; person: Person } | null;
+  /** A walker knocked down by a vehicle (`breakables/knock.ts`): seconds since, where, the way it was flung, how far. */
+  knock?: { t: number; at: THREE.Vector3; dir: THREE.Vector3; fling: number } | null;
   /** A herd near enough to be its animals rather than its merged buffer. */
   animated?: Herding | null;
   /** A road vehicle's giving way. Road movers only. */

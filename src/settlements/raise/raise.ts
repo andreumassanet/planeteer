@@ -93,6 +93,7 @@ function openRaise(kit: RaiseKit, slot: Slot, grid: TownGrid, placed: RaiseJob['
     grid,
     placed,
     standing: [],
+    props: [],
     vertices: 0,
     drowned: 0,
     buried: 0,

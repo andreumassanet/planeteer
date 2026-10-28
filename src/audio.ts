@@ -82,6 +82,7 @@ export function createAudio(): Audio {
     horn: shots.horn,
     thunder: shots.thunder,
     cue: shots.cue,
+    knock: shots.knock,
 
     get volume() {
       return rt.volume;

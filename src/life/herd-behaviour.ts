@@ -15,7 +15,9 @@ import type { LifeShared } from './api.ts';
 import type { HerdBuilder } from './herd-build.ts';
 import type { GrazeMode, Grazer, HerdGround, Herding } from './herd-types.ts';
 import type { Mover } from './mover.ts';
+import { knockPose, newKnockPose } from '../breakables/knock.ts';
 import {
+  BOLT_SECONDS,
   FLEE_PACE,
   FLEE_REACH,
   FLEE_TURNS,
@@ -27,6 +29,9 @@ import {
 } from './tuning.ts';
 
 const herdUp = new THREE.Vector3(0, 1, 0);
+const herdForward = new THREE.Vector3(0, 0, 1);
+const knockedPose = newKnockPose();
+const roll = new THREE.Quaternion();
 
 /** Whether an animal is on its way somewhere. */
 export const moving = (head: Grazer): boolean =>
@@ -169,7 +174,36 @@ function blockedBy(herd: Herding, head: Grazer, x: number, z: number, parked: Pa
  * there, faster the straighter it faces, and waits where a neighbour stands
  * in its way.
  */
+/**
+ * One frame knocked over: shoved along the way it was hit, onto its side, up
+ * again and shaky; then it bolts. Its roll about its own length, and a lift
+ * while it lies so its side rests on the ground.
+ */
+function knockedStep(head: Grazer, dt: number): { lift: number; roll: number; sway: number } | null {
+  head.knocked += dt;
+  knockPose(head.knocked, head.height, head.knockFling, knockedPose);
+  if (knockedPose.done) {
+    head.knocked = -1;
+    head.bolt = BOLT_SECONDS;
+    head.timer = 0;
+    return null;
+  }
+  head.x = head.knockX + head.knockDx * knockedPose.along;
+  head.z = head.knockZ + head.knockDz * knockedPose.along;
+  // Onto the side away from the hit.
+  const side = Math.sign(head.knockDx * Math.cos(head.yaw) - head.knockDz * Math.sin(head.yaw)) || 1;
+  const over = Math.sin(Math.min(Math.PI / 2, knockedPose.tilt));
+  return { lift: knockedPose.lift + over * head.halfWidth * 0.5, roll: -side * knockedPose.tilt, sway: knockedPose.sway };
+}
+
 function stepHead(herd: Herding, head: Grazer, dt: number, parked: Parked | undefined): void {
+  const knocked = head.knocked >= 0 ? knockedStep(head, dt) : null;
+  if (knocked !== null) {
+    head.place.position.set(head.x, head.y + knocked.lift, head.z);
+    head.place.quaternion.setFromAxisAngle(herdUp, head.yaw + knocked.sway).multiply(roll.setFromAxisAngle(herdForward, knocked.roll));
+    placeInWorld(herd, head);
+    return;
+  }
   if (moving(head)) {
     const tx = head.toX - head.x;
     const tz = head.toZ - head.z;
@@ -207,6 +241,11 @@ function stepHead(herd: Herding, head: Grazer, dt: number, parked: Parked | unde
   const bob = head.walk === undefined && moving(head) ? Math.abs(Math.sin(head.bob * Math.PI)) * head.height * 0.04 : 0;
   head.place.position.set(head.x, head.y + bob, head.z);
   head.place.quaternion.setFromAxisAngle(herdUp, head.yaw);
+  placeInWorld(herd, head);
+}
+
+/** Where the animal is in the world this frame, and which way it faces, for `collide`. */
+function placeInWorld(herd: Herding, head: Grazer): void {
   const herdAt = herd.holder.position;
   head.world
     .copy(herdAt)

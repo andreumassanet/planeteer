@@ -2,11 +2,24 @@
 import type { Honk } from '../../server/src/limits.ts';
 import { HORN_HELD } from '../horn.ts';
 import { HELD_CHORDS } from './horn-voices.ts';
-import { GAIN, HORN_LEVEL, LANDINGS, PAGES, STEP_LEVEL, THUNDER_LEVEL, VARIANTS, between, clamp01 } from './levels.ts';
+import { GAIN, HORN_LEVEL, KNOCK_LEVEL, LANDINGS, PAGES, STEP_LEVEL, THUNDER_LEVEL, VARIANTS, between, clamp01 } from './levels.ts';
+import type { KnockVoice } from '../breakables/kinds.ts';
 import type { createSamples } from './samples.ts';
 import type { createSynth } from './synth.ts';
 import type { Runtime } from './runtime.ts';
 import type { Cue, HeldHorn, Surface } from './types.ts';
+
+/** What each knock is made of: a noise burst's band and length, a few decaying tones, and a thump under it. */
+const KNOCKS: Record<KnockVoice, { band: [number, number]; burst: number; tones: [number, number, OscillatorType][]; thump: number }> = {
+  // A crack: a bright splintering snap over a wooden thump.
+  wood: { band: [900, 6000], burst: 0.06, tones: [[190, 0.12, 'triangle']], thump: 1 },
+  // A clang: two inharmonic partials ringing, a little noise at the strike.
+  metal: { band: [1500, 9000], burst: 0.02, tones: [[523, 0.45, 'triangle'], [791, 0.35, 'triangle'], [1370, 0.2, 'sine']], thump: 0.5 },
+  // A thud: the thump alone, with a dull puff.
+  soft: { band: [80, 500], burst: 0.08, tones: [], thump: 1 },
+  // A bonk, as a cartoon head takes one: a falling tone.
+  bonk: { band: [200, 1200], burst: 0.03, tones: [[440, 0.2, 'sine']], thump: 0.6 },
+};
 
 export function createOneShots(rt: Runtime, synth: ReturnType<typeof createSynth>, samples: ReturnType<typeof createSamples>) {
   const { chord, strike } = synth;
@@ -122,6 +135,67 @@ export function createOneShots(rt: Runtime, synth: ReturnType<typeof createSynth
     roll.onended = () => rt.voices--;
   }
 
+  function knock(voice: KnockVoice, near: number): void {
+    const ctx = rt.context;
+    const noise = rt.loops?.crackNoise ?? null;
+    if (ctx === null || rt.master === null || noise === null) return;
+    const level = KNOCK_LEVEL * clamp01(near);
+    if (level < 0.005) return;
+    const spec = KNOCKS[voice];
+    const at = ctx.currentTime + 0.005;
+    const pitch = between(0.92, 1.08);
+    // The burst: white noise through a band, gone in a few hundredths.
+    const burst = ctx.createBufferSource();
+    burst.buffer = noise;
+    const high = ctx.createBiquadFilter();
+    high.type = 'highpass';
+    high.frequency.value = spec.band[0];
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = spec.band[1];
+    const burstEnv = ctx.createGain();
+    burstEnv.gain.setValueAtTime(0, at);
+    burstEnv.gain.linearRampToValueAtTime(level, at + 0.004);
+    burstEnv.gain.exponentialRampToValueAtTime(0.0001, at + spec.burst + 0.02);
+    burst.connect(high).connect(low).connect(burstEnv).connect(rt.master);
+    burst.start(at, Math.random() * 2);
+    burst.stop(at + spec.burst + 0.05);
+    rt.voices++;
+    burst.onended = () => rt.voices--;
+    // The tones: each struck and left to ring out.
+    for (const [frequency, ring, wave] of spec.tones) {
+      const osc = ctx.createOscillator();
+      osc.type = wave;
+      osc.frequency.setValueAtTime(frequency * pitch, at);
+      if (voice === 'bonk') osc.frequency.exponentialRampToValueAtTime(frequency * pitch * 0.5, at + ring);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(level * 0.5, at + 0.006);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + ring);
+      osc.connect(env).connect(rt.master);
+      osc.start(at);
+      osc.stop(at + ring + 0.02);
+      rt.voices++;
+      osc.onended = () => rt.voices--;
+    }
+    // The thump under it: a low sine falling, the weight of the thing.
+    if (spec.thump > 0) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(120 * pitch, at);
+      osc.frequency.exponentialRampToValueAtTime(42, at + 0.16);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(level * spec.thump, at + 0.008);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + 0.2);
+      osc.connect(env).connect(rt.master);
+      osc.start(at);
+      osc.stop(at + 0.22);
+      rt.voices++;
+      osc.onended = () => rt.voices--;
+    }
+  }
+
   function cue(name: Cue): void {
     if (name === 'land') {
       play(`land-${Math.floor(Math.random() * LANDINGS)}`, GAIN.land, between(0.95, 1.05));
@@ -135,5 +209,5 @@ export function createOneShots(rt: Runtime, synth: ReturnType<typeof createSynth
     play(name, GAIN[name]);
   }
 
-  return { step, holdHorn, horn, thunder, cue };
+  return { step, holdHorn, horn, thunder, cue, knock };
 }

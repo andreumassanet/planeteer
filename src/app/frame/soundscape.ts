@@ -109,6 +109,8 @@ export function createSoundPhase(app: App): (tick: Tick) => void {
     soundscape.rain = sea.underwater ? 0 : weather.sound.rain;
     soundscape.gale = weather.sound.gale;
     soundscape.underwater = sea.underwater ? 1 : 0;
+    soundscape.slip = Math.abs(player.slip);
+    soundscape.boost = player.boost;
     guard('audio', () => audio.update(dt, soundscape));
     if (map.open !== mapWasOpen) {
       mapWasOpen = map.open;

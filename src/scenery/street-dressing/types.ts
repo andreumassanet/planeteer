@@ -87,6 +87,22 @@ export interface Anchor {
   fz: number;
 }
 
+/** One piece of furniture as it stands in the buffer, for what may knock it over (`breakables.ts`). */
+export interface DressedPiece {
+  kind: string;
+  /** Its run of the dressing's vertices. */
+  first: number;
+  count: number;
+  /** Its foot on the paving, in the town's frame, and its size. */
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  height: number;
+  /** Its wall among `Dressed.solids`, or null. */
+  solid: Solid | null;
+}
+
 export interface Dressed {
   position: Float32Array;
   normal: Float32Array;
@@ -96,6 +112,8 @@ export interface Dressed {
   emits: boolean;
   solids: Solid[];
   seats: DressSeat[];
+  /** The furniture along the building line, piece by piece. */
+  pieces: DressedPiece[];
   /** The chairs' seats and the racks' slots. */
   anchors: Anchor[];
   counts: Record<string, number>;

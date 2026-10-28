@@ -48,6 +48,8 @@ export interface Framer {
   crownsOf(placed: readonly Placed[]): Float32Array | null;
   /** The walls `wallsOf` placed for each vehicle in the tile it last walled. */
   machineWalls: Map<CountryMachine, Solid[]>;
+  /** And for each trunk and each small country piece, which a vehicle may knock over. */
+  propWalls: Map<Placed, Solid[]>;
 }
 
 export function createFramer(world: World, broken: string[]): Framer {
@@ -94,6 +96,7 @@ export function createFramer(world: World, broken: string[]): Framer {
   /** Each part's obstacle, measured once from its first build. */
   const shapes = new WeakMap<object, PartShape>();
   const machineWalls = new Map<CountryMachine, Solid[]>();
+  const propWalls = new Map<Placed, Solid[]>();
 
   /**
    * A disc for every trunk and boulder placed and the measured walls of every
@@ -105,6 +108,7 @@ export function createFramer(world: World, broken: string[]): Framer {
     const solids: Solid[] = [];
     const ground = frame.origin.length();
     machineWalls.clear();
+    propWalls.clear();
     for (const item of placed) {
       const kind = item.flat.solid;
       if (kind === undefined) continue;
@@ -116,6 +120,7 @@ export function createFramer(world: World, broken: string[]): Framer {
       const from = solids.length;
       placeShape(shape, item.matrix.elements, ground, solids);
       if (item.machine !== undefined) machineWalls.set(item.machine, solids.slice(from));
+      else if (kind === 'trunk' || item.flat.breaks !== undefined) propWalls.set(item, solids.slice(from));
     }
     if (solids.length === 0) return null;
     return {
@@ -141,5 +146,5 @@ export function createFramer(world: World, broken: string[]): Framer {
     return crownList.length === 0 ? null : Float32Array.from(crownList);
   }
 
-  return { frame, frameTile, directionAt, wallsOf, crownsOf, machineWalls };
+  return { frame, frameTile, directionAt, wallsOf, crownsOf, machineWalls, propWalls };
 }

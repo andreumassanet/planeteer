@@ -63,8 +63,8 @@ import type { Frame } from './frame.ts';
 import type { WallChecks } from './walls.ts';
 import type { Flight } from './flight.ts';
 
-/** What a touchdown came to: down, or refused for the water or the slope under it. */
-export type Touchdown = 'landed' | 'water' | 'steep';
+/** What a touchdown came to: down, down on the sea to founder, or refused for the water or the slope under it. */
+export type Touchdown = 'landed' | 'ditched' | 'water' | 'steep';
 
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);
@@ -165,7 +165,7 @@ export function createAerobatics(
   function release(): void {
     axes();
     s.climbing = s.speed * nose.y;
-    s.roll = 0;
+    s.roll = s.rollRate = 0;
     s.aerobatic = false;
     s.recovering = false;
     q.identity();
@@ -309,7 +309,7 @@ export function createAerobatics(
         const pitchAngle = Math.asin(clamp(nose.y, -1, 1));
         const fair = Math.abs(bank) < AERO_LAND_BANK && pitchAngle > -AERO_LAND_PITCH && pitchAngle < AERO_LAND_PITCH && nose.z > 0;
         const outcome = fair ? touchdown(model) : null;
-        if (outcome === 'landed') {
+        if (outcome === 'landed' || outcome === 'ditched') {
           s.aerobatic = false;
           s.recovering = false;
           q.identity();

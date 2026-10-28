@@ -118,6 +118,10 @@ export function dress(st: TownsfolkState, anchor: FolkAnchor, clock: number): St
     asideFor: 0,
     startledBy: new THREE.Vector3(),
     dog: null,
+    knocked: -1,
+    knockDir: new THREE.Vector3(),
+    knockYaw: 0,
+    knockFling: 0,
   };
   if (mode === 'cross') entry.heading = 1;
   place(st, entry);

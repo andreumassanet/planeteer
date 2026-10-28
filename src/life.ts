@@ -55,6 +55,7 @@ import { createSeaScan } from './life/sea-scan.ts';
 import { createServe } from './life/serve.ts';
 import { CEILING, KEEP_ALL_WITHIN } from './life/tuning.ts';
 import { collideMovers, createWalkers } from './life/walkers.ts';
+import { knockMovers } from './life/knock.ts';
 import { verifyWalk } from './life/walk-rig.ts';
 
 export type { HerdProbe, HerdSeat, Life, LifeOptions, LifeStats } from './life/api.ts';
@@ -217,6 +218,7 @@ export function createLife(world: World, places: readonly Place[], options: Life
     proxies: () => [proxyOf(material), proxyOf(birds.mesh.material as THREE.Material), umbrellaProxy()],
     collide: (point, radius, personRadius, push) =>
       collideMovers(point, radius, personRadius, push, walkers.shown, drawer.herdsShown),
+    knock: (from, to, radius, velocity) => knockMovers(from, to, radius, velocity, walkers.shown, drawer.herdsShown),
     eachBoat: (visit) => eachBoat(movers, visit),
     eachRoadVehicle: (visit) => eachRoadVehicle(movers, visit),
     grazers: () => grazersOf(movers),

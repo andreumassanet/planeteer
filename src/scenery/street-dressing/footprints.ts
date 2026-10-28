@@ -49,5 +49,12 @@ export const FOOTPRINTS: Record<Furniture | 'postbox' | 'kiosk' | 'clock' | 'bol
 
 export type Piece = keyof typeof FOOTPRINTS;
 
+/** How tall the pieces with no wall stand, for what knocks them over: a rack's hoops, a pot's flowers, a bollard's post. */
+export const LOOSE_HEIGHT: Readonly<Record<'rack' | 'pots' | 'bollard', number>> = {
+  rack: 0.78 * M,
+  pots: 0.6 * M,
+  bollard: 1.0 * M,
+};
+
 /** Where a rack's three bicycles stand, across it: between its hoops and either side of them. */
 export const RACK_SLOTS = [-0.75 * M, 0, 0.75 * M] as const;

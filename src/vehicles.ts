@@ -79,11 +79,11 @@ export const CAR_ACCELERATION_TIME = 1.3;
 export const CAR_BRAKE_TIME = 0.45;
 export const CAR_COAST_TIME = 2.2;
 /** Full lock, radians a second, reached from `CAR_GRIP_SPEED` up: a car does not turn standing still. */
-export const CAR_TURN = 1.25;
-export const CAR_GRIP_SPEED = 10;
-/** How long the wheel takes to go over to a lock, in seconds, and how much of the lock is left at `CAR_BOOST`. */
-export const CAR_STEER_TIME = 0.15;
-export const CAR_FAST_LOCK = 0.6;
+export const CAR_TURN = 1.8;
+export const CAR_GRIP_SPEED = 6;
+/** How long the wheel takes to go over to a lock, in seconds (it comes back twice as fast), and how much of the lock is left at `CAR_BOOST`. */
+export const CAR_STEER_TIME = 0.08;
+export const CAR_FAST_LOCK = 0.72;
 /**
  * A car driven into a wall: the share of its speed it comes back off it at, and
  * the speed lost at a stroke that counts as a crash rather than a nudge, in units
@@ -127,6 +127,18 @@ const DEG_ = Math.PI / 180;
  * - `wheelie`: radians of nose-up a unit a second squared of acceleration gives
  *   a motorbike, and the most of it; 0 for anything else.
  * - `bounce`: the share of its speed it comes back off a wall at.
+ * - `grip`, `slideGrip`: how fast the way it is going swings back onto its
+ *   bow, per second, with the tyres holding and with the rear broken loose
+ *   (`player/drift.ts`). The first leaves a few degrees of slip in a hard
+ *   turn; the second is the drift.
+ * - `maxSlip`: the most the bow gets off the way it is going, radians, so a
+ *   drift never spins; 0 for what cannot slide (a horse).
+ * - `driftYaw`, `driftSteer`: in a drift, the turn it keeps into the slide
+ *   with the wheel straight and the turn the wheel adds or, against the
+ *   slide, takes away, as shares of `turn`.
+ * - `scrub`: the share of its speed a second it loses going fully sideways.
+ * - `driftBoost`: the share of `boost` a drift held long enough pays back
+ *   when it ends (`DRIFT_TIERS`); 0 for none.
  */
 export interface RoadHandling {
   speed: number;
@@ -146,7 +158,57 @@ export interface RoadHandling {
   lean: number;
   wheelie: number;
   bounce: number;
+  grip: number;
+  slideGrip: number;
+  maxSlip: number;
+  driftYaw: number;
+  driftSteer: number;
+  scrub: number;
+  driftBoost: number;
 }
+
+/**
+ * The drift, every kind alike (`player/drift.ts`). `Space` held breaks the
+ * rear loose above `DRIFT_FROM` of the cruise, at `DRIFT_LOOSEN` a second, and
+ * it stays loose while held; let go, the grip comes back at `DRIFT_CATCH` a
+ * second. A slip over `DRIFT_HOLD` radians charges the drift. Held with the
+ * throttle closed, the handbrake slows the car over `HANDBRAKE_TIME` seconds.
+ */
+export const DRIFT_FROM = 0.35;
+export const DRIFT_LOOSEN = 10;
+export const DRIFT_HOLD = 0.2;
+export const DRIFT_CATCH = 6;
+export const HANDBRAKE_TIME = 1.2;
+/**
+ * The flick: the wheel past `DRIFT_FLICK_FROM` to the drift's side and then
+ * past it the other way within `DRIFT_FLICK_WINDOW` seconds switches the
+ * drift's side; for `DRIFT_SNAP_TIME` the drift's own turn is up to
+ * `DRIFT_SNAP_GAIN` more, so the bow swings over at once, and each flick adds
+ * `DRIFT_FLICK_CHARGE` to the charge. A counter-steer from the wheel at rest
+ * is no flick: it holds the slide.
+ */
+export const DRIFT_FLICK_FROM = 0.5;
+export const DRIFT_FLICK_WINDOW = 0.35;
+export const DRIFT_SNAP_TIME = 0.3;
+export const DRIFT_SNAP_GAIN = 1.2;
+export const DRIFT_FLICK_CHARGE = 0.25;
+/** The share of `driftSteer` a wheel held against the slide takes away: a car's own counter-steer holds a slide of about twelve degrees. */
+export const DRIFT_COUNTER = 0.55;
+/**
+ * The charge (seconds over `DRIFT_HOLD`, from half a second each at the
+ * least slip to one and a half at `maxSlip`) that earns each tier of the
+ * boost paid the moment `Space` is let go, how long the boost lasts and the
+ * share of the kind's `driftBoost` it adds to the top speed, each eased from
+ * the first tier's figure to the second's by the charge. Never more than
+ * `driftBoost`, which stays under what `topSpeedOf` leaves room for.
+ */
+export const DRIFT_TIERS = [0.45, 1.6] as const;
+export const DRIFT_BOOST_TIME = [0.7, 1.4] as const;
+export const DRIFT_BOOST_SHARE = [0.5, 1] as const;
+/** The boost's throttle, as a share of the kind's `accelerationTime`: a kick, not a ramp. */
+export const DRIFT_BOOST_KICK = 0.15;
+/** The share of the gap to the boosted top speed the payout adds at once, as the kick. */
+export const DRIFT_BOOST_PUNCH = 0.5;
 
 const CAR: RoadHandling = {
   speed: CAR_SPEED,
@@ -166,6 +228,13 @@ const CAR: RoadHandling = {
   lean: 0,
   wheelie: 0,
   bounce: CAR_BOUNCE,
+  grip: 14,
+  slideGrip: 2.2,
+  maxSlip: 0.8,
+  driftYaw: 0.7,
+  driftSteer: 0.95,
+  scrub: 0.35,
+  driftBoost: 0.15,
 };
 
 /** Every road kind's handling. A walk is 6.5 units a second and a run 20 (`avatar.ts`), a car 45. */
@@ -176,50 +245,57 @@ export const ROAD_HANDLING: Partial<Record<CraftKind, RoadHandling>> = {
     ...CAR,
     speed: 26, boost: 36, reverse: 3,
     accelerationTime: 1.6, brakeTime: 0.6, coastTime: 5,
-    turn: 1.9, gripSpeed: 4, fastLock: 0.55, steerTime: 0.18,
+    turn: 2.3, gripSpeed: 3, fastLock: 0.65, steerTime: 0.1,
     step: 0.9, slope: Math.tan(26 * DEG_), rough: 0.75, lean: 0.5, bounce: 0.2,
+    grip: 14, slideGrip: 3, maxSlip: 0.35, driftYaw: 0.5, driftSteer: 0.8, scrub: 0.6, driftBoost: 0,
   },
   motorbike: {
     ...CAR,
     speed: 48, boost: 82, reverse: 4,
     accelerationTime: 0.9, brakeTime: 0.4, coastTime: 2.6,
-    turn: 1.7, gripSpeed: 6, fastLock: 0.5, steerTime: 0.14,
+    turn: 2.2, gripSpeed: 4, fastLock: 0.65, steerTime: 0.08,
     rough: 0.8, lean: 0.62, wheelie: 0.006, bounce: 0.2,
+    grip: 14, slideGrip: 2.6, maxSlip: 0.55, driftYaw: 0.65, driftSteer: 0.9, scrub: 0.3,
   },
   tuktuk: {
     ...CAR,
     speed: 30, boost: 40, reverse: 8,
     accelerationTime: 1.5, brakeTime: 0.5, coastTime: 2,
-    turn: 1.6, gripSpeed: 6, fastLock: 0.7, steerTime: 0.15,
+    turn: 2.1, gripSpeed: 4, fastLock: 0.75, steerTime: 0.09,
     step: 1, rough: 0.7,
+    maxSlip: 0.6, scrub: 0.4, driftBoost: 0.1,
   },
   bus: {
     ...CAR,
     speed: 32, boost: 44, reverse: 8,
     accelerationTime: 2.6, brakeTime: 0.8, coastTime: 3.5,
-    turn: 0.8, gripSpeed: 10, steerTime: 0.3,
+    turn: 1.1, gripSpeed: 8, steerTime: 0.16,
     slope: Math.tan(24 * DEG_), rough: 0.6,
+    grip: 8, slideGrip: 3.2, maxSlip: 0.4, driftYaw: 0.5, driftSteer: 0.7, scrub: 0.5, driftBoost: 0,
   },
   tractor: {
     ...CAR,
     speed: 16, boost: 22, reverse: 8,
     accelerationTime: 1.2, brakeTime: 0.5, coastTime: 1.5,
-    turn: 1, gripSpeed: 4, fastLock: 0.8, steerTime: 0.25,
+    turn: 1.4, gripSpeed: 3, fastLock: 0.85, steerTime: 0.14,
     step: 1.6, slope: Math.tan(40 * DEG_), rough: 1, bounce: 0.1,
+    grip: 10, slideGrip: 3.5, maxSlip: 0.35, driftYaw: 0.5, driftSteer: 0.7, scrub: 0.8, driftBoost: 0,
   },
   jeep: {
     ...CAR,
     speed: 40, boost: 62, reverse: 12,
     accelerationTime: 1.4, brakeTime: 0.5, coastTime: 2.4,
-    turn: 1.2, gripSpeed: 8, steerTime: 0.16,
+    turn: 1.7, gripSpeed: 5, steerTime: 0.09,
     step: 1.6, slope: Math.tan(42 * DEG_), rough: 1,
+    slideGrip: 2, maxSlip: 0.75,
   },
   horse: {
     ...CAR,
     speed: 15, boost: 34, reverse: 3,
     accelerationTime: 1, brakeTime: 0.6, coastTime: 0.9,
-    turn: 2.2, gripSpeed: 3, fastLock: 0.55, steerTime: 0.2, pivot: 0.5,
+    turn: 2.6, gripSpeed: 2, fastLock: 0.65, steerTime: 0.12, pivot: 0.5,
     step: 1.4, slope: Math.tan(38 * DEG_), rough: 1, lean: 0.12, bounce: 0.3,
+    grip: 30, maxSlip: 0, driftBoost: 0,
   },
 };
 
@@ -232,8 +308,20 @@ export const ROAD_HANDLING: Partial<Record<CraftKind, RoadHandling>> = {
  * - `heel`: how far it rolls in a turn, radians; a displacement hull heels out of
  *   a turn and a planing one into it.
  * - `bow`: how far the bow comes up onto the plane, radians.
- * - `hop`: how far it leaps off the chop at speed, units; 0 for a hull that sits in the water.
- * - `list`: a constant heel, radians (the wind's in a sail).
+ * - `list`: the most a sail heels it over, radians, on a beam reach in a fresh breeze.
+ * - `coastTime`, `brakeTime`: the throttle's ease let go, and with the bow
+ *   going ahead and the stern key held.
+ * - `grip`: how fast the slide a turn leaves it carrying dies, per second, and
+ *   `carve` the share of that slide's speed given back along the bow.
+ * - `still`: the share of the turn it has at a standstill, where a rudder has
+ *   no water over it.
+ * - `slide`: a powerslide's turn, as a multiple of `turn`, for the turn and
+ *   the stern key held together at speed; 0 for a hull that has none.
+ * - `kick`: how much of the sea's rise under it at speed throws it clear of a
+ *   crest; `jump`: the speed `Space` leaps it at, units a second; each 0 for
+ *   none.
+ * - `punch`: the nose-up kick of the boost key, radians a second.
+ * - `bySail`: driven by the wind (`weatherAt`), not an engine.
  */
 export interface WaterHandling {
   speed: number;
@@ -244,15 +332,39 @@ export interface WaterHandling {
   astern: number;
   heel: number;
   bow: number;
-  hop: number;
   list: number;
+  coastTime: number;
+  brakeTime: number;
+  grip: number;
+  carve: number;
+  still: number;
+  slide: number;
+  kick: number;
+  jump: number;
+  punch: number;
+  bySail: boolean;
 }
 
-/** The other hulls' handling. The wind is constant here. */
+/** The engine's rows that the motor hulls share; a sail and a submarine set their own. */
+const MOTOR_HULL = { slide: 0, kick: 0, jump: 0, punch: 0, bySail: false } as const;
+
+/** The other hulls' handling. A sailboat's speeds are at a beam reach in a fresh breeze (`sailShare`, `windStrength` in `player/hull.ts`). */
 export const WATER_HANDLING: Partial<Record<CraftKind, WaterHandling>> = {
-  jetski: { speed: 40, boost: 76, turn: 2.3, accelerationTime: 0.55, rudderTime: 0.1, astern: 0.3, heel: 0.45, bow: 0.1, hop: 0.35, list: 0 },
-  sailboat: { speed: 18, boost: 24, turn: 0.75, accelerationTime: 3.5, rudderTime: 0.45, astern: 0.15, heel: 0.12, bow: 0.02, hop: 0, list: 0.16 },
-  submarine: { speed: 16, boost: 26, turn: 0.9, accelerationTime: 2.2, rudderTime: 0.35, astern: 0.3, heel: 0.05, bow: 0.02, hop: 0, list: 0 },
+  jetski: {
+    ...MOTOR_HULL,
+    speed: 40, boost: 76, turn: 2.3, accelerationTime: 0.55, rudderTime: 0.1, astern: 0.3, heel: 0.45, bow: 0.1, list: 0,
+    coastTime: 1.8, brakeTime: 0.6, grip: 8.5, carve: 0.6, still: 0.5, slide: 1.55, kick: 1.5, jump: 11, punch: 0.9,
+  },
+  sailboat: {
+    ...MOTOR_HULL,
+    speed: 22, boost: 30, turn: 0.8, accelerationTime: 3.5, rudderTime: 0.45, astern: 0.15, heel: 0.12, bow: 0.02, list: 0.2,
+    coastTime: 6, brakeTime: 2.5, grip: 6, carve: 0.45, still: 0.25, bySail: true,
+  },
+  submarine: {
+    ...MOTOR_HULL,
+    speed: 16, boost: 26, turn: 0.9, accelerationTime: 2.2, rudderTime: 0.35, astern: 0.3, heel: 0.05, bow: 0.02, list: 0,
+    coastTime: 3.5, brakeTime: 1.4, grip: 5, carve: 0.4, still: 0.4,
+  },
 };
 
 /**
@@ -278,12 +390,14 @@ export const SUB_UNDER = 1.2;
  */
 export const HELI_SPEED = 70;
 export const HELI_REVERSE = 14;
-export const HELI_CLIMB = 22;
-export const HELI_SINK = 16;
+/** Sideways on the strafe keys (`J` and `L`), units a second; it banks into it as it banks into a turn. */
+export const HELI_STRAFE = 30;
+export const HELI_CLIMB = 30;
+export const HELI_SINK = 22;
 export const HELI_TOUCHDOWN = 3;
 export const HELI_TURN = 1.3;
-export const HELI_ACCELERATION_TIME = 1.4;
-export const HELI_VERTICAL_TIME = 0.6;
+export const HELI_ACCELERATION_TIME = 1;
+export const HELI_VERTICAL_TIME = 0.4;
 export const HELI_NOSE = 0.2;
 export const HELI_BANK = 0.3;
 export const HELI_CEILING = 2600;
@@ -377,19 +491,23 @@ export const PLANE_LANDING_TIME = 1.2;
 
 /**
  * The climb, as a vertical speed the keys ask for and the plane eases into. The
- * rate is `PLANE_CLIMB_RATE` times the height over the ground, and never under
- * `PLANE_CLIMB_MIN`, so the climb reads as a zoom out of the map. Descending is
- * the same law the other way, and it flares: under `PLANE_FLARE` times the
- * height, and no less than `PLANE_TOUCHDOWN`: slower than the climb, so the
- * fall from the ceiling to the low air takes about eight seconds (the height
- * falls by `PLANE_FLARE` of itself a second) and reads as a descent.
+ * rate is the largest of `PLANE_CLIMB_RATE` times the height over the ground
+ * (so high up the climb reads as a zoom out of the map), `PLANE_CLIMB_SLOPE`
+ * of the airspeed (so low down the nose comes up about twenty degrees and the
+ * climb is felt at once) and `PLANE_CLIMB_MIN`. Descending is the same law the
+ * other way, and it flares: under `PLANE_FLARE` times the height, and no less
+ * than `PLANE_TOUCHDOWN`: slower than the climb, so the fall from the ceiling
+ * to the low air takes about five seconds (the height falls by `PLANE_FLARE`
+ * of itself a second) and reads as a descent, and a landing from a ring's
+ * height takes about eight.
  */
 export const PLANE_CLIMB_MIN = 18;
 export const PLANE_CLIMB_RATE = 0.7;
-/** Time constant of the vertical speed, in seconds. */
-export const PLANE_VERTICAL_TIME = 0.7;
-export const PLANE_FLARE = 0.28;
-export const PLANE_TOUCHDOWN = 4;
+export const PLANE_CLIMB_SLOPE = 0.35;
+/** Time constant of the vertical speed, in seconds: a key is answered within a third of a second. */
+export const PLANE_VERTICAL_TIME = 0.3;
+export const PLANE_FLARE = 0.4;
+export const PLANE_TOUCHDOWN = 6;
 
 /**
  * The light aircraft on the ground: the speed it lifts off at (a take-off run
@@ -400,6 +518,8 @@ export const PLANE_TOUCHDOWN = 4;
  * `PLANE_CLIMB_MIN` for `PLANE_CLIMB_OUT` seconds whatever the keys say.
  */
 export const PLANE_ROTATE = PLANE_CRUISE_LOW * 0.6;
+/** The most a plane let down onto the sea skids on at, units a second; its way dies over `FOUNDER_DRAG` as it founders. */
+export const PLANE_DITCH_SPEED = 60;
 export const PLANE_RUN_TIME = 1.6;
 export const PLANE_TAXI = 30;
 export const PLANE_CLIMB_OUT = 3;

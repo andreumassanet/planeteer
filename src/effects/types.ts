@@ -16,6 +16,12 @@ export interface EffectsSubject {
   readonly overWater?: boolean;
   /** How far under the surface a diver or a submarine is, units (`Player.depth`). */
   readonly depth?: number;
+  /** On wheels: the speed across the bow, the drift's tier (-1 not drifting) and a boost's seconds left (`Player.slip`). */
+  readonly slip?: number;
+  readonly driftTier?: number;
+  readonly boost?: number;
+  /** Seconds since a vehicle that cannot float met the water, -1 if it has not (`Player.foundering`). */
+  readonly foundering?: number;
 }
 
 /** Somebody else's vehicle, or a boat of the traffic: its object (posed in the world), what it is, and its model if known. */
@@ -29,7 +35,7 @@ export type OtherVisitor = (object: THREE.Object3D, kind: CraftKind, model: Craf
 export type SmokeVisitor = (at: THREE.Vector3, up: THREE.Vector3) => void;
 
 /** What the player just did that leaves a mark: `player.ts`'s `PlayerEvent`s, and the two foot callbacks. */
-export type EffectsEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered';
+export type EffectsEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered' | 'broke' | 'boosted';
 
 export interface EffectsStats {
   enabled: boolean;
@@ -39,8 +45,9 @@ export interface EffectsStats {
   /** Wake points held across every ribbon, and the ribbons holding any. */
   ribbonPoints: number;
   ribbons: number;
-  /** Foam vertices written this frame. */
+  /** Foam vertices written this frame, and how many of them, the last, are skid marks on the ground. */
   foamVertices: number;
+  markVertices: number;
   debris: number;
   /** Particles refused by a full pool since the page loaded. */
   dropped: number;
@@ -101,6 +108,14 @@ export interface Effects {
    * while the effects are off.
    */
   dustAt(point: THREE.Vector3, reach: number, count: number): void;
+  /**
+   * Leaves (or splinters, petals, straw) in `hex` thrown up off `point` from
+   * as high as `height`, `count` of them, drifting down: a tree or a planter
+   * knocked over (`breakables.ts`). Nothing while the effects are off.
+   */
+  leavesAt(point: THREE.Vector3, hex: number, height: number, count: number): void;
+  /** Sparks off metal at `point`, thrown back off `facing`: a lamp or a sign knocked over. Nothing while the effects are off. */
+  sparksAt(point: THREE.Vector3, facing: THREE.Vector3, count: number): void;
   /**
    * A rocket's exhaust for `dt` (`rocket.ts`): flame out of the bell at
    * `mouth` along `-up`, and smoke billowing off it — spread along the ground

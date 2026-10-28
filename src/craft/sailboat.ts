@@ -6,7 +6,9 @@
  * cockpit floor; a sheer waist-deep on a seated body. Over it: a mast a little
  * ahead of the cockpit, a boom a head clear of the seated crew, and two sails,
  * each a thin slab so the pen draws round it. A fin keel under the hull is
- * what `draft` is.
+ * what `draft` is. The boom with the main, the jib and a pennant at the
+ * masthead are turning parts that stand to the wind (`createRigMotion` in
+ * `motion.ts`).
  *
  * The two sit in line on the centreline, the helm aft at the tiller and the
  * crew forward, because a day-sailer is too narrow for two abreast.
@@ -139,16 +141,18 @@ function buildSailboat(variant: number): THREE.Group {
     group.add(loft(run, stripe));
   }
 
-  // The mast, the boom and the forestay.
+  // The mast and the forestay.
   const deck = sheerAt(MAST_Z);
   const mast = column(0.05 * M, MAST_TOP - deck, PALETTE.bone, 8);
   mast.position.set(0, deck, MAST_Z);
   group.add(mast);
-  group.add(strut(new V(0, BOOM, MAST_Z - 0.04 * M), new V(0, BOOM + 0.02 * M, BOOM_END), 0.06 * M, PALETTE.bone));
   group.add(strut(new V(0, MAST_TOP * 0.72, MAST_Z + 0.03 * M), new V(0, sheerAt(STEM - 0.1 * M), STEM - 0.1 * M), 0.02 * M, PALETTE.steel));
-  // The main, from the boom to the masthead with a little roach, and the jib.
+  // The boom and the main, from the boom to the masthead with a little roach,
+  // swung together about the mast; and the jib, about its tack.
   const thick = 0.025 * M;
-  group.add(
+  const main = new THREE.Group();
+  main.add(strut(new V(0, BOOM, MAST_Z - 0.04 * M), new V(0, BOOM + 0.02 * M, BOOM_END), 0.06 * M, PALETTE.bone));
+  main.add(
     sail(
       [
         [MAST_Z - 0.08 * M, BOOM + 0.06 * M],
@@ -170,11 +174,28 @@ function buildSailboat(variant: number): THREE.Group {
     thick,
     canvas,
   );
-  // Sheeted a little to one side, where the wind has it.
-  jib.rotation.y = 0.12;
-  group.add(jib);
+  const jibbed = new THREE.Group();
+  jibbed.add(jib);
+  // A pennant at the masthead, streaming where the wind blows: the wind read at a glance.
+  const pennant = new THREE.Group();
+  pennant.add(
+    sail(
+      [
+        [MAST_Z - 0.02 * M, MAST_TOP + 0.14 * M],
+        [MAST_Z - 0.02 * M, MAST_TOP - 0.12 * M],
+        [MAST_Z - 0.95 * M, MAST_TOP + 0.02 * M],
+      ],
+      thick * 1.4,
+      PALETTE.red,
+    ),
+  );
 
-  return assemble('sailboat', [soupOf(group)], [turningAbout('rudder', soupOf(steering), new V(0, SHEER, TRANSOM - 0.02 * M))]);
+  return assemble('sailboat', [soupOf(group)], [
+    turningAbout('rudder', soupOf(steering), new V(0, SHEER, TRANSOM - 0.02 * M)),
+    turningAbout('boom', soupOf(main), new V(0, BOOM, MAST_Z)),
+    turningAbout('jib', soupOf(jibbed), new V(0, jibFoot, STEM - 0.35 * M)),
+    turningAbout('vane', soupOf(pennant), new V(0, MAST_TOP, MAST_Z)),
+  ]);
 }
 
 const SEATS: readonly Seat[] = [

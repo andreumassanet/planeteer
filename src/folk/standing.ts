@@ -193,6 +193,11 @@ export interface Standing {
   startledBy: THREE.Vector3;
   /** The dog it walks on a lead, once the rig has loaded (`dogs.ts`). */
   dog: Dog | null;
+  /** Knocked down by a vehicle (`breakables/knock.ts`): seconds since, -1 while not; the way it was flung as a world tangent and a yaw in the town's frame; how far. */
+  knocked: number;
+  knockDir: THREE.Vector3;
+  knockYaw: number;
+  knockFling: number;
 }
 
 export interface Townsfolk {
@@ -211,6 +216,12 @@ export interface Townsfolk {
    * than `TOWNSFOLK_RADIUS` is standing at all.
    */
   collide(point: THREE.Vector3, radius: number, push: THREE.Vector3): boolean;
+  /**
+   * A vehicle of `radius` swept from `from` to `to` going `velocity`: whoever
+   * stands in its way is knocked down, flung the way it was going, and gets
+   * up again dizzy (`breakables/knock.ts`). Returns how many. Local to this client.
+   */
+  knock(from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3): number;
   /** The nearest standing person within `reach` of `point`, or null. One reused object. */
   nearest(point: THREE.Vector3, reach: number): Talker | null;
   /**

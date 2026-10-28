@@ -20,6 +20,8 @@ const JUMP: PadButton = { action: 'jump', glyph: 'rise', label: 'Jump' };
 const horn = (label = 'Horn'): PadButton => ({ action: 'horn', glyph: 'sound', label });
 const up = (label: string): PadButton => ({ action: 'jump', glyph: 'rise', label });
 const down = (label: string): PadButton => ({ action: 'descend', glyph: 'sink', label });
+/** `Space` on wheels: the handbrake that starts a drift. */
+const drift = (label = 'Drift'): PadButton => ({ action: 'jump', glyph: 'sparkle', label });
 
 /** The cluster for a mode: `boardingHints`' lines, as buttons. */
 export function layoutOf(mode: TravelMode, airborne: boolean, stranded: boolean): PadLayout {
@@ -32,13 +34,15 @@ export function layoutOf(mode: TravelMode, airborne: boolean, stranded: boolean)
     case 'submarine':
       return { buttons: [up('Rise'), down('Dive')], stickRuns: false, out: 'Get out' };
     case 'car':
-    case 'boat':
-    case 'jetski':
-    case 'sailboat':
     case 'motorbike':
+      return { buttons: [drift(), horn()], stickRuns: true, out: 'Get out' };
+    case 'jetski':
+      return { buttons: [up('Leap'), horn()], stickRuns: true, out: 'Get out' };
+    case 'boat':
+    case 'sailboat':
       return { buttons: [horn()], stickRuns: true, out: 'Get out' };
     case 'bicycle':
-      return { buttons: [horn('Bell')], stickRuns: true, out: 'Get out' };
+      return { buttons: [drift('Skid'), horn('Bell')], stickRuns: true, out: 'Get out' };
     case 'horse':
       return { buttons: [JUMP, horn('Snort')], stickRuns: true, out: 'Dismount' };
     case 'plane':

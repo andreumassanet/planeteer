@@ -71,6 +71,7 @@ function emptyBuilt(): Built {
     provisional: false,
     walls: null,
     crowns: null,
+    props: null,
   };
 }
 
@@ -140,9 +141,9 @@ export function createTileBuilder(deps: TileBuilderDeps): TileBuilder {
     return built;
   }
 
-  function meshesOf(tile: Tile, run: TileRun): { mesh: THREE.Mesh; leaves: THREE.Mesh | null; machines: Built['machines'] } | null {
+  function meshesOf(tile: Tile, run: TileRun): { mesh: THREE.Mesh; leaves: THREE.Mesh | null; machines: Built['machines']; props: Built['props'] } | null {
     const { cards } = run;
-    const packed = packTile(run.placed, run.vertices, run.leafVertices, cards, framer.machineWalls);
+    const packed = packTile(run.placed, run.vertices, run.leafVertices, cards, framer.machineWalls, tile.level <= SOLID_LEVEL ? framer.propWalls : null);
     const { geometry, cardGeometry } = packed;
     let leaves: THREE.Mesh | null = null;
     if (cardGeometry !== null) {
@@ -172,7 +173,7 @@ export function createTileBuilder(deps: TileBuilderDeps): TileBuilder {
     // thousand units, where a float steps by 2^-14 rather than 2^-10.
     mesh.position.copy(frame.origin);
     mesh.quaternion.setFromRotationMatrix(frame.basis);
-    return { mesh, leaves, machines: packed.machines.length > 0 ? packed.machines : null };
+    return { mesh, leaves, machines: packed.machines.length > 0 ? packed.machines : null, props: packed.props.length > 0 ? packed.props : null };
   }
 
   function raise(tile: Tile): Built {
@@ -238,6 +239,7 @@ export function createTileBuilder(deps: TileBuilderDeps): TileBuilder {
       plants,
       bytes: vertices * (cards ? 25 : 21) + leafVertices * 26,
       machines: made.machines,
+      props: made.props,
       ...counts,
       ...countryside,
     };

@@ -67,7 +67,7 @@ export function createRunway(core: PlayerCore, road: Road, flight: Flight, ring:
       s.altitude = position.length() - PLANET_RADIUS;
       s.climbing = 0;
       s.vertical = 0;
-      s.roll = 0;
+      s.roll = s.rollRate = 0;
       options.onEvent?.('took-off', 0);
       return;
     }
@@ -79,7 +79,7 @@ export function createRunway(core: PlayerCore, road: Road, flight: Flight, ring:
       // into a gentle climb-out, whatever the keys say; then they have it.
       s.climbing = 0;
       s.goAround = PLANE_CLIMB_OUT;
-      s.roll = 0;
+      s.roll = s.rollRate = 0;
       spray(s.height, craftSplash());
       options.onEvent?.('took-off', 0);
     }

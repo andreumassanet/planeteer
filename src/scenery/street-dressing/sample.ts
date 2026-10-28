@@ -71,6 +71,7 @@ export function sampleDressing(region: string, iso: string, variant: number, mod
       emits: sink.glow.some((value, i) => i % 2 === 0 && value > 0),
       solids: [],
       seats: [],
+      pieces: [],
       anchors: sink.anchors,
       counts: {},
     },

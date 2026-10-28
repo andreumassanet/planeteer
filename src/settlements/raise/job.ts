@@ -14,11 +14,38 @@ import type { MapPlans } from '../map-plans.ts';
 import type { Registry } from '../registry.ts';
 import type { Bench } from '../../bench.ts';
 import type { FolkAnchor } from '../../folk.ts';
-import type { Bay, BikeSlot, FlatVariant, LitPlot, Slot, SlotFloor } from '../types.ts';
+import type { Bay, BikeSlot, FlatVariant, LitPlot, PropSink, Slot, SlotFloor } from '../types.ts';
+import type { LeafCard } from '../meshes.ts';
+import type { PropKind } from '../../breakables/kinds.ts';
 import type { Surface } from '../../surfaces.ts';
 import type { Variants } from '../variants.ts';
 
 /** The state one town's raise shares between its phases, and what it is raised with. */
+
+/**
+ * Something in a standing item a vehicle may knock over (`breakables.ts`):
+ * which run of the item's own vertices it is, its foot in the town's frame,
+ * its size and its wall. A tree or a lamp is its whole item; the street
+ * dressing is one item holding many.
+ */
+export interface StandingProp {
+  kind: PropKind;
+  first: number;
+  count: number;
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  height: number;
+  solid: Solid | null;
+  /** A near tree's leaf cards, whose run the leaves' merge records. */
+  leaf?: LeafCard;
+}
+
+/** A `StandingProp` placed in the town's buffer: its run's first vertex there. */
+export interface TownProp extends StandingProp {
+  start: number;
+}
 
 /** One thing standing in a town, as it goes into the merged buffer. */
 export interface Standing {
@@ -26,6 +53,8 @@ export interface Standing {
   matrix: THREE.Matrix4;
   /** A parked vehicle that can be taken, whose vertices the merge records. */
   bay?: Bay;
+  /** What in it a vehicle may knock over; absent for a building. */
+  props?: StandingProp[];
   /** How much of the variant's window pattern this copy shows, 0 to 1: two copies of a house are two households. */
   glow: number;
   /** An offset on the variant's window bedtimes, in encoded steps; only a building has one. */
@@ -57,6 +86,8 @@ export interface RaiseJob {
   readonly grid: TownGrid;
   readonly placed: Placed[];
   readonly standing: Standing[];
+  /** Everything a vehicle may knock over, where the merge put it. */
+  readonly props: TownProp[];
   /** Vertices of everything standing, which sizes the buffer. */
   vertices: number;
   drowned: number;
@@ -138,6 +169,8 @@ export interface RaiseKit {
   readonly planTownSteps: (slot: Slot, grid: TownGrid) => Generator<void, { placed: Placed[] }, void>;
   readonly plans: MapPlans;
   readonly scratch: RaiseScratch;
+  /** Where a standing town registers what may be knocked over; null and nothing breaks. */
+  readonly breakables: PropSink | null;
 }
 
 /** Composes a part's transform at `position` with a yaw and a uniform scale, into the scratch matrix. */

@@ -4,6 +4,7 @@ import type { RegionStyle, SceneryContext } from './scenery/contract.ts';
 import { rngFrom } from './scenery/random.ts';
 import type { Rng } from './scenery/random.ts';
 import type { BodyKind } from './scenery/occupancy.ts';
+import type { PropKind } from './breakables/kinds.ts';
 import { solidTree, treeForm } from './scenery/tree-forms.ts';
 import type { TreeForm } from './scenery/tree-forms.ts';
 import { AVATAR_HEIGHT } from './stature.ts';
@@ -83,6 +84,8 @@ export interface CountryPart {
    * what floats is walked onto from the land, and is nothing.
    */
   body?: BodyKind;
+  /** The kind of small thing a vehicle knocks over (`breakables.ts`); absent, it stays a wall. */
+  breaks?: PropKind;
   /** A triangle cap of its own, over `PIECE_TRIANGLES`: a baked model that is only ever near. */
   cap?: number;
   build(ctx: SceneryContext, rng: Rng, style: RegionStyle): THREE.Group;
@@ -202,6 +205,7 @@ const silo: CountryPart = {
 const hayBale: CountryPart = {
   id: 'hay-bale',
   footprint: 1.2,
+  breaks: 'bale',
   build(ctx, rng) {
     const { THREE, column, tone } = ctx;
     const group = new THREE.Group();
@@ -394,6 +398,7 @@ const lighthouse: CountryPart = {
 const waysideCross: CountryPart = {
   id: 'wayside-cross',
   footprint: 1.6,
+  breaks: 'stone',
   build(ctx, rng, style) {
     const { THREE, box, tone } = ctx;
     const group = new THREE.Group();
@@ -537,6 +542,7 @@ const prayerFlags: CountryPart = {
 const spiritHouse: CountryPart = {
   id: 'spirit-house',
   footprint: 1.4,
+  breaks: 'post',
   build(ctx, rng, style) {
     const { THREE, box, column, roof, tone } = ctx;
     const group = new THREE.Group();
@@ -597,6 +603,7 @@ const hinduShrine: CountryPart = {
 const standingStone: CountryPart = {
   id: 'standing-stone',
   footprint: 1,
+  breaks: 'stone',
   build(ctx, rng, style) {
     const { THREE, taper } = ctx;
     const group = new THREE.Group();
@@ -790,6 +797,7 @@ const jetty: CountryPart = {
 const cairn: CountryPart = {
   id: 'cairn',
   footprint: 1.4,
+  breaks: 'stone',
   build(ctx, rng, style) {
     const { THREE, blob, tone } = ctx;
     const group = new THREE.Group();
@@ -821,6 +829,7 @@ const cairn: CountryPart = {
 const bench: CountryPart = {
   id: 'bench',
   footprint: 1.6,
+  breaks: 'bench',
   build(ctx, rng) {
     const wood = rng.pick([PALETTE.brown, PALETTE.bark, PALETTE.green]);
     return buildBench(ctx, wood, PALETTE.steel, AVATAR_HEIGHT * 0.72, AVATAR_HEIGHT * rng.range(0.24, 0.3));
@@ -831,6 +840,7 @@ const bench: CountryPart = {
 const signpost: CountryPart = {
   id: 'signpost',
   footprint: 1.2,
+  breaks: 'sign',
   build(ctx, rng) {
     const { THREE, column, box, tone } = ctx;
     const group = new THREE.Group();
@@ -857,6 +867,7 @@ const signpost: CountryPart = {
 const rocks: CountryPart = {
   id: 'rocks',
   footprint: 3,
+  breaks: 'stone',
   build(ctx, rng, style) {
     const { THREE } = ctx;
     const group = new THREE.Group();

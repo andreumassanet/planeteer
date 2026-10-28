@@ -229,6 +229,8 @@ console.log('\nthe ride, headless:');
       player.pose(wire);
       return new Vector3(wire[6], wire[7], wire[8]).dot(radial());
     };
+    // Only the mode key takes the plane into full control: the stick in travel turns and climbs.
+    step(1, { flightMode: true });
     const startForward = player.forward.clone();
     events.length = 0;
     let top = 0;
@@ -244,6 +246,7 @@ console.log('\nthe ride, headless:');
     step(1, { flightMode: true });
     step(8, {});
     check(!player.aerobatic && Math.abs(upness() - 1) < 0.05, 'the mode key levels it and hands back travel', `up ${upness().toFixed(3)}`);
+    step(1, { flightMode: true });
     let inverted = 1;
     for (let t = 0; t < 1.6; t += 1 / 60) {
       step(1 / 60, { roll: 1 });
@@ -256,6 +259,7 @@ console.log('\nthe ride, headless:');
     climbTo(600);
     const stallFrom = player.altitude;
     const stallSpeed = AERO_LIFT_SPEED * AERO_STALL * airAt(stallFrom);
+    step(1, { flightMode: true });
     for (let t = 0; t < 4 && player.nosePitch < 1.3; t += 1 / 60) step(1 / 60, { pitch: 1, y: -1 });
     let slowest = Infinity;
     let peak = -Infinity;
@@ -273,6 +277,7 @@ console.log('\nthe ride, headless:');
     // Upside down into the ground: a knock, told, and still flying over it.
     events.length = 0;
     climbTo(450);
+    step(1, { flightMode: true });
     for (let t = 0; t < 1.2; t += 1 / 60) step(1 / 60, { roll: 1 });
     // On its back the pull takes the nose to the ground; then let go.
     step(1, { pitch: 1 });

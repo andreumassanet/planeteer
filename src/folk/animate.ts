@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import type { ClipName } from '../cast.ts';
 import { WALK_STRIDE } from '../avatar.ts';
-import { ASIDE_EASE, BLEND_TIME, GLANCE_LIMIT, GLANCE_REACH, TALK_BLEND, TURN_RATE, hash, turnBetween, type Standing, type TownsfolkState } from './standing.ts';
+import { ASIDE_EASE, AXIS_UP, BLEND_TIME, GLANCE_LIMIT, GLANCE_REACH, TALK_BLEND, TURN_RATE, hash, turnBetween, type Standing, type TownsfolkState } from './standing.ts';
 import { crossStep, place, startGesture, stroll, yawTowards } from './stroll.ts';
+import { knockPose, newKnockPose } from '../breakables/knock.ts';
 
 export const GESTURES: readonly ClipName[] = ['Interact', 'Wave'];
 /** A pair talking gestures as they talk. */
@@ -10,6 +11,10 @@ export const TALKING: readonly ClipName[] = ['Interact', 'Interact', 'Wave'];
 
 /** A gesture fades in over a quarter second and out over the last third of one. */
 export function animate(st: TownsfolkState, entry: Standing, dt: number, clock: number, near: boolean): void {
+  if (entry.knocked >= 0) {
+    knockedFrame(st, entry, dt);
+    return;
+  }
   const { person, base, walk, talk } = entry;
   const seated = entry.mode === 'sit';
   const moving = entry.mode === 'stroll' ? stroll(st, entry, dt) : entry.mode === 'cross' ? crossStep(st, entry, dt) : false;
@@ -98,4 +103,45 @@ export function animate(st: TownsfolkState, entry: Standing, dt: number, clock: 
   st.turn.setFromAxisAngle(st.upAxis, entry.glance);
   // parent^-1 * turn * parent * rest
   entry.head.quaternion.copy(st.parentTurn).invert().multiply(st.turn).multiply(st.parentTurn).multiply(entry.headRest);
+}
+
+const pose = newKnockPose();
+const tip = new THREE.Quaternion();
+const fall = new THREE.Quaternion();
+const AXIS_X = new THREE.Vector3(1, 0, 0);
+
+/**
+ * One frame knocked down: flung along `knockDir` and over onto the ground
+ * about the feet, lying, then up and swaying; the stance alone plays. Once
+ * done the step-aside eases the body back to where it stood.
+ */
+function knockedFrame(st: TownsfolkState, entry: Standing, dt: number): void {
+  const { person, base, walk, talk } = entry;
+  entry.knocked += dt;
+  knockPose(entry.knocked, person.height, entry.knockFling, pose);
+  if (pose.done) {
+    entry.knocked = -1;
+    entry.asideTarget.set(0, 0, 0);
+    entry.asideFor = 0;
+    return;
+  }
+  st.upAxis.set(0, 1, 0).applyQuaternion(entry.anchor.town);
+  entry.aside.copy(entry.knockDir).multiplyScalar(pose.along).addScaledVector(st.upAxis, pose.lift);
+  entry.walking = 0;
+  entry.talking = 0;
+  walk.setEffectiveWeight(0);
+  talk.setEffectiveWeight(0);
+  if (entry.seatTalk !== null) entry.seatTalk.setEffectiveWeight(0);
+  base.setEffectiveWeight(1);
+  // Over about the feet, towards the fling: town * yaw(fall) * tilt * yaw(own - fall).
+  entry.holder.position.copy(entry.position).add(entry.aside);
+  fall.setFromAxisAngle(AXIS_UP, entry.knockYaw);
+  tip.setFromAxisAngle(AXIS_X, pose.tilt);
+  st.turn.setFromAxisAngle(AXIS_UP, entry.yaw + pose.sway - entry.knockYaw);
+  entry.holder.quaternion.copy(entry.anchor.town).multiply(fall).multiply(tip).multiply(st.turn);
+  if (entry.head !== null) entry.head.quaternion.copy(entry.headRest);
+  st.umbrellas.unpose(person);
+  person.mixer.update(dt);
+  st.umbrellas.pose(person, entry.anchor.key, dt);
+  if (entry.head !== null) entry.headRest.copy(entry.head.quaternion);
 }

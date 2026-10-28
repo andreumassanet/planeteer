@@ -65,6 +65,7 @@ export function createSettlements(
   options: SettlementOptions = {},
 ): Settlements {
   const registry = createRegistry();
+  registry.breakables = options.breakables ?? null;
   // The gates a town may not raise to make its streets climbable, because a road's ramps would meet.
   holdGates(options.roads ?? [], places, world);
   const roadGates = gatesByPlace(options.roads ?? [], places);
@@ -111,6 +112,7 @@ export function createSettlements(
     planTownSteps: planner.planTownSteps,
     plans,
     scratch: createRaiseScratch(),
+    breakables: registry.breakables,
   };
   const life = createLifecycle(registry, (slot) => raiseSteps(kit, slot), variants.warmSteps, planner.planTownSteps, plans.endPlanJob);
   lifecycle = life;
@@ -233,6 +235,7 @@ function slotOf(world: World, place: Place, index: number, continentOf: Readonly
     parked: [],
     benches: [],
     bikeSlots: [],
+    host: null,
   };
 }
 

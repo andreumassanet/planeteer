@@ -6,6 +6,8 @@ import type { Solid, SolidField } from '../scenery/solids.ts';
 import type { ParkedCar } from '../settlements.ts';
 import type { CountryMotionRows } from '../countryside-tile.ts';
 import type { PlanShape } from '../landmark-ground.ts';
+import type { PropHost } from '../breakables/types.ts';
+import type { PropKind } from '../breakables/kinds.ts';
 
 /**
  * Tiles at or under this level draw a tree as it is (wood plus alpha-tested
@@ -34,6 +36,8 @@ export interface FlatVariant {
   tilt: number;
   /** What it is to a body walking into it; absent, nothing. */
   solid?: BodyKind;
+  /** What a vehicle knocks it over as (`breakables.ts`); absent, it never is. */
+  breaks?: PropKind;
   /** A building's `atlasSurface` bytes, one a vertex (`src/surfaces.ts`); absent, drawn as it is. */
   surface?: Uint8Array;
   /** Its panes' corners, two bytes a vertex, where it has glass. */
@@ -67,6 +71,26 @@ export interface TileMachine extends ParkedCar {
   count: number;
   solids: Solid[];
   hidden: boolean;
+}
+
+/**
+ * A tree or a small country piece of a tile a vehicle may knock over
+ * (`breakables.ts`): what it is, its foot in the
+ * tile's frame, its size, its wood's run in the buffer, its cards' run in the
+ * leaves' (none past `CARD_LEVEL`), and its trunk's walls.
+ */
+export interface TileProp {
+  kind: PropKind;
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  height: number;
+  start: number;
+  count: number;
+  leafStart: number;
+  leafCount: number;
+  solids: Solid[];
 }
 
 /** Where a tile sits in the quadtree. */
@@ -117,6 +141,10 @@ export interface Standing extends Cell {
   /** Its trees' crowns in world space, while it is drawn. */
   crowns: Float32Array | null;
   machines: TileMachine[] | null;
+  /** Its trees a vehicle may knock over; null past `SOLID_LEVEL` or where there are none. */
+  props: TileProp[] | null;
+  /** The same as registered while the tile is drawn, or null. */
+  host: PropHost | null;
 }
 
 /**
@@ -162,6 +190,8 @@ export interface Built {
   walls: TileWalls | null;
   /** Its trees' crowns in world space, `CROWN_STRIDE` floats each. */
   crowns: Float32Array | null;
+  /** Its trees a vehicle may knock over, at or under `SOLID_LEVEL`. */
+  props: TileProp[] | null;
 }
 
 /** A keepout around something built, in a tile's frame. */

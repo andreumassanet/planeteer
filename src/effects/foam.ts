@@ -1,13 +1,13 @@
-/** Ageing the foam: discs and ribbons on the sea, written into one buffer. */
+/** Ageing the foam: discs and ribbons on the sea, and the skid marks on the ground, written into one buffer. */
 import { MAX_RIBBONS, RIBBON_POINTS, DISC_SIDES, DISC_VERTICES, SEGMENT_VERTICES, FOAM_VERTEX_CAP, FOAM_RADIUS } from './constants.ts';
-import { F_POS, F_VEL, F_E1, F_E2, F_AGE, F_LIFE, F_R0, F_R1, F_RING, F_DRAG, F_STRIDE, R_POS, R_VEL, R_SIDE, R_AGE, R_LIFE, R_W0, R_W1, R_DRAG, R_LINK, R_HOLLOW, R_STRIDE } from './layout.ts';
-import { smooth, clamp, COS, SIN, p3 } from './helpers.ts';
+import { F_POS, F_VEL, F_E1, F_E2, F_AGE, F_LIFE, F_R0, F_R1, F_RING, F_DRAG, F_STRIDE, R_POS, R_VEL, R_SIDE, R_AGE, R_LIFE, R_W0, R_W1, R_DRAG, R_LINK, R_HOLLOW, R_COLOR, R_STRIDE } from './layout.ts';
+import { smooth, clamp, linearOf, COS, SIN, p3 } from './helpers.ts';
 import type { Pools } from './pools.ts';
 
 
 export function createFoam(fx: Pools) {
-  const { foamPositions, foamNormals, f, r, ribbonHead, ribbonCount, stats, anchor } = fx;
-  /** One foam vertex, relative to the anchor, with the water's normal. */
+  const { foamPositions, foamNormals, foamColors, f, r, ribbonHead, ribbonCount, ribbonOnGround, stats, anchor } = fx;
+  /** One foam vertex, relative to the anchor, with the water's normal, in the tint. */
   function vertex(x: number, y: number, z: number, nx: number, ny: number, nz: number): void {
     const v = fx.cursor * 3;
     foamPositions[v] = x - anchor.x;
@@ -16,10 +16,21 @@ export function createFoam(fx: Pools) {
     foamNormals[v] = nx;
     foamNormals[v + 1] = ny;
     foamNormals[v + 2] = nz;
+    foamColors[v] = fx.tintR;
+    foamColors[v + 1] = fx.tintG;
+    foamColors[v + 2] = fx.tintB;
     fx.cursor++;
+  }
+  /** The tint the next vertices take: a palette colour, in linear. */
+  function tint(hex: number): void {
+    const color = linearOf(hex);
+    fx.tintR = color.r;
+    fx.tintG = color.g;
+    fx.tintB = color.b;
   }
 
   function advanceDiscs(dt: number): void {
+    tint(0xffffff);
     for (let i = 0; i < fx.discCount; i++) {
       let o = i * F_STRIDE;
       f[o + F_AGE] = f[o + F_AGE]! + dt;
@@ -85,7 +96,8 @@ export function createFoam(fx: Pools) {
     const bx = r[b + R_POS]!, by = r[b + R_POS + 1]!, bz = r[b + R_POS + 2]!;
     const asx = r[a + R_SIDE]! * hand, asy = r[a + R_SIDE + 1]! * hand, asz = r[a + R_SIDE + 2]! * hand;
     const bsx = r[b + R_SIDE]! * hand, bsy = r[b + R_SIDE + 1]! * hand, bsz = r[b + R_SIDE + 2]! * hand;
-    const nx = ax / FOAM_RADIUS, ny = ay / FOAM_RADIUS, nz = az / FOAM_RADIUS;
+    const at = Math.hypot(ax, ay, az);
+    const nx = ax / at, ny = ay / at, nz = az / at;
     // Which way round is up: the side crossed with the way along, against the water's normal.
     const ux = bx - ax, uy = by - ay, uz = bz - az;
     const facing = (asy * uz - asz * uy) * nx + (asz * ux - asx * uz) * ny + (asx * uy - asy * ux) * nz;
@@ -102,54 +114,80 @@ export function createFoam(fx: Pools) {
     }
   }
 
+  /**
+   * Every ribbon aged and drawn: the water's first and the ground's after, so
+   * the skid marks are the last `markVertices` of the buffer.
+   */
   function advanceRibbons(dt: number): void {
     let points = 0;
     let live = 0;
-    for (let ribbon = 0; ribbon < MAX_RIBBONS; ribbon++) {
-      let count = ribbonCount[ribbon]!;
-      if (count === 0) continue;
-      const base = ribbon * RIBBON_POINTS;
-      let head = ribbonHead[ribbon]!;
-      for (let i = 0; i < count; i++) {
-        const o = (base + ((head + i) % RIBBON_POINTS)) * R_STRIDE;
-        r[o + R_AGE] = r[o + R_AGE]! + dt;
-        const damp = Math.exp(-r[o + R_DRAG]! * dt);
-        const x = r[o + R_POS]!, y = r[o + R_POS + 1]!, z = r[o + R_POS + 2]!;
-        const vx = r[o + R_VEL]! * damp, vy = r[o + R_VEL + 1]! * damp, vz = r[o + R_VEL + 2]! * damp;
-        p3(r, o + R_VEL, vx, vy, vz);
-        const nx = x + vx * dt, ny = y + vy * dt, nz = z + vz * dt;
-        const onto = FOAM_RADIUS / Math.hypot(nx, ny, nz);
-        p3(r, o + R_POS, nx * onto, ny * onto, nz * onto);
+    for (let pass = 0; pass < 2; pass++) {
+      const before = fx.cursor;
+      for (let ribbon = 0; ribbon < MAX_RIBBONS; ribbon++) {
+        if (ribbonOnGround[ribbon] !== pass || ribbonCount[ribbon] === 0) continue;
+        const held = ageRibbon(ribbon, dt, pass === 1);
+        if (held === 0) continue;
+        points += held;
+        live++;
+        drawRibbon(ribbon);
       }
-      // The oldest go first; a point older than its life in the middle of a
-      // ribbon is drawn at no width until its turn comes.
-      while (count > 0) {
-        const o = (base + head) * R_STRIDE;
-        if (r[o + R_AGE]! < r[o + R_LIFE]!) break;
-        head = (head + 1) % RIBBON_POINTS;
-        count--;
-      }
-      ribbonHead[ribbon] = head;
-      ribbonCount[ribbon] = count;
-      if (count === 0) continue;
-      points += count;
-      live++;
-      for (let i = 1; i < count; i++) {
-        const b = (base + ((head + i) % RIBBON_POINTS)) * R_STRIDE;
-        if (r[b + R_LINK] === 0) continue;
-        if (fx.cursor + SEGMENT_VERTICES > FOAM_VERTEX_CAP) break;
-        const a = (base + ((head + i - 1) % RIBBON_POINTS)) * R_STRIDE;
-        band(a);
-        const ai = fx.bandInner, ao = fx.bandOuter;
-        band(b);
-        const bi = fx.bandInner, bo = fx.bandOuter;
-        if (ao <= ai && bo <= bi) continue;
-        halfBand(a, b, 1, ai, ao, bi, bo);
-        halfBand(a, b, -1, ai, ao, bi, bo);
-      }
+      if (pass === 1) stats.markVertices = fx.cursor - before;
     }
     stats.ribbonPoints = points;
     stats.ribbons = live;
+  }
+
+  /** One ribbon's points aged, moved and the dead let go: how many it still holds. */
+  function ageRibbon(ribbon: number, dt: number, ground: boolean): number {
+    let count = ribbonCount[ribbon]!;
+    const base = ribbon * RIBBON_POINTS;
+    let head = ribbonHead[ribbon]!;
+    for (let i = 0; i < count; i++) {
+      const o = (base + ((head + i) % RIBBON_POINTS)) * R_STRIDE;
+      r[o + R_AGE] = r[o + R_AGE]! + dt;
+      // A mark stays where it was laid.
+      if (ground) continue;
+      const damp = Math.exp(-r[o + R_DRAG]! * dt);
+      const x = r[o + R_POS]!, y = r[o + R_POS + 1]!, z = r[o + R_POS + 2]!;
+      const vx = r[o + R_VEL]! * damp, vy = r[o + R_VEL + 1]! * damp, vz = r[o + R_VEL + 2]! * damp;
+      p3(r, o + R_VEL, vx, vy, vz);
+      const nx = x + vx * dt, ny = y + vy * dt, nz = z + vz * dt;
+      const onto = FOAM_RADIUS / Math.hypot(nx, ny, nz);
+      p3(r, o + R_POS, nx * onto, ny * onto, nz * onto);
+    }
+    // The oldest go first; a point older than its life in the middle of a
+    // ribbon is drawn at no width until its turn comes.
+    while (count > 0) {
+      const o = (base + head) * R_STRIDE;
+      if (r[o + R_AGE]! < r[o + R_LIFE]!) break;
+      head = (head + 1) % RIBBON_POINTS;
+      count--;
+    }
+    ribbonHead[ribbon] = head;
+    ribbonCount[ribbon] = count;
+    return count;
+  }
+
+  /** One ribbon's joined segments into the buffer, each in the colour of its later point. */
+  function drawRibbon(ribbon: number): void {
+    const count = ribbonCount[ribbon]!;
+    const base = ribbon * RIBBON_POINTS;
+    const head = ribbonHead[ribbon]!;
+    let hex = -1;
+    for (let i = 1; i < count; i++) {
+      const b = (base + ((head + i) % RIBBON_POINTS)) * R_STRIDE;
+      if (r[b + R_LINK] === 0) continue;
+      if (fx.cursor + SEGMENT_VERTICES > FOAM_VERTEX_CAP) break;
+      const a = (base + ((head + i - 1) % RIBBON_POINTS)) * R_STRIDE;
+      band(a);
+      const ai = fx.bandInner, ao = fx.bandOuter;
+      band(b);
+      const bi = fx.bandInner, bo = fx.bandOuter;
+      if (ao <= ai && bo <= bi) continue;
+      if (r[b + R_COLOR] !== hex) tint((hex = r[b + R_COLOR]!));
+      halfBand(a, b, 1, ai, ao, bi, bo);
+      halfBand(a, b, -1, ai, ao, bi, bo);
+    }
   }
 
   return { advanceDiscs, advanceRibbons };

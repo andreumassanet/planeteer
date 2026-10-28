@@ -1,5 +1,5 @@
 /** The per-frame mix: the loops follow the state of the world, and the birds and crickets come and go. */
-import { HOOF_LEVEL, MOTORS, PLANE_LEVEL, RAIN_LEVEL, ROTOR_LEVEL, SAUCER_LEVEL, SEA_LEVEL, TICK_LEVEL, VARIANTS, WIND_LEVEL, MUFFLED, OPEN_AIR, between, clamp01, follow } from './levels.ts';
+import { BOOST_LEVEL, GEAR_DROP, GEARS, SKID_FROM, SKID_FULL, SKID_LEVEL, HOOF_LEVEL, MOTORS, PLANE_LEVEL, RAIN_LEVEL, ROTOR_LEVEL, SAUCER_LEVEL, SEA_LEVEL, TICK_LEVEL, VARIANTS, WIND_LEVEL, MUFFLED, OPEN_AIR, between, clamp01, follow } from './levels.ts';
 import type { createSamples } from './samples.ts';
 import type { createSynth } from './synth.ts';
 import type { Runtime } from './runtime.ts';
@@ -12,6 +12,45 @@ export function createMix(rt: Runtime, synth: ReturnType<typeof createSynth>, sa
   let nextTick = 0;
   let nextHoof = 0;
   let hoof = 0;
+  /** The gear the motor's note is in, and the boost heard last frame. */
+  let gear = 0;
+  let lastBoost = 0;
+
+  /**
+   * The motor's note, 0 idle to 1 flat out, through `gears` gears: it climbs
+   * through each and drops back `GEAR_DROP` at a change, held a little past
+   * either side so a speed on the line does not hunt between two.
+   */
+  function revs(throttle: number, gears: number | undefined): number {
+    if (gears === undefined) {
+      gear = 0;
+      return throttle;
+    }
+    const at = throttle * gears;
+    while (gear < gears - 1 && at > gear + 1.02) gear++;
+    while (gear > 0 && at < gear - 0.1) gear--;
+    return clamp01((1 - GEAR_DROP) * throttle + GEAR_DROP * clamp01(at - gear));
+  }
+
+  /** A drift's boost paid out: a rush of noise through a band sweeping up, once. */
+  function rush(ctx: AudioContext, out: AudioNode, noise: AudioBuffer, at: number): void {
+    const source = ctx.createBufferSource();
+    source.buffer = noise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.4;
+    band.frequency.setValueAtTime(350, at);
+    band.frequency.exponentialRampToValueAtTime(2600, at + 0.4);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.exponentialRampToValueAtTime(BOOST_LEVEL, at + 0.06);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + 0.8);
+    source.connect(band).connect(env).connect(out);
+    source.start(at, Math.random() * Math.max(0, noise.duration - 1));
+    source.stop(at + 0.85);
+    rt.voices++;
+    source.onended = () => rt.voices--;
+  }
 
   // Slow random walks that keep the loops from sounding like a test tone.
   let gust = 0.5;
@@ -27,7 +66,7 @@ export function createMix(rt: Runtime, synth: ReturnType<typeof createSynth>, sa
     const ctx = rt.context;
     const loops = rt.loops;
     if (ctx === null || loops === null) return;
-    const { wind, sea, boat, plane, rotor, saucer, nature, rain } = loops;
+    const { wind, sea, boat, plane, rotor, saucer, nature, rain, skid } = loops;
     if (ctx.state !== 'running') return;
     const now = ctx.currentTime;
     if (rt.muffle !== null) {
@@ -84,13 +123,29 @@ export function createMix(rt: Runtime, synth: ReturnType<typeof createSynth>, sa
     // and a car's engine, which is the same square an octave under a sawtooth
     // pitched up and let through a wider filter; a diesel and a single are the same
     // again, lower and closed or higher and open.
+    // On wheels the note climbs through the gears; a boost opens it out.
     const voice = MOTORS[state.mode];
-    const motor = voice === undefined ? 0 : voice.level * (0.32 + 0.68 * throttle);
+    const boosting = (state.boost ?? 0) > 0 ? 1 : 0;
+    const rev = revs(throttle, GEARS[state.mode]);
+    const motor = voice === undefined ? 0 : voice.level * (0.32 + 0.68 * throttle) * (1 + 0.25 * boosting);
     follow(boat.gain.gain, motor, now);
-    const putt = voice === undefined ? 30 : voice.putt + voice.rise * throttle;
-    follow(boat.low.frequency, putt, now);
-    follow(boat.high.frequency, putt * 2, now);
-    follow(boat.filter.frequency, voice === undefined ? 220 : voice.filter + voice.open * throttle, now);
+    const putt = voice === undefined ? 30 : voice.putt + voice.rise * (rev + 0.15 * boosting);
+    follow(boat.low.frequency, putt, now, 0.12);
+    follow(boat.high.frequency, putt * 2, now, 0.12);
+    follow(boat.filter.frequency, voice === undefined ? 220 : voice.filter + voice.open * (rev + 0.3 * boosting), now, 0.12);
+
+    // Tyres sliding squeal, and harder the harder they slide; a bicycle's
+    // back wheel only scrubs.
+    const slide = clamp01(((state.slip ?? 0) - SKID_FROM) / (SKID_FULL - SKID_FROM));
+    const tyred = state.mode === 'car' || state.mode === 'heavy' || state.mode === 'motorbike' || state.mode === 'bicycle';
+    const scrub = tyred ? SKID_LEVEL * Math.sqrt(slide) * (state.mode === 'bicycle' ? 0.4 : 1) : 0;
+    follow(skid.gain.gain, scrub, now, 0.06);
+    follow(skid.tone.frequency, (state.mode === 'heavy' ? 760 : 980) + 320 * slide, now, 0.1);
+    follow(skid.band.frequency, 1300 + 1000 * slide, now, 0.1);
+    follow(skid.squeal.gain, state.mode === 'bicycle' ? 0 : 0.18, now, 0.1);
+    const boost = state.boost ?? 0;
+    if (boost > lastBoost + 0.05 && rt.master !== null) rush(ctx, rt.master, loops.crackNoise, now + 0.01);
+    lastBoost = boost;
 
     // The rotor, whenever somebody is at a helicopter's controls or in it.
     const chopping = state.mode === 'helicopter';

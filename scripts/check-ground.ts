@@ -790,14 +790,18 @@ console.log('\nthe roads on the drawn land');
 /*
  * The frame rate: a run at a riser across flat ground, and a jump, at 10 to
  * 144 frames a second. A wall stops the body and a kerb does not at every rate,
- * and the jump's top is the same height at every rate.
+ * and the jump's top is the same height at every rate. The body turns to a new
+ * push within a fifth of a second, and a jump from standing goes where it is
+ * pushed, as far at every rate.
  */
 console.log('\nthe body at any frame rate');
 {
   const { createPlayer } = await import('../src/player.ts');
-  const { JUMP_HEIGHT } = await import('../src/player/constants.ts');
+  const { JUMP_HEIGHT, JUMP_RISE } = await import('../src/player/constants.ts');
+  const { WALK_SPEED } = await import('../src/avatar.ts');
   const { unitAt } = await import('../src/sphere.ts');
   const FLOOR = PLANET_RADIUS + 60;
+  const leaps: number[] = [];
   const start = unitAt(30, 100, new Vector3());
   const north = new Vector3(0, 1, 0).projectOnPlane(start).normalize();
   const line = start.clone().applyAxisAngle(new Vector3().crossVectors(start, north).normalize(), 30 / FLOOR);
@@ -824,7 +828,134 @@ console.log('\nthe body at any frame rate');
       top = Math.max(top, jumper.position.length() - FLOOR);
     }
     check(Math.abs(top - JUMP_HEIGHT) < 0.06, `${fps} fps: a jump tops out at its height`, `${top.toFixed(3)} against ${JUMP_HEIGHT.toFixed(3)}`);
+    // Walking north, then pushed to the right: facing it a fifth of a second later.
+    const turner = createPlayer(world, 30, 100, { groundAt: () => FLOOR });
+    for (let t = 0; t < 1; t += 1 / fps) turner.update(1 / fps, { move: { x: 0, y: 1 }, run: false, jump: false, heading: north });
+    for (let t = 0; t < 0.2 - 1e-9; t += 1 / fps) turner.update(1 / fps, { move: { x: 1, y: 0 }, run: false, jump: false, heading: north });
+    const upHere = turner.position.clone().normalize();
+    const right = north.clone().projectOnPlane(upHere).normalize().cross(upHere).normalize();
+    const facingOff = turner.forward.clone().projectOnPlane(upHere).angleTo(right);
+    check(facingOff < 0.2, `${fps} fps: pushed to the side, the body faces it within a fifth of a second`, `${(facingOff * 57.3).toFixed(1)} degrees off`);
+    // A standing jump with the stick pushed forward goes forward, near a walk's pace.
+    const leaper = createPlayer(world, 30, 100, { groundAt: () => FLOOR });
+    const from = leaper.position.clone();
+    let flown = false;
+    for (let t = 0; t < 1.2 && !(flown && !leaper.airborne); t += 1 / fps) {
+      leaper.update(1 / fps, { move: { x: 0, y: 1 }, run: false, jump: t === 0, heading: north });
+      flown ||= leaper.airborne;
+    }
+    const leap = leaper.position.clone().sub(from).dot(north);
+    leaps.push(leap);
+    check(leap > 0.75 * WALK_SPEED * 2 * JUMP_RISE, `${fps} fps: a standing jump pushed forward goes where it is pushed`, `${leap.toFixed(2)} units`);
   }
+  check(Math.max(...leaps) - Math.min(...leaps) < 0.6, 'and as far at every frame rate', leaps.map((l) => l.toFixed(2)).join(', '));
+}
+
+/*
+ * The drift, on flat ground: `Space` held at speed with the wheel over breaks
+ * the rear loose and the bow swings off the way the car is going, never past
+ * the kind's `maxSlip`; held, it stays loose; let go, it pays the boost it
+ * earned that very step, with a kick of speed, and grips again, and the boost
+ * never takes the car past what `topSpeedOf` leaves room for. Flicked across,
+ * the drift snaps over to the other side; counter-steered from rest it holds
+ * its side. The same at 10 and 144
+ * frames a second; a hard turn without the handbrake barely slips, and a horse
+ * never slides. Over a kicker at speed the car leaves the ground and lands.
+ */
+console.log('\nthe drift');
+{
+  const { createPlayer } = await import('../src/player.ts');
+  const { writePose } = await import('../src/player/pose.ts');
+  const { unitAt } = await import('../src/sphere.ts');
+  const { Group } = await import('three');
+  const { ROAD_HANDLING, topSpeedOf } = await import('../src/vehicles.ts');
+  const FLOOR = PLANET_RADIUS + 60;
+  const start = unitAt(-20, 40, new Vector3());
+  const north = new Vector3(0, 1, 0).projectOnPlane(start).normalize();
+  const stub = (kind: string, size: [number, number, number]) => ({
+    id: kind, kind, medium: 'road', size, draft: 0, variants: 1,
+    seats: [{ x: 0, y: size[2] * 0.3, z: 0, yaw: 0, pose: 'sit', shown: true }],
+    build: () => new Group(),
+  }) as unknown as Parameters<ReturnType<typeof createPlayer>['board']>[0]['model'];
+  /** A run of `[seconds, steer, throttle, handbrake]` legs; what the car did. */
+  const run = (kind: string, fps: number, legs: [number, number, number, boolean][], ground: (p: Vector3) => number = () => FLOOR, extra: Partial<Parameters<typeof createPlayer>[3]> = {}) => {
+    const player = createPlayer(world, -20, 40, { groundAt: ground, ...extra });
+    const model = stub(kind, kind === 'horse' ? [5, 1.6, 4] : kind === 'motorbike' ? [4, 1.2, 2.4] : [8, 3.2, 3]);
+    player.board({ vehicle: `${kind}:drift`, seat: 0, model, group: model.build(0) }, writePose(start.clone().multiplyScalar(ground(start)), north, start, []));
+    const out = { slip: [] as number[], loose: [] as boolean[], boost: [] as number[], pace: [] as number[], fastest: 0, boosted: false, airborne: false, highest: 0, player };
+    for (const [seconds, x, y, brake] of legs) {
+      for (let t = 0; t < seconds - 1e-9; t += 1 / fps) {
+        const both = x !== 0 && y !== 0;
+        player.update(1 / fps, { move: { x: both ? x * Math.SQRT1_2 : x, y: both ? y * Math.SQRT1_2 : y }, run: true, jump: false, climb: brake, heading: player.forward });
+        out.slip.push(Math.atan2(player.slip, Math.max(1, player.speed)));
+        out.loose.push(player.driftTier >= 0);
+        out.boost.push(player.boost);
+        out.pace.push(player.velocity);
+        out.fastest = Math.max(out.fastest, player.velocity);
+        out.boosted ||= player.boost > 0;
+        out.airborne ||= player.airborne;
+        out.highest = Math.max(out.highest, player.position.length() - ground(player.position));
+      }
+    }
+    return out;
+  };
+  const DRIFT: [number, number, number, boolean][] = [[3, 0, 1, false], [1.5, 1, 1, true], [0.5, -1, 1, false], [2, 0, 1, false]];
+  const RELEASE = Math.round(4.5 * 60);
+  const car = ROAD_HANDLING.car!;
+  const drift = run('car', 60, DRIFT);
+  const widest = Math.max(...drift.slip.map(Math.abs));
+  const settled = drift.slip.slice(-30).every((a) => Math.abs(a) < 0.035);
+  check(widest > 0.45 && widest <= car.maxSlip + 1e-6, 'a handbrake turn at speed swings the bow off the way, never past maxSlip', `${(widest * 57.3).toFixed(1)} degrees, max ${(car.maxSlip * 57.3).toFixed(0)}`);
+  check(drift.loose.slice(Math.round(3.2 * 60), RELEASE).every(Boolean), 'held, the drift stays loose');
+  check(drift.boost[RELEASE - 1] === 0 && drift.boost[RELEASE]! > 0, 'let go, the boost is paid that very step', `boost ${drift.boost[RELEASE]!.toFixed(2)} s`);
+  const kick = drift.pace[RELEASE]! - drift.pace[RELEASE - 1]!;
+  check(kick > 3, 'with a kick of speed at once', `+${kick.toFixed(1)} units a second in one step`);
+  check(settled && !drift.loose[drift.loose.length - 1], 'and the tyres grip again and the slide dies', `last slip ${(drift.slip[drift.slip.length - 1]! * 57.3).toFixed(2)} degrees`);
+  check(drift.boosted, 'and the drift pays its boost as it ends');
+  // A flick: the wheel thrown across with Space held puts the slide on the other side; eased to rest first and then across, it holds its side.
+  const sideOf = (r: ReturnType<typeof run>, at: number): number => Math.sign(r.slip[Math.round(at * 60) - 1]!);
+  const flick = run('car', 60, [[3, 0, 1, false], [0.9, 1, 1, true], [0.9, -1, 1, true]]);
+  check(sideOf(flick, 3.9) !== 0 && sideOf(flick, 4.8) === -sideOf(flick, 3.9) && flick.loose[flick.loose.length - 1]!, 'flicked across mid-drift, the drift snaps over to the other side', `slip ${(flick.slip[Math.round(3.9 * 60) - 1]! * 57.3).toFixed(0)} then ${(flick.slip[flick.slip.length - 1]! * 57.3).toFixed(0)} degrees`);
+  const counter = run('car', 60, [[3, 0, 1, false], [0.9, 1, 1, true], [0.6, 0, 1, true], [0.6, -1, 1, true]]);
+  check(sideOf(counter, 4.5) === sideOf(counter, 5.1) && Math.abs(counter.slip[counter.slip.length - 1]!) > 0.14 && counter.loose[counter.loose.length - 1]!, 'counter-steered from rest, it holds the slide on its side', `slip ${(counter.slip[counter.slip.length - 1]! * 57.3).toFixed(0)} degrees`);
+  const ceiling = car.boost * (1 + car.driftBoost);
+  check(drift.fastest <= ceiling + 0.5 && ceiling < topSpeedOf('car') * 1.3, 'the boost stays within what topSpeedOf leaves room for', `${drift.fastest.toFixed(1)} against ${ceiling.toFixed(1)}`);
+  // The frame rate: the same drift ends in the same place.
+  const end = (fps: number): Vector3 => run('car', fps, DRIFT).player.position.clone();
+  const at60 = end(60);
+  for (const fps of [10, 30, 144]) {
+    const gap = end(fps).distanceTo(at60);
+    check(gap < 6, `${fps} fps: the drift ends where it does at 60`, `${gap.toFixed(2)} units off, over ~${(9.5 * car.boost * 0.9).toFixed(0)} driven`);
+  }
+  // Knocking the small things over costs no speed: a car mowing a prop down every step goes as far as one on an empty road.
+  let knocks = 0;
+  const STRAIGHT: [number, number, number, boolean][] = [[3, 0, 1, false], [1, 1, 1, false]];
+  const mowing = run('car', 60, STRAIGHT, () => FLOOR, { strike: () => 0.3, onEvent: (event) => { if (event === 'broke') knocks++; } });
+  const clear = run('car', 60, STRAIGHT);
+  const lost = mowing.player.position.distanceTo(clear.player.position);
+  check(knocks > 100 && lost < 1e-6 && Math.abs(mowing.player.velocity - clear.player.velocity) < 1e-9, 'a car knocking props over loses no speed to them', `${knocks} knocks, ${lost.toExponential(1)} units apart`);
+  // The wheel bites at once, flat out too: a third of a second at full lock under boost turns the bow well over.
+  const ahead = run('car', 60, [[3, 0, 1, false]]).player.forward.clone();
+  const turnIn = run('car', 60, [[3, 0, 1, false], [0.3, 1, 1, false]]).player.forward.angleTo(ahead);
+  check(turnIn > 0.24, 'flat out, a third of a second at full lock turns the bow', `${(turnIn * 57.3).toFixed(1)} degrees`);
+  const grip = run('car', 60, [[3, 0, 1, false], [3, 1, 1, false]]);
+  const gripSlip = Math.max(...grip.slip.map(Math.abs));
+  check(gripSlip < 0.14 && !grip.loose.some(Boolean), 'full lock without the handbrake barely slips and never breaks loose', `${(gripSlip * 57.3).toFixed(1)} degrees`);
+  check(!grip.airborne, 'and a car on flat ground never leaves it');
+  const horse = run('horse', 60, [[3, 0, 1, false], [2, 1, 1, true]]);
+  check(horse.slip.every((a) => a === 0), 'a horse never slides');
+  const bike = run('motorbike', 60, DRIFT);
+  const bikeSlip = Math.max(...bike.slip.map(Math.abs));
+  check(bikeSlip > 0.2 && bikeSlip <= ROAD_HANDLING.motorbike!.maxSlip + 1e-6, 'a motorbike slides its back wheel out, within its own maxSlip', `${(bikeSlip * 57.3).toFixed(1)} degrees`);
+  // A kicker 120 units ahead: up at a quarter over 30 units, then a sheer drop back to the floor.
+  const along = (p: Vector3): number => p.clone().normalize().sub(start).dot(north) * FLOOR;
+  const kicker = (p: Vector3): number => {
+    const x = along(p) - 120;
+    return FLOOR + (x > 0 && x < 30 ? x * 0.25 : 0);
+  };
+  const jump = run('car', 60, [[5, 0, 1, false]], kicker);
+  check(jump.airborne && jump.highest > 2, 'over a kicker at speed the car flies off the lip', `${jump.highest.toFixed(1)} units over the ground at most`);
+  check(!jump.player.airborne && jump.player.position.length() - FLOOR < 0.01, 'and lands on its wheels');
 }
 
 console.log(failures === 0 ? '\nall ground checks passed' : `\n${failures} ground check(s) failed`);
