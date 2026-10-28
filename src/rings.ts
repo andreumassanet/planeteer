@@ -12,7 +12,8 @@
  * the finish, in black and white squares. A ring through the middle is a
  * perfect and takes `PERFECT_BONUS` off the time; one passed beside is a miss
  * and the run carries on; the medal is read off the misses and the time
- * against the course's own par. Each ring strikes a bell a step higher
+ * against the course's own par. With the switch off (`rings/switch.ts`)
+ * there are none of them at all. Each ring strikes a bell a step higher
  * (`rings/chime.ts`); the HUD (`rings/panel.ts`) shows the run; the device
  * keeps what was collected and each course's best (`rings/store.ts`).
  */
@@ -23,13 +24,14 @@ import { unitAt } from './sphere.ts';
 import { SCENERY_SCALE } from './stature.ts';
 import { PALETTE, createToonRamp } from './theme.ts';
 import { courseAnchors } from './rings/anchors.ts';
+import { ringsOn } from './rings/switch.ts';
 import type { Chime } from './rings/chime.ts';
 import { buildCourse, courseSites } from './rings/courses.ts';
 import type { CourseKind, CourseSite, CourseWorld } from './rings/courses.ts';
 import { PASS_SLACK, crossing, landmarkRing, passes, ringMatrix } from './rings/layout.ts';
 import type { Ring } from './rings/layout.ts';
 import type { Pip, RingPanel } from './rings/panel.ts';
-import { deviceStore, lapText, readRecord, writeRecord } from './rings/store.ts';
+import { deviceStore, lapText, mergeRecords, readRecord, writeRecord } from './rings/store.ts';
 import type { RingRecord, RingStorage } from './rings/store.ts';
 
 export type { Ring } from './rings/layout.ts';
@@ -127,14 +129,18 @@ export interface Rings {
   readonly running: boolean;
   /** The course shown now, run or not. */
   readonly active: ActiveCourse | null;
-  /** Every course on the planet, laid or not: for the maps and the passport. */
+  /** Every course on the planet, laid or not, for the maps; none while the switch is off. */
   readonly sites: readonly CourseSite[];
+  /** Every course on the planet whatever the switch says: what the passport counts against. */
+  readonly catalogue: readonly CourseSite[];
   readonly record: RingRecord;
   readonly stats: { drawn: number; landmarks: number; course: string | null; progress: number; collected: number; total: number };
   /** Lays a site's rings (cached), for the console and the check. */
   course(key?: string): readonly Ring[] | null;
   /** Forgets every ring collected and every best. */
   clear(): void;
+  /** Takes in another record (an account's), as `mergeRecords` does. */
+  absorb(other: RingRecord): void;
   dispose(): void;
 }
 
@@ -205,6 +211,11 @@ export function createRings(options: RingsOptions): Rings {
   let hasPrevious = false;
   const here = new THREE.Vector3();
   const projected = new THREE.Vector3();
+
+  /** Nothing to show: the switch is off. */
+  const NO_SITES: readonly CourseSite[] = [];
+  /** Whether the switch was on at the last frame, to put everything away once when it goes off. */
+  let wasOn = true;
 
   /** The site shown and how the run round it stands. */
   let site: CourseSite | null = null;
@@ -457,19 +468,38 @@ export function createRings(options: RingsOptions): Rings {
     group,
     record,
     stats,
-    sites,
+    get sites() {
+      return ringsOn() ? sites : NO_SITES;
+    },
+    catalogue: sites,
     get next() {
-      return rings === null || progress === 0 ? null : rings[ringAt(progress)] ?? null;
+      return !ringsOn() || rings === null || progress === 0 ? null : rings[ringAt(progress)] ?? null;
     },
     get running() {
-      return rings !== null && progress > 0;
+      return ringsOn() && rings !== null && progress > 0;
     },
     get active() {
-      if (site === null || rings === null) return null;
+      if (!ringsOn() || site === null || rings === null) return null;
       const n = progress === 0 ? 0 : ringAt(progress);
       return { site, rings, running: progress > 0, next: rings[n]!, finish: progress === rings.length - 1 };
     },
     update(dt, frame) {
+      if (!ringsOn()) {
+        if (wasOn) {
+          wasOn = false;
+          show(null);
+          popping.length = 0;
+          for (const mesh of pool) mesh.visible = false;
+          panel.course(null);
+          panel.track(null);
+          hasPrevious = false;
+        }
+        return null;
+      }
+      if (!wasOn) {
+        wasOn = true;
+        sinceScan = Infinity;
+      }
       time += dt;
       sinceScan += dt;
       if (sinceScan >= SCAN_EVERY) {
@@ -519,6 +549,14 @@ export function createRings(options: RingsOptions): Rings {
       record.courses.clear();
       writeRecord(storage, record);
       stats.collected = 0;
+      sinceScan = Infinity;
+    },
+    absorb(other) {
+      const merged = mergeRecords(record, other);
+      for (const id of merged.landmarks) record.landmarks.add(id);
+      for (const [key, best] of merged.courses) record.courses.set(key, best);
+      writeRecord(storage, record);
+      stats.collected = record.landmarks.size;
       sinceScan = Infinity;
     },
     dispose() {

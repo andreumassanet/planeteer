@@ -74,7 +74,7 @@ export async function createWorldPassport(app: App): Promise<WorldPassport> {
       const rings = app.thrills?.rings;
       if (rings === undefined) return null;
       const totals = { air: 0, land: 0, sea: 0 };
-      for (const site of rings.sites) totals[site.kind]++;
+      for (const site of rings.catalogue) totals[site.kind]++;
       return { landmarks: app.placements, collected: rings.record.landmarks, courses: rings.record.courses, totals };
     },
   });

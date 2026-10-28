@@ -33,7 +33,9 @@ import {
 } from '../src/rings/layout.ts';
 import { RINGS_KEY, emptyRecord, lapText, parseRecord, readRecord, serialiseRecord, writeRecord } from '../src/rings/store.ts';
 import { GOLD_PAR, SILVER_PAR, createRings, medalFor } from '../src/rings.ts';
+import type { ActiveCourse } from '../src/rings.ts';
 import { rushOf } from '../src/rush.ts';
+import { setRingsOn } from '../src/rings/switch.ts';
 import { COURSE_MIN_AREA, countryArea, courseAnchors } from '../src/rings/anchors.ts';
 import { decodeCountries, decodePlaces, decodeRoads, inflate } from '../src/pack.ts';
 import { LAND_SPACING, SEA_GATES, buildCourse, courseSites } from '../src/rings/courses.ts';
@@ -286,6 +288,22 @@ test('a course starts at its first ring, either way, and runs on the way it was 
   through(course[COURSE_RINGS - 1]!, -1);
   assert.equal(next(), COURSE_RINGS - 2);
   assert.match(shown.at(-1)!, /^perfect,perfect,next/);
+  // Switched off: nothing shown, run or marked, and the record stays; on again, the course comes back to its start.
+  const held = rings.record.courses.size;
+  setRingsOn(false);
+  assert.equal(rings.update(1 / 60, frame), null);
+  assert.equal(rings.active, null);
+  assert.equal(rings.next, null);
+  assert.equal(rings.sites.length, 0, 'no marks on the maps');
+  assert.ok(rings.catalogue.length > 0, 'the passport still counts against every course');
+  assert.equal(shown.at(-1), 'none', 'no card');
+  through(course[COURSE_RINGS - 2]!, -1);
+  assert.equal(rings.running, false, 'no ring passes while off');
+  assert.equal(rings.record.courses.size, held);
+  setRingsOn(true);
+  rings.update(1 / 60, frame);
+  const back = (): ActiveCourse | null => rings.active;
+  assert.ok(back() !== null && !back()!.running, 'on again: the course from its start');
   // On foot nothing is shown; a boat sees the sea's courses only.
   const sites = rings.sites;
   assert.ok(sites.filter((s) => s.kind === 'air').length > 80);

@@ -1,5 +1,6 @@
 /** The graphics page: render distance, resolution, what is drawn in the world, the hour of the sun. */
 import { labelOf } from '../controls.ts';
+import { ringsOn, setRingsOn } from '../rings/switch.ts';
 import { h } from '../ui.ts';
 import { detailWord, hourText } from './format.ts';
 import type { SettingsOptions } from './types.ts';
@@ -38,6 +39,8 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
   const shake = options.shake === undefined ? null : makeSwitch(options.shake, 'Camera shake');
   const weather = options.weather === undefined ? null : makeSwitch(options.weather, 'Weather');
   const flags = makeSwitch(options.flags, 'Flags and borders');
+  // The same switch on every world's card: it is the page's, not a world's.
+  const rings = makeSwitch({ get: ringsOn, set: setRingsOn }, 'Rings and courses');
   const speedUnit = options.units === undefined ? null : makeChoice(options.units.speed, 'Speed units');
   const nautical = options.units === undefined ? null : makeSwitch(options.units.nautical, 'Knots on water and in the air');
 
@@ -94,6 +97,7 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
       weather === null ? null : row('Weather', 'Rain, snow, storms and fog where the climate brings them. Off is clear skies; winter snow on the ground stays.', weather.element),
       shake === null ? null : row('Camera shake', 'A knock through the camera when you crash. Off by default if your system asks for less motion.', shake.element),
       h('div', { class: 'atlas-settings-row' }, flagsRow.label, h('div', { class: 'atlas-settings-side' }, flags.element)),
+      row('Rings and courses', 'The gold rings over the landmarks and the sky, road and sea courses, with their marks on the maps. Off is the world alone, to look at; what you collected is kept.', rings.element),
     ),
     time === undefined
       ? null
@@ -122,6 +126,7 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
       speedUnit?.refresh();
       nautical?.refresh();
       flags.refresh();
+      rings.refresh();
       resolution.refresh();
       graphics?.refresh();
       showTime();
