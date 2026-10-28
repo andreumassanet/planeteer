@@ -1,20 +1,24 @@
 /**
  * Chasing an aircraft aloft in its own frame: behind and above it as its nose
  * and wings stand, the roll softened, eased so a loop or a roll swings the
- * lens round with it. Framed from high over the map it fades back to the
- * heading's level chase. The mouse still glances and tilts, in that frame.
+ * lens round with it, the aim leading into a turn. Framed from high over the
+ * map it fades back to the heading's level chase. The mouse still glances and
+ * tilts, in that frame.
  */
 import * as THREE from 'three';
 import {
   FLIGHT_FADE_FROM,
   FLIGHT_FADE_TO,
   FLIGHT_FOLLOW_RATE,
+  FLIGHT_LEAD_EASE,
+  FLIGHT_LEAD_MAX,
   FLIGHT_ROLL_KEEP,
+  FLIGHT_TURN_LEAD,
   MAX_ELEVATION_RIDING,
   MIN_ELEVATION_RIDING,
   PIVOT_HEIGHT,
 } from './constants.ts';
-import { approach, ramp } from './math.ts';
+import { approach, clamp, ramp } from './math.ts';
 import type { CameraSubject } from './types.ts';
 import type { CameraCore } from './core.ts';
 
@@ -31,12 +35,16 @@ export function createFlightChase(core: CameraCore) {
   const across = new THREE.Vector3();
   const local = new THREE.Vector3();
   const sample = new THREE.Vector3();
+  const cross = new THREE.Vector3();
+  const lastForward = new THREE.Vector3();
   const basis = new THREE.Matrix4();
   const wanted = new THREE.Quaternion();
   const levelled = new THREE.Quaternion();
   /** The lens's frame as it has turned so far: +Z the way it looks along, +Y its up. */
   const frame = new THREE.Quaternion();
   let following = false;
+  /** The heading's rate of turn, radians a second, positive to the left, eased. */
+  let turning = 0;
 
   /** An aircraft in the air, with an attitude to follow. */
   function flying(player: CameraSubject): boolean {
@@ -53,6 +61,18 @@ export function createFlightChase(core: CameraCore) {
     );
   }
 
+  /** The turn the heading made since the last frame, as a rate, eased into `turning`. */
+  function readTurn(player: CameraSubject, dt: number): void {
+    if (!following || dt <= 0) {
+      turning = 0;
+    } else {
+      cross.crossVectors(lastForward, player.forward);
+      const turned = Math.atan2(cross.dot(player.up), lastForward.dot(player.forward));
+      turning += (turned / dt - turning) * approach(FLIGHT_LEAD_EASE, dt);
+    }
+    lastForward.copy(player.forward);
+  }
+
   /**
    * Where the lens wants to be: `pivot`, `desired` and `target`, in the
    * aircraft's frame as the lens has turned to it. False, and nothing written,
@@ -65,6 +85,7 @@ export function createFlightChase(core: CameraCore) {
     }
     const attitude = player.attitude!;
     side.crossVectors(player.up, player.forward).normalize();
+    readTurn(player, dt);
     nose.set(0, 0, 1).applyQuaternion(attitude);
     toWorld(nose, player);
     bodyUp.set(0, 1, 0).applyQuaternion(attitude);
@@ -94,7 +115,9 @@ export function createFlightChase(core: CameraCore) {
     local.set(0, view.height, -view.distance).applyAxisAngle(X, s.pitch).applyAxisAngle(Y, s.glance * weight).applyQuaternion(frame);
     pivot.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
     desired.copy(pivot).add(local);
-    target.copy(pivot);
+    // The aim leads into the turn: a left turn is a positive rate and `side` is the left.
+    const lead = clamp(turning * FLIGHT_TURN_LEAD, -FLIGHT_LEAD_MAX, FLIGHT_LEAD_MAX) * weight;
+    target.copy(pivot).addScaledVector(side, Math.tan(lead) * view.distance);
     return true;
   }
 

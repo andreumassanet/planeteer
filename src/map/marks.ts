@@ -5,6 +5,7 @@ import { FONT, hex } from '../ui.ts';
 import { latLonOf, unitAt } from '../sphere.ts';
 import { uOf, vOf } from '../map-tiles.ts';
 import { PIN_HEAD, PIN_RISE } from './constants.ts';
+import { drawCourseBadges, drawShownCourse } from './courses.ts';
 import { ink, paper, pink, violet } from './palette.ts';
 import type { MapSheet } from './sheet.ts';
 import type { MapMarker } from './types.ts';
@@ -16,7 +17,11 @@ const routeP = new THREE.Vector3();
 const routeLatLon = { lat: 0, lon: 0 };
 
 export function drawPin(s: MapSheet, x: number, y: number, fill: string, grow: number): void {
-  const { mctx } = s;
+  tracePinMark(s.mctx, x, y, fill, grow);
+}
+
+/** A pin standing on (x, y): the sheet's landmarks and marker, and the legend's. */
+export function tracePinMark(mctx: CanvasRenderingContext2D, x: number, y: number, fill: string, grow: number): void {
   const rise = PIN_RISE * grow;
   const head = PIN_HEAD * grow;
   mctx.beginPath();
@@ -101,14 +106,19 @@ export function drawPeers(s: MapSheet): void {
 }
 
 export function drawMe(s: MapSheet, x: number, y: number): void {
-  const { mctx, me } = s;
+  traceYou(s.mctx, x, y, s.me.heading, 1);
+}
+
+/** You: a crimson arrow on a pale halo, turned to `heading` clockwise from up. */
+export function traceYou(mctx: CanvasRenderingContext2D, x: number, y: number, heading: number, scale: number): void {
   mctx.save();
   mctx.translate(x, y);
+  mctx.scale(scale, scale);
   mctx.beginPath();
   mctx.arc(0, 0, 13, 0, TAU);
   mctx.fillStyle = 'rgba(255, 242, 232, 0.35)';
   mctx.fill();
-  mctx.rotate(me.heading);
+  mctx.rotate(heading);
   mctx.beginPath();
   mctx.moveTo(0, -11);
   mctx.lineTo(8, 8);
@@ -124,7 +134,7 @@ export function drawMe(s: MapSheet, x: number, y: number): void {
   mctx.restore();
 }
 
-/** What stands over the sheet: the route, the pins, the players and you. */
+/** What stands over the sheet: the route, the course badges, the pins, a shown course, the players and you. */
 export function drawMarks(s: MapSheet): void {
   const { marker, mctx, peerHits, keptPins, me } = s;
   const started = performance.now();
@@ -134,11 +144,15 @@ export function drawMarks(s: MapSheet): void {
   const mark = marker();
   // The route to the marker: the great circle, dashed.
   if (mark !== null && me.known) drawRoute(s, mark);
+  drawCourseBadges(s);
   for (const pin of keptPins) {
     const grow = s.hover?.kind === 'pin' && s.hover.index === pin.index ? 1.3 : 1;
     drawPin(s, pin.x, pin.y, paper, grow);
   }
   peerHits.length = 0;
+  const course = s.options.courseRing?.() ?? null;
+  s.lastCourseRing = course?.next ?? null;
+  if (course !== null) drawShownCourse(s, course);
   if (mark !== null) {
     const x = screenX(s, uOf(mark.lon));
     const y = screenY(s, vOf(mark.lat));

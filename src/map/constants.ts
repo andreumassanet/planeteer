@@ -30,6 +30,11 @@ export const PIN_RISE = 13;
 export const PIN_HEAD = 6;
 /** No two pins closer together than this; the destination is exempt. */
 export const PIN_SPACING = 16;
+/** A course's badge, its radius in pixels; the two badges at one capital stand this far either side of it. */
+export const COURSE_BADGE = 9;
+export const COURSE_SPREAD = 9.5;
+/** Its waiting ring, radius in pixels. */
+export const COURSE_RING = 9;
 /** How far the cursor may be from a mark and still be pointing at it. */
 export const PICK_RANGE = 16;
 /** How long a click on the bare sheet waits before it puts the marker down, ms; a double click zooms instead. */

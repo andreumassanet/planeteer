@@ -44,6 +44,8 @@ export interface CameraFields {
   lead: number;
   /** How strongly what is in the way is seen through, eased; see `see-through.ts`. */
   sight: number;
+  /** The lens's field of view before the rush is laid on, eased towards what the player is doing. */
+  fovBase: number;
 }
 
 export interface CameraCore {
@@ -111,6 +113,7 @@ export function createCameraCore(options: CameraOptions): CameraCore {
       held: Infinity,
       lead: 0,
       sight: 0,
+      fovBase: FOV_FOOT,
     },
     camera: new THREE.PerspectiveCamera(FOV_FOOT, 1, NEAR, FAR),
     blocks: options.blocks,

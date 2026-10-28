@@ -69,6 +69,14 @@ export async function createWorldPassport(app: App): Promise<WorldPassport> {
       if (leaves > 1) window.setTimeout(() => audio.cue('page'), 90);
     },
     onThud: () => audio.cue('stamp'),
+    // The rings come after the book at start-up; asked for whenever a page of them is laid.
+    rings: () => {
+      const rings = app.thrills?.rings;
+      if (rings === undefined) return null;
+      const totals = { air: 0, land: 0, sea: 0 };
+      for (const site of rings.sites) totals[site.kind]++;
+      return { landmarks: app.placements, collected: rings.record.landmarks, courses: rings.record.courses, totals };
+    },
   });
   document.body.appendChild(passportCard.root);
   passport.onStamp = (stamp) => passportCard.celebrate(stamp);

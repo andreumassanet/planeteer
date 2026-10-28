@@ -42,7 +42,7 @@ export function createChase(
 
   /** Chase the player. Call after `player.update`. */
   function follow(dt: number, player: CameraSubject, groundRadiusAt: (p: THREE.Vector3) => number): void {
-    want(player);
+    want(player, groundRadiusAt);
     lens(player, approach(FOV_RATE, dt));
     if (seated(player)) s.driving = true;
     if (s.driving) {

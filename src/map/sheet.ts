@@ -82,6 +82,12 @@ export interface MapSheet extends MapDom {
   readonly peerHits: Hit[];
   /** The landmarks surviving the thinning this draw. */
   readonly keptPins: { index: number; x: number; y: number }[];
+  /** The course sites on the sheet, projected once the list is known, and the ones kept this draw. */
+  courseSpots: { u: number; v: number; dx: number }[] | null;
+  courseSpotsFor: readonly unknown[] | null;
+  readonly keptCourses: { index: number; x: number; y: number }[];
+  /** The ring the shown course waited for at the last marks, to redraw them when it moves on. */
+  lastCourseRing: unknown;
   /** Where you stood on the screen when the names were laid out round you. */
   laidMeX: number;
   laidMeY: number;

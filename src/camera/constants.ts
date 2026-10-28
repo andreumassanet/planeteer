@@ -36,6 +36,12 @@ export const DOWN_BY_KIND: Readonly<Record<string, number>> = {
 };
 /** How fast the lens follows a change of those, per second. */
 export const FOV_RATE = 3;
+/**
+ * Degrees the lens opens at a full rush (`CameraRig.rush`): the ground
+ * streaming past wide of the frame is most of what reads as speed. Laid on
+ * unsmoothed, so a pulse is felt the frame it is asked for.
+ */
+export const FOV_RUSH = 9;
 
 // ---- the chase -------------------------------------------------------------
 
@@ -141,11 +147,15 @@ export const SUB_FRAMED_UNDER = 3;
 export const RIDE_BACK = 1.6;
 export const RIDE_UP = 0.45;
 /**
- * Flight framing as an orbit and an angle: the camera swings overhead as the
- * plane climbs, which is what makes the climb reveal the map.
+ * Flight framing as an orbit and an angle: a close chase low down, and the
+ * camera swinging overhead as the plane climbs, which is what makes the climb
+ * reveal the map. Measured over the ground under the craft, not the sea: a
+ * plateau or a ring course is still flown from just behind.
  */
-export const FLIGHT_LOW = { orbit: 24, elevation: 17 * DEG };
+export const FLIGHT_LOW = { orbit: 24, elevation: 12 * DEG };
 export const FLIGHT_HIGH = { orbit: 340, elevation: 88 * DEG };
+/** Over the ground, units, the chase stays close and low up to here; the swing overhead starts past it. */
+export const FLIGHT_CHASE_UNTIL = 400;
 /** How fast the framing follows a change of vehicle. */
 export const FRAMING_RATE = 2.2;
 
@@ -228,3 +238,13 @@ export const FLIGHT_FOLLOW_RATE = 4;
 export const FLIGHT_ROLL_KEEP = 0.5;
 export const FLIGHT_FADE_FROM = 25 * DEG;
 export const FLIGHT_FADE_TO = 50 * DEG;
+/**
+ * In a turn the aim leads into it by `FLIGHT_TURN_LEAD` seconds of the turn's
+ * rate, never past `FLIGHT_LEAD_MAX` (a full-stick plane turn at 1 radian a
+ * second is the cap), the rate read off the heading and eased at
+ * `FLIGHT_LEAD_EASE` a second: the aircraft slides to the outer side of the
+ * frame and the view opens on the inside, where the turn is going.
+ */
+export const FLIGHT_TURN_LEAD = 0.2;
+export const FLIGHT_LEAD_MAX = 11 * DEG;
+export const FLIGHT_LEAD_EASE = 5;

@@ -1,8 +1,9 @@
 /**
  * The frame loop, in phases whose order matters: movement and the camera,
  * the sky and weather, the ear, the haze, the streamers, the people and
- * vehicles, the water, the HUD's offers, the maps and the map layer, the
- * shadow map, the near lights, the draw, and last the badge and passport.
+ * vehicles, the water, the HUD's offers, the rush, the guide and the rings,
+ * the maps and the map layer, the shadow map, the near lights, the draw, and
+ * last the badge and passport.
  * Each subsystem's update runs inside `app.guard`.
  */
 import { setSunDirection } from '../lights.ts';
@@ -84,6 +85,7 @@ export function createLoop(app: App): () => void {
     actors(tick);
     water(tick);
     prompts(tick);
+    app.thrills.frame(tick);
     mapsPhase(tick);
     app.overlay.update(tick);
     shadows(now);

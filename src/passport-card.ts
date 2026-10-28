@@ -22,8 +22,13 @@
  * of its nations, reached by planet tabs on the cover's right edge. A nation's
  * stamp is a round seal with its banner in the middle.
  *
+ * Given the rings (`rings`), Earth's chapter closes on two more visas: the
+ * landmarks' rings, a gold ring stamped for each one flown through, and the
+ * course log, each kind's courses run with the best time and medal.
+ *
  * The parts live in `passport-card/`: `model.ts` (data and page questions),
- * `pages.ts`, `turning.ts`, `tabs.ts`, `tip.ts`, `sizing.ts`, `dom.ts`,
+ * `pages.ts`, `leaf.ts`, `rings-model.ts`, `rings-pages.ts`, `rings-style.ts`,
+ * `turning.ts`, `tabs.ts`, `tip.ts`, `sizing.ts`, `dom.ts`,
  * `stamp-svg.ts`, `seal-svg.ts`, `art.ts`, `style.ts`, `constants.ts`.
  */
 import { actionOf, holdFocus, inputBlocked, labelOf, registerModal } from './controls.ts';
@@ -33,11 +38,13 @@ import { ensureStyle, installUi } from './ui.ts';
 import { isTouch } from './touch.ts';
 import type { Passport, Stamp } from './passport.ts';
 import type { PassportChapter } from './planet.ts';
+import type { PassportRings } from './passport-card/rings-model.ts';
 import { createBookDom } from './passport-card/dom.ts';
 import { createBookModel, layoutModel, newestSpread, openingSpread, otherWorlds, spreads } from './passport-card/model.ts';
 import { pagesOf } from './passport-card/pages.ts';
 import { resize } from './passport-card/sizing.ts';
 import { createStampDrop } from './passport-card/stamp-drop.ts';
+import { RINGS_STYLE } from './passport-card/rings-style.ts';
 import { STYLE } from './passport-card/style.ts';
 import { rebuildTabs, updateChrome } from './passport-card/tabs.ts';
 import { createTip } from './passport-card/tip.ts';
@@ -45,6 +52,7 @@ import { createTurner } from './passport-card/turning.ts';
 
 export { stampSvg } from './passport-card/stamp-svg.ts';
 export { sealSvg } from './passport-card/seal-svg.ts';
+export type { PassportRings } from './passport-card/rings-model.ts';
 
 export interface PassportCardOptions {
   passport: Passport;
@@ -69,6 +77,12 @@ export interface PassportCardOptions {
    * worlds' data stays out of its first load.
    */
   chapters?: readonly PassportChapter[] | (() => readonly PassportChapter[] | Promise<readonly PassportChapter[]>);
+  /**
+   * The rings (`rings.ts`): asked each time a page of them is laid, null
+   * while there are none yet. Given, Earth's chapter gains two visas after
+   * its continents, the landmarks' rings and the log of the courses run.
+   */
+  rings?: () => PassportRings | null;
 }
 
 export interface PassportCard {
@@ -86,7 +100,7 @@ export interface PassportCard {
 
 export function createPassportCard(options: PassportCardOptions): PassportCard {
   installUi();
-  ensureStyle('atlas-passport', STYLE);
+  ensureStyle('atlas-passport', STYLE + RINGS_STYLE);
   /** Every listener the card adds goes with it on `dispose`. */
   const events = new AbortController();
   const { signal } = events;

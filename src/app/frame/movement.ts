@@ -87,6 +87,7 @@ export function createMovement(app: App): (tick: Tick) => void {
         heading: rig.steer,
         attitude: input.state.attitude,
         flightMode: input.state.flightMode,
+        assist: app.thrills?.assist ?? null,
       });
       sealHull();
       rig.follow(dt, trainRide.subject(), cameraGroundAt);

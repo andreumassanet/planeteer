@@ -52,19 +52,13 @@ export const STYLE = `
   padding-top: 8px;
   border-top: 2px solid var(--ui-rule);
   display: grid;
-  gap: 4px;
+  grid-template-columns: auto auto;
+  gap: 2px 14px;
   font-size: 11.5px;
   font-weight: 700;
 }
-.atlas-map-legend i {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 7px;
-  border: 1.5px solid var(--ui-ink);
-  border-radius: 50%;
-  vertical-align: -1px;
-}
+.atlas-map-legend > div { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.atlas-map-legend canvas { flex: none; width: 24px; height: 22px; }
 .atlas-map-zoom {
   position: absolute;
   right: 30px;

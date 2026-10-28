@@ -28,8 +28,14 @@ export interface Post {
   bloom: UnrealBloomPass;
   /** How much of the ambient occlusion is laid on, 0 to 1. */
   ao: number;
-  /** How much the far field is blurred, 0 to 1; focused on `shafts.subject`. */
+  /** How much the far field is blurred, 0 to 1; focused on `shafts.subject`, or on `focusAt`. */
   dof: number;
+  /**
+   * Where the far blur focuses instead of on the subject, world units, or null:
+   * from an aircraft aloft, the ground under it, so the land near is sharp and
+   * the horizon soft. Set each frame, like `focused`.
+   */
+  focusAt: number | null;
   /**
    * Whether the frame about to be drawn has a subject to focus on: the world's
    * own frame sets it each time, and a draw spends it, so the menu, a map or
@@ -249,6 +255,7 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
     bloom,
     ao: 1,
     dof: 1,
+    focusAt: null,
     focused: false,
     photo: { focus: null, blur: 1, filter: 'none' },
     enabled: true,
@@ -283,7 +290,7 @@ export function createPost(renderer: THREE.WebGLRenderer): Post {
       post.focused = false;
       if (uniforms.uDof.value > 0) {
         uniforms.uCamera.value.set(lens.near, lens.far);
-        uniforms.uFocus.value = chosen ?? Math.max(post.shafts.subject, DOF_NEAREST);
+        uniforms.uFocus.value = chosen ?? Math.max(post.focusAt ?? post.shafts.subject, DOF_NEAREST);
         // A chosen focus is a lens: a narrow band in focus, blur both sides of it.
         if (chosen !== null) uniforms.uFocusBand.value.set(1.15, 3);
         else uniforms.uFocusBand.value.set(4, 24);

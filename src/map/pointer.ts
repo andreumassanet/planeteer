@@ -1,4 +1,6 @@
 import { SHEET_HEIGHT, latOfV, lonOfU } from '../map-tiles.ts';
+import { latLonOf } from '../sphere.ts';
+import { courseSitesOf } from './courses.ts';
 import { CLICK_SLOP, DOUBLE_MS, SETTLE_MS } from './constants.ts';
 import { hide } from './lifecycle.ts';
 import type { MapSheet } from './sheet.ts';
@@ -121,6 +123,12 @@ export function click(s: MapSheet, hit: Hit | null, x: number, y: number): void 
   else if (hit?.kind === 'pin') {
     const monument = monuments[hit.index]!;
     onMark(monument.lat, monument.lon, monument.name, true);
+  } else if (hit?.kind === 'course') {
+    const site = courseSitesOf(s)[hit.index];
+    if (site !== undefined) {
+      const at = latLonOf(site.at);
+      onMark(at.lat, at.lon, site.title, false);
+    }
   } else if (hit?.kind === 'town') {
     onMark(hit.town.place.lat, hit.town.place.lon, hit.town.place.name, false);
   } else {

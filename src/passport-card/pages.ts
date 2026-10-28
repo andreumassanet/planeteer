@@ -7,20 +7,12 @@ import type { PassportChapter } from '../planet.ts';
 import type { PassportCardOptions } from '../passport-card.ts';
 import { PER_PAGE, inked } from './constants.ts';
 import { mrzName, pad, portrait, seal, worldDisc } from './art.ts';
+import { page, progressBar } from './leaf.ts';
+import { ringPages } from './rings-pages.ts';
 import { hashOf, miniStamp } from './stamp-svg.ts';
 import { miniSeal } from './seal-svg.ts';
 import { continentOfIso, countOf, stampsByIso, visaOf } from './model.ts';
 import type { BookModel, PageMaker, Side, Visa } from './model.ts';
-
-function page(side: Side, number: number | null, running: string, world: string, ...children: (HTMLElement | null)[]): HTMLElement {
-  return h(
-    'div',
-    { class: `p-page ${side}` },
-    h('div', { class: 'p-running' }, h('span', { text: side === 'verso' ? 'Atlas' : running }), h('span', { text: side === 'verso' ? running : world })),
-    ...children,
-    number === null ? null : h('div', { class: 'p-folio', text: String(number) }),
-  );
-}
 
 /** The inside of the front cover, with the notice every passport prints there. */
 function endpaper(model: BookModel): HTMLElement {
@@ -85,14 +77,6 @@ function holderPage(model: BookModel, options: PassportCardOptions, side: Side, 
   );
   holder.classList.add('guilloche');
   return holder;
-}
-
-function progressBar(got: number, all: number, ink: string): HTMLElement {
-  const bar = h('div', { class: 'p-bar' }, h('i'));
-  const fillBar = bar.firstElementChild as HTMLElement;
-  fillBar.style.width = `${((got / Math.max(1, all)) * 100).toFixed(1)}%`;
-  fillBar.style.background = ink;
-  return bar;
 }
 
 /**
@@ -196,6 +180,7 @@ function blankPage(side: Side, number: number, world = 'Earth'): HTMLElement {
  * continent, each of two or more pages opening on a left-hand page so that
  * it lies open as one spread; then a chapter a world, its frontispiece on a
  * left-hand page facing its visa; and a blank to close the last spread.
+ * The rings' visas, when the book has them, close Earth's chapter.
  * Page `2n` is spread `n`'s left, `2n + 1` its right.
  */
 export function pagesOf(model: BookModel, options: PassportCardOptions): PageMaker[] {
@@ -219,6 +204,7 @@ export function pagesOf(model: BookModel, options: PassportCardOptions): PageMak
     model.firstPageOf.set(visa.key, pages.length);
     for (let part = 0; part < parts; part++) add((side, number) => visaPage(model, side, number, visa, part));
   }
+  ringPages(model, { add, blank, count: () => pages.length });
   for (const chapter of model.chapters) {
     if (pages.length % 2 === 1) blank();
     world = chapter.name;

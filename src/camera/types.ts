@@ -73,6 +73,11 @@ export interface CameraRig {
   shake(strength: number): void;
   /** Whether `shake` moves the lens. The Settings card's *Camera shake*. */
   shakes: boolean;
+  /**
+   * How much of a sense of speed the lens is giving, 0 to 1: it opens by up to
+   * `FOV_RUSH` degrees. Set from outside every frame; 0 leaves the lens alone.
+   */
+  rush: number;
 }
 
 export interface CameraOptions {

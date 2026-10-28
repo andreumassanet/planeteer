@@ -4,7 +4,9 @@
  * part made later (the HUD, the map, the camera) read it from here when
  * they run, which is always after it has been set.
  */
+import type * as THREE from 'three';
 import type { Surface } from '../audio.ts';
+import type { Knock, PropKind } from '../breakables.ts';
 import type { BiomeSample } from '../biome.ts';
 import type { bearingTo } from '../cartography.ts';
 import type { CameraRig } from '../camera.ts';
@@ -47,6 +49,7 @@ import type { Rockets } from './rockets.ts';
 import type { TrainRide } from './train-ride.ts';
 import type { WorldSky } from './sky.ts';
 import type { Sound } from './sound.ts';
+import type { Thrills } from './thrills.ts';
 import type { Towns } from './towns.ts';
 import type { Vehicles } from './vehicles.ts';
 import type { Walls } from './walls.ts';
@@ -98,9 +101,14 @@ export interface App
   timeOfDay: TimeOfDay;
   settings: Settings;
   chat: Chat;
+  /** The rush, the guide and the rings. */
+  thrills: Thrills;
 
   /** A toast on the HUD. */
   announce(text: string, iconName?: IconName): void;
+  /** A prop knocked over, and one landing: the sound and the dust, set once the effects and the sound exist. */
+  onBreak?: (knock: Knock) => void;
+  onLand?: (point: THREE.Vector3, kind: PropKind, weight: number) => void;
   /** Says the render distance after it changed. */
   showDetail(value: number): void;
   /** A photo was asked for; the next draw takes it. */

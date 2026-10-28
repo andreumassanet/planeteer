@@ -54,14 +54,13 @@ export function updateChrome(model: BookModel, dom: BookDom, hideTip: () => void
     const visa = visaOf(model, key)!;
     // Only the chapter you are in stands up along the top; the holder's is the book's.
     tab.hidden = visa.chapter !== chapter;
-    const all = visa.entries;
-    const got = countOf(visa, stamped);
+    const [got, all] = visa.tally?.() ?? [countOf(visa, stamped), visa.entries.length];
     const first = model.firstPageOf.get(key) ?? -1;
-    const parts = Math.max(1, Math.ceil(all.length / PER_PAGE));
+    const parts = model.partsOf.get(key) ?? Math.max(1, Math.ceil(visa.entries.length / PER_PAGE));
     const from = visa.chapter === 'earth' ? spreadOfPage(first) : spreadOfPage(model.chapterStart.get(visa.chapter) ?? first);
     const open = !tab.hidden && first >= 0 && from <= model.spread && model.spread <= spreadOfPage(first + parts - 1);
-    tab.replaceChildren(h('b', { text: visa.title }), h('em', { text: `${got}/${all.length}` }));
-    tab.setAttribute('aria-label', `${visa.title}: ${got} of ${all.length} stamped`);
+    tab.replaceChildren(h('b', { text: visa.title }), h('em', { text: `${got}/${all}` }));
+    tab.setAttribute('aria-label', `${visa.title}: ${got} of ${all} ${visa.tally === undefined ? 'stamped' : visa.key === 'courses' ? 'run' : 'collected'}`);
     tab.setAttribute('aria-current', String(open));
   }
   for (const [body, tab] of dom.worldTabs) {

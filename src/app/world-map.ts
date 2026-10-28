@@ -41,6 +41,12 @@ export async function createPlanetMap(app: App): Promise<WorldMap> {
     blocked: () => inputBlocked(),
     pads: app.padsForMaps,
     tiles: app.mapTiles,
+    // It opens on what the disc in the corner shows.
+    openSpan: () => app.minimap.span,
+    // The rings come after the map at start-up, so they are asked for as the sheet needs them.
+    courseSites: () => app.thrills?.rings.sites ?? [],
+    courseBest: (key) => app.thrills?.rings.record.courses.get(key) ?? null,
+    courseRing: () => app.thrills?.rings.active ?? null,
     ...(peers === null
       ? {}
       : {

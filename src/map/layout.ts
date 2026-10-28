@@ -4,6 +4,7 @@ import { uOf, vOf } from '../map-tiles.ts';
 import {
   DEG, PADS_FROM, PAD_HEIGHT, PIN_HEAD, PIN_RISE, PIN_SPACING, SQUARE_FROM, TOWN_FLOOR,
 } from './constants.ts';
+import { keepCourses } from './courses.ts';
 import { ink, paper, red } from './palette.ts';
 import type { MapSheet } from './sheet.ts';
 import type { SheetTown } from './types.ts';
@@ -250,15 +251,17 @@ function paintLayout(s: MapSheet, townMarks: TownMark[], padMarks: PadMark[], la
   // The pins are drawn over the sheet with the marks; what is pointed at is
   // known here, where they were laid out.
   for (const pin of keptPins) hits.push({ kind: 'pin', index: pin.index, x: pin.x, y: pin.y - PIN_RISE });
+  for (const course of s.keptCourses) hits.push({ kind: 'course', index: course.index, x: course.x, y: course.y });
   ctx.restore();
 }
 
-/** Lays out the pins, the pads and the names, most important first, and paints them. */
+/** Lays out the pins, the course badges, the pads and the names, most important first, and paints them. */
 export function layoutAndDraw(s: MapSheet, space: LabelSpace): void {
   s.hits.length = 0;
   // You first: nothing is allowed to sit on the arrow.
   claimYouAndMarker(s, space);
   keepPins(s, space);
+  keepCourses(s, space);
   const padMarks = claimPads(s, space);
   const { labels, tryLabel } = createLabeller(s, space);
   nameLandmarks(s, tryLabel);

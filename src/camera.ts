@@ -59,6 +59,7 @@ export function createCameraRig(options: CameraOptions = {}): CameraRig {
     steer,
     view,
     shakes: true,
+    rush: 0,
     shake: shaking.shake,
     get firstPerson() {
       return fields.firstPerson;

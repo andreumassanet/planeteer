@@ -155,6 +155,10 @@ export interface MinimapState {
   readonly markerPoint: { x: number; y: number; z: number };
   targetAngle: number;
   targetScreen: number;
+  /** The ring a course waits for, on the unit sphere, and whether it is the finish. */
+  coursed: boolean;
+  readonly coursePoint: { x: number; y: number; z: number };
+  courseFinish: boolean;
 
   // What the last redraw touched, and what `update` has cost lately.
   drawnRings: number;
@@ -313,6 +317,9 @@ export function createState(world: World, options: MinimapOptions | number): Min
     markerPoint: { x: 0, y: 0, z: 0 },
     targetAngle: 0,
     targetScreen: 0,
+    coursed: false,
+    coursePoint: { x: 0, y: 0, z: 0 },
+    courseFinish: false,
 
     drawnRings: 0,
     drawnPoints: 0,

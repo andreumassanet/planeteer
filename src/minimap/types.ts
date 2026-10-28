@@ -98,6 +98,15 @@ export interface Minimap {
    * Copied, so the caller may reuse the vector.
    */
   setMarker(direction: { x: number; y: number; z: number } | null): void;
+  /**
+   * The ring a ring course waits for (the start before a run, the next one
+   * during it), as a point in the world, or `null` with no course shown: a
+   * green ring where it is on the disc, chequered for the finish, and a green
+   * wedge on the rim pointing at it while it is off the disc. Copied.
+   */
+  setCourse(ring: { x: number; y: number; z: number } | null, finish?: boolean): void;
+  /** Half the disc's width now, as an angle at the body's centre: what the sheet behind `M` opens on. */
+  readonly span: number;
   /** Force the next `update` to redraw even if nothing has moved. */
   invalidate(): void;
   /**

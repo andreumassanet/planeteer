@@ -4,6 +4,7 @@ import type { Placement } from '../placement.ts';
 import type { Place } from '../places.ts';
 import type { Road } from '../roads.ts';
 import type { MapTiles } from '../map-tiles.ts';
+import type { CourseMarkKind } from '../course-marks.ts';
 
 export interface WorldMapOptions {
   /** Every placement, the same array the minimap is given. */
@@ -71,6 +72,45 @@ export interface WorldMapOptions {
    * the sheet is closed; the sheet pumps it while it is open.
    */
   tiles?: MapTiles;
+  /**
+   * Every ring course on the body (`rings.ts`), a badge each by its kind,
+   * which a click marks as it does a pin. Asked as the sheet is laid out;
+   * an empty list until the courses are known.
+   */
+  courseSites?: () => readonly MapCourseSite[];
+  /** A course's best on this device, for its badge's medal and its tip. */
+  courseBest?: (key: string) => { ms: number; medal: number } | null;
+  /** The course shown in the world now, run or not, or null: the sheet follows it to the ring it waits for. */
+  courseRing?: () => MapCourse | null;
+  /**
+   * Half the width of ground the sheet opens on, as an angle at the body's
+   * centre: the disc's own framing (`Minimap.span`), so `M` opens on what
+   * the corner showed. Omitted, the sheet keeps the zoom it last had.
+   */
+  openSpan?: () => number;
+}
+
+type Point = { x: number; y: number; z: number };
+
+/** As much of a `CourseSite` as the sheet needs. */
+export interface MapCourseSite {
+  key: string;
+  kind: CourseMarkKind;
+  title: string;
+  /** Its town or port, a unit direction. */
+  at: Point;
+  /** Its town's index in `places`, for the tip's flag; -1 for a sea's. */
+  place: number;
+}
+
+/** As much of an `ActiveCourse` as the sheet needs. */
+export interface MapCourse {
+  site: { title: string; loop: boolean };
+  rings: readonly { centre: Point }[];
+  /** The start ring before a run, the next ring during one. */
+  next: { centre: Point };
+  running: boolean;
+  finish: boolean;
 }
 
 /** As much of a `LaunchPad` as the sheet needs. */
@@ -102,7 +142,7 @@ export interface WorldMapStats {
   level: number;
   /** The last draw of the sheet — tiles, lines, towns, names — in milliseconds. */
   drawMs: number;
-  /** And of the marks over it — the route, the pins, the players, you — which is most redraws. */
+  /** And of the marks over it — the route, the pins, the courses, the players, you — which is most redraws. */
   marksMs: number;
 }
 
@@ -172,5 +212,6 @@ export interface CountryLabel {
 export type Hit =
   | { kind: 'marker'; x: number; y: number }
   | { kind: 'pin'; index: number; x: number; y: number }
+  | { kind: 'course'; index: number; x: number; y: number }
   | { kind: 'peer'; id: string; name: string; x: number; y: number; distance: number }
   | { kind: 'town'; town: SheetTown; x: number; y: number };

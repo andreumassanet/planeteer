@@ -14,7 +14,9 @@
  * reprojected onto the disc a piece at a time (`drawTiles`) and the outlines
  * are the coast's and the frontiers' ink alone; without a paper the countries
  * are filled flat. While the player has a marker (`navigation.ts`) the rim
- * carries a violet wedge pointing at it, and a violet pin where it is on the disc.
+ * carries a violet wedge pointing at it, and a violet pin where it is on the disc;
+ * while a ring course is shown, its waiting ring is a green ring on the disc,
+ * or a green wedge on the rim (`setCourse`, drawn over the paper).
  *
  * The land, the towns and the pins are geography: they move when you move and
  * not when you turn, so they are drawn into their own buffer (the paper) and
@@ -62,6 +64,27 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       // exactly something you do standing still.
       m.baseStale = true;
       m.overlayStale = true;
+    },
+    setCourse(ring, finish = false) {
+      if (ring === null) {
+        if (m.coursed) m.overlayStale = true;
+        m.coursed = false;
+        return;
+      }
+      const length = Math.hypot(ring.x, ring.y, ring.z) || 1;
+      const point = m.coursePoint;
+      const x = ring.x / length;
+      const y = ring.y / length;
+      const z = ring.z / length;
+      if (!m.coursed || finish !== m.courseFinish || x !== point.x || y !== point.y || z !== point.z) m.overlayStale = true;
+      m.coursed = true;
+      m.courseFinish = finish;
+      point.x = x;
+      point.y = y;
+      point.z = z;
+    },
+    get span() {
+      return m.view;
     },
     invalidate() {
       m.baseStale = true;

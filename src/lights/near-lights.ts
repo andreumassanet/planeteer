@@ -73,8 +73,8 @@ export const atlasLampCount = { value: 0 };
  * over each frame, before `setNearLamps`.
  */
 export const NEAR_HEADLIGHTS = 8;
-/** How far a headlight reaches, in world units, and how wide its cone is. */
-const HEAD_REACH = 48;
+/** How far a headlight reaches, in world units, and how wide its cone is. A beam stopped by a wall reaches less (`setHeadlights`). */
+export const HEAD_REACH = 48;
 const HEAD_INNER = Math.cos(14 * DEG);
 const HEAD_OUTER = Math.cos(30 * DEG);
 export const atlasHeads = { value: Array.from({ length: NEAR_HEADLIGHTS }, () => new THREE.Vector4()) };
@@ -174,9 +174,11 @@ export const LAMP_CHUNK = /* glsl */ `
       if (i >= atlasHeadCount) break;
       vec3 d = pos - atlasHeads[i].xyz;
       float dist = length(d);
-      if (dist >= ${HEAD_REACH.toFixed(1)} || dist < 1e-3) continue;
+      // The beam's reach rides as the length of its direction: short where a wall stops it.
+      float reach = length(atlasHeadDirs[i]);
+      if (dist >= reach || dist < 1e-3) continue;
       vec3 ray = d / dist;
-      float cone = smoothstep(${HEAD_OUTER.toFixed(4)}, ${HEAD_INNER.toFixed(4)}, dot(ray, atlasHeadDirs[i]));
+      float cone = smoothstep(${HEAD_OUTER.toFixed(4)}, ${HEAD_INNER.toFixed(4)}, dot(ray, atlasHeadDirs[i] / reach));
       float fall = 1.0 - dist / ${HEAD_REACH.toFixed(1)};
       float facing = max(dot(n, -ray), 0.0);
       sum += cone * fall * (0.3 + 0.7 * facing) * atlasHeads[i].w * 0.9;
@@ -263,10 +265,11 @@ const headDir = new THREE.Vector3();
 
 /**
  * Hands the shaders this frame's headlights: `lights` is `x, y, z, dx, dy,
- * dz, strength` in world space, seven floats each, `count` of them. Call
- * before `setNearLamps`, which folds their reach into the lamps'.
+ * dz, strength` in world space, seven floats each, `count` of them; `stops`,
+ * when given, how far each beam gets before a wall stops it (`HEAD_REACH` at
+ * most). Call before `setNearLamps`, which folds their reach into the lamps'.
  */
-export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count: number): void {
+export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count: number, stops?: Float32Array): void {
   const n = Math.min(count, NEAR_HEADLIGHTS);
   const view = camera.matrixWorldInverse;
   reaches.head = 0;
@@ -275,8 +278,9 @@ export function setHeadlights(camera: THREE.Camera, lights: Float32Array, count:
     lampView.set(lights[o]!, lights[o + 1]!, lights[o + 2]!).applyMatrix4(view);
     reaches.head = Math.max(reaches.head, lampView.length() + HEAD_REACH);
     atlasHeads.value[i]!.set(lampView.x, lampView.y, lampView.z, lights[o + 6]!);
+    const reach = Math.min(HEAD_REACH, Math.max(1, stops?.[i] ?? HEAD_REACH));
     headDir.set(lights[o + 3]!, lights[o + 4]!, lights[o + 5]!).transformDirection(view);
-    atlasHeadDirs.value[i]!.copy(headDir);
+    atlasHeadDirs.value[i]!.copy(headDir).multiplyScalar(reach);
   }
   atlasHeadCount.value = n;
 }

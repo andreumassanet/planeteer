@@ -8,7 +8,7 @@
  *
  * The ground is drawn from the tiles it shares with the minimap
  * (`map-tiles.ts`); what has to stay crisp (coast and frontiers, roads,
- * names, pins, pads, players, you) is vector work over them, on two canvases:
+ * names, pins, pads, ring courses, players, you) is vector work over them, on two canvases:
  * the sheet, redrawn when the view, a tile, the destination or the names
  * change, and the marks over it, which is all a flight with the map open
  * redraws. Painting yields to the frame (`TILE_BUDGET_MS`). The world keeps
@@ -28,7 +28,7 @@ import { updateSheet } from './map/update.ts';
 import { clampView, resize } from './map/view.ts';
 import type { WorldMap, WorldMapOptions } from './map/types.ts';
 
-export type { MapMarker, MapPad, MapPeer, WorldMap, WorldMapOptions, WorldMapStats } from './map/types.ts';
+export type { MapCourse, MapCourseSite, MapMarker, MapPad, MapPeer, WorldMap, WorldMapOptions, WorldMapStats } from './map/types.ts';
 
 export function createWorldMap(world: World, options: WorldMapOptions): WorldMap {
   const s = createSheet(world, options);

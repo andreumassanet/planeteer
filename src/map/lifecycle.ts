@@ -2,7 +2,8 @@ import { actionOf, inputBlocked } from '../controls.ts';
 import type { MapSheet } from './sheet.ts';
 import { renderTip } from './tip.ts';
 import { prepareRings, prepareTowns } from './data.ts';
-import { centreOnMe, resize, zoomAt } from './view.ts';
+import { DEG } from './constants.ts';
+import { centreOnMe, clampView, resize, zoomAt } from './view.ts';
 
 /**
  * Whether the sheet took the pointer lock as it opened (`s.relockOnHide`), and
@@ -24,8 +25,22 @@ export function show(s: MapSheet): void {
   prepareTowns(s);
   s.hover = null;
   renderTip(s);
+  openOnTheDisc(s);
   centreOnMe(s);
   s.dirty = true;
+}
+
+/**
+ * The zoom the disc in the corner has now: the ground it shows across, east
+ * to west, fills the sheet's shorter side. Wheel and keys go on from there.
+ */
+function openOnTheDisc(s: MapSheet): void {
+  const span = s.options.openSpan?.();
+  if (span === undefined || !Number.isFinite(span) || span <= 0 || !s.me.known) return;
+  const degreesAcross = (2 * span) / DEG / Math.max(0.05, Math.cos(s.me.lat * DEG));
+  s.S = (Math.min(s.width, s.height) * 360) / degreesAcross;
+  s.zoomSet = true;
+  clampView(s);
 }
 
 export function hide(s: MapSheet, relock = s.relockOnHide): void {

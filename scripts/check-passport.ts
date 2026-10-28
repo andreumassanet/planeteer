@@ -2,7 +2,9 @@
  * The passport headless: round trip through storage, a damaged store reads as
  * what it can still vouch for, a failing store costs only the session, stamps
  * are taken on the ground and never from the air, every country sits on
- * exactly one continent's pages, and other worlds' nations use namespaced codes.
+ * exactly one continent's pages, other worlds' nations use namespaced codes,
+ * and the rings' pages hold every landmark once and every course run once,
+ * by kind, on pages none of which overflows.
  *
  *   node scripts/check-passport.ts
  */
@@ -30,6 +32,8 @@ import {
   worldOf,
 } from '../src/passport.ts';
 import type { PassportMoment, PassportStorage, Stamp } from '../src/passport.ts';
+import { LINE_ROOM, LOG_FIRST_ROWS, LOG_ROWS, courseSections, landmarkEntries, logPages } from '../src/passport-card/rings-model.ts';
+import type { PassportRings } from '../src/passport-card/rings-model.ts';
 
 function memory(initial: Record<string, string> = {}): PassportStorage & { items: Record<string, string> } {
   const items = { ...initial };
@@ -225,4 +229,47 @@ test('another world\'s nations go in the same book under their own codes', () =>
   const book = parsePassport(JSON.stringify({ version: 1, stamps: [tharsis, { ...tharsis, iso: 'Mars:Tharsis' }, { ...tharsis, iso: 'venus:aphrodite', date: 'soon' }], towns: [] }));
   assert.deepEqual(book.stamps.map((stamp) => stamp.iso), ['mars:tharsis']);
   assert.equal(continentOf({ iso: 'mars:tharsis', continent: 'Mars' }), null, 'no continent of Earth\'s pages holds a nation of Mars');
+});
+
+test('the rings\' pages: every landmark once, every course run once under its kind, no page overfull', () => {
+  const landmarks = Array.from({ length: 119 }, (_, i) => ({ id: `landmark-${i}`, name: `Landmark ${String(i).padStart(3, '0')}`, iso: i % 3 === 0 ? 'ESP' : i % 3 === 1 ? 'JPN' : 'BRA' }));
+  const courses = new Map<string, { ms: number; medal: number; title: string; kind: 'air' | 'sea' | 'land' }>();
+  for (let i = 0; i < 40; i++) courses.set(`a:${i}`, { ms: 60000 + i * 1000, medal: 1 + (i % 3), title: `Sky ${i}`, kind: 'air' });
+  for (let i = 0; i < 3; i++) courses.set(`s:sea-${i}`, { ms: 90000, medal: 3, title: `Sea ${i}`, kind: 'sea' });
+  const rings: PassportRings = {
+    landmarks,
+    collected: new Set(['landmark-1', 'landmark-4', 'landmark-7']),
+    courses,
+    totals: { air: 112, land: 98, sea: 16 },
+  };
+  const rank: Record<string, number> = { ESP: 0, JPN: 1, BRA: 2 };
+  const entries = landmarkEntries(rings, (iso) => rank[iso] ?? 9);
+  assert.equal(entries.length, 119);
+  assert.equal(new Set(entries.map((entry) => entry.id)).size, 119, 'each landmark once');
+  assert.deepEqual(entries.filter((entry) => entry.got).map((entry) => entry.id).sort(), ['landmark-1', 'landmark-4', 'landmark-7']);
+  for (let i = 1; i < entries.length; i++) assert.ok(rank[entries[i - 1]!.iso]! <= rank[entries[i]!.iso]!, 'ordered by continent');
+
+  const sections = courseSections(rings);
+  assert.deepEqual(sections.map((section) => section.kind), ['air', 'land', 'sea']);
+  assert.deepEqual(sections.map((section) => section.runs.length), [40, 0, 3]);
+  assert.deepEqual(sections.map((section) => section.total), [112, 98, 16]);
+  assert.equal(sections[0]!.medals.slice(1).reduce((a, b) => a + b, 0), 40, 'every run has its medal counted');
+  for (const section of sections) {
+    for (let i = 1; i < section.runs.length; i++) assert.ok(section.runs[i - 1]!.medal >= section.runs[i]!.medal, 'best medals first');
+  }
+
+  const pages = logPages(sections);
+  const lines = pages.flat();
+  assert.equal(lines.filter((line) => line.type === 'run').length, 43, 'every run on exactly one page');
+  assert.equal(lines.filter((line) => line.type === 'head').length, 3);
+  assert.equal(lines.filter((line) => line.type === 'none').length, 1, 'the kind with none run says so');
+  pages.forEach((page, n) => {
+    const used = page.reduce((sum, line) => sum + LINE_ROOM[line.type], 0);
+    assert.ok(used <= (n === 0 ? LOG_FIRST_ROWS : LOG_ROWS), `log page ${n} holds ${used} rows`);
+    assert.notEqual(page[page.length - 1]!.type, 'head', `log page ${n} does not end on a heading`);
+  });
+  // With nothing run, the log is one page saying so for each kind.
+  const blank = logPages(courseSections({ ...rings, courses: new Map() }));
+  assert.equal(blank.length, 1);
+  assert.equal(blank[0]!.filter((line) => line.type === 'none').length, 3);
 });

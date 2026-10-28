@@ -23,6 +23,7 @@ import { createOverlay } from './overlay.ts';
 import { renderDistanceWords } from './render-distance.ts';
 import { createRockets } from './rockets.ts';
 import { createTrainRide } from './train-ride.ts';
+import { createThrills } from './thrills.ts';
 import { createTimeOfDay } from './time-of-day.ts';
 import { createWalls } from './walls.ts';
 import { createWorldSettings } from './world-settings.ts';
@@ -57,6 +58,7 @@ export async function startSession(app: App): Promise<void> {
   app.names = await createWorldNames(app);
 
   app.overlay = createOverlay(app);
+  app.thrills = createThrills(app);
   listenForSettingKeys(app);
   app.horns = createHorns(app);
   app.timeOfDay = createTimeOfDay(app);

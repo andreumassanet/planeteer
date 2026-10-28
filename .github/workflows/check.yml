@@ -69,6 +69,8 @@ jobs:
         run: pnpm worlds
       - name: solids
         run: pnpm solids
+      - name: breakables
+        run: pnpm breakables
       - name: fleet
         run: pnpm fleet
       - name: sky
@@ -95,6 +97,8 @@ jobs:
         run: pnpm sea
       - name: passport
         run: pnpm passport
+      - name: rings
+        run: pnpm rings
       - name: music
         run: pnpm music
       - name: maps

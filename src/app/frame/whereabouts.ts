@@ -15,6 +15,9 @@ export function createMapsPhase(app: App): (tick: Tick) => void {
     tick.standingIn = world.countryAtPoint(player.position);
     tick.nearbyPlace = places.nearest(player.position);
     if (peers !== null) minimap.setPeers(peers.marks);
+    // A course shown, run or not: its waiting ring on the disc (the thrills come after the maps at start-up).
+    const course = app.thrills?.rings.active ?? null;
+    minimap.setCourse(course === null ? null : course.next.centre, course?.finish ?? false);
     guard('minimap', () =>
       minimap.update(player.position, player.forward, {
         country: tick.standingIn,

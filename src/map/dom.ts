@@ -1,7 +1,7 @@
 import { h, icon, kbd } from '../ui.ts';
 import { labelOf, onKeyLabels } from '../controls.ts';
 import type { WorldMapOptions } from './types.ts';
-import { paper, pink, red, violet } from './palette.ts';
+import { createLegend } from './legend.ts';
 
 /** The overlay's elements. */
 export interface MapDom {
@@ -28,7 +28,7 @@ export interface MapDom {
 
 /** Builds the overlay: the sheet's two canvases, the header, the zoom buttons, the scale, the key legend and the tip. */
 export function createDom(options: WorldMapOptions): MapDom {
-  const { monuments, surface } = options;
+  const { surface } = options;
   // A dialog to assistive technology, and not a modal one: the world goes on
   // flying under it.
   const root = h('div', { class: 'atlas-map', role: 'dialog', 'aria-label': 'World map' });
@@ -42,18 +42,7 @@ export function createDom(options: WorldMapOptions): MapDom {
   const mctx = marksCanvas.getContext('2d')!;
   sheet.append(canvas, marksCanvas);
 
-  const legend = h(
-    'div',
-    { class: 'atlas-map-legend' },
-    ...([
-      // A world with no landmarks keys its towns instead: its sheet's pale squares.
-      [paper, monuments.length === 0 && surface !== undefined ? 'settlement' : 'landmark'],
-      [violet, 'your marker'],
-      ...(options.peers === undefined ? [] : [[pink, 'player'] as const]),
-      // Keyed by its fins, the one colour of it nothing else on the sheet is.
-      ...(options.pads === undefined ? [] : [[red, 'rocket pad'] as const]),
-    ] as const).map(([colour, label]) => h('div', {}, h('i', { style: `background: ${colour}` }), label)),
-  );
+  const legend = createLegend(options);
   const unmark = h('button', { class: 'ui-btn small', type: 'button' }, icon('close', 16), 'Clear marker');
   unmark.hidden = true;
   const head = h(
@@ -80,7 +69,7 @@ export function createDom(options: WorldMapOptions): MapDom {
     foot.replaceChildren(
       h('span', {}, kbd(labelOf('map')), 'close'),
       h('span', {}, kbd(labelOf('mapIn')), kbd(labelOf('mapOut')), 'zoom'),
-      h('span', { class: 'quiet', text: 'drag to move · scroll to zoom · click to place a marker' }),
+      h('span', { class: 'quiet', text: 'drag to move, scroll to zoom, click to place a marker' }),
     );
   };
   relabelFoot();

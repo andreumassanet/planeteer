@@ -1,6 +1,7 @@
 import { TAU, inkedText, tracePin } from '../cartography.ts';
+import { COURSE_GREEN, traceRingMark } from '../course-marks.ts';
 import { FONT } from '../ui.ts';
-import { RIM_WIDTH, TARGET_PIN_SCALE, TARGET_REACH, TARGET_WIDTH } from './constants.ts';
+import { COURSE_RING, RIM_WIDTH, TARGET_PIN_SCALE, TARGET_REACH, TARGET_WIDTH } from './constants.ts';
 import { niceKm } from './format.ts';
 import { cream, ink, violet } from './palette.ts';
 import type { MinimapState } from './state.ts';
@@ -31,6 +32,26 @@ export function traceBearing(m: MinimapState, angle: number, reach: number, widt
 export function drawBearing(m: MinimapState): void {
   const { deadzone } = m;
   if (m.marked && m.targetAngle >= deadzone) traceBearing(m, m.targetScreen, TARGET_REACH, TARGET_WIDTH, violet);
+}
+
+/**
+ * The ring a course waits for: on the disc a green ring where it stands
+ * (chequered for the finish), off it a green wedge on the rim pointing the
+ * way. Drawn over the paper every redraw, so a ring passed moves at once.
+ */
+export function drawCourseRing(m: MinimapState): void {
+  const { ctx, centre, discRadius, uiScale, coursePoint, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
+  if (!m.coursed) return;
+  const { x: px, y: py, z: pz } = coursePoint;
+  const across = px * rx + py * ry + pz * rz;
+  const ahead = px * fx + py * fy + pz * fz;
+  const ring = COURSE_RING * uiScale;
+  const inside = discRadius - RIM_WIDTH - ring - 2 * uiScale;
+  if (px * ux + py * uy + pz * uz > 0 && Math.hypot(across, ahead) * scale <= inside) {
+    traceRingMark(ctx, centre + across * scale, centre - ahead * scale, ring, m.courseFinish);
+    return;
+  }
+  traceBearing(m, Math.atan2(across, ahead), TARGET_REACH, TARGET_WIDTH, COURSE_GREEN);
 }
 
 /** The marker's pin, when it stands on the disc. */

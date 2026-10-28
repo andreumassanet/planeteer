@@ -59,6 +59,8 @@ export const TARGET_REACH = 13;
 export const TARGET_WIDTH = 5.5;
 /** Its pin on the disc is drawn this much bigger than a landmark's. */
 export const TARGET_PIN_SCALE = 1.3;
+/** A course's waiting ring on the disc, its radius in pixels at the default size. */
+export const COURSE_RING = 5.5;
 /** Closer than this, in world units, the bearing mark is dropped: it would spin on top of the target. */
 export const BEARING_DEADZONE = 120;
 

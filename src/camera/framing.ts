@@ -3,8 +3,10 @@
  */
 import { AVATAR_HEIGHT } from '../avatar.ts';
 import { PLANE_CEILING } from '../vehicles.ts';
+import type * as THREE from 'three';
 import {
   BOAT_FRAMING,
+  FLIGHT_CHASE_UNTIL,
   FLIGHT_HIGH,
   FLIGHT_LOW,
   RIDE_BACK,
@@ -27,8 +29,8 @@ export function createFraming(core: CameraCore) {
     into.height = WALK_FRAMING.height * Math.pow(at, ZOOM_RISE);
   };
 
-  /** Writes `framing` for what the player is currently doing. */
-  function want(player: CameraSubject): void {
+  /** Writes `framing` for what the player is currently doing; `groundAt` is the ground's radius under a point, for a flight's height. */
+  function want(player: CameraSubject, groundAt?: (p: THREE.Vector3) => number): void {
     if (player.ride !== null) {
       const [length, width, tall] = player.ride.model.size;
       const kind = player.ride.model.kind;
@@ -45,7 +47,8 @@ export function createFraming(core: CameraCore) {
       } else if ((kind === 'plane' || kind === 'balloon' || kind === 'helicopter') && player.airborne) {
         // Full control is flown close behind, low, whatever the height: a map
         // view would turn a loop into a dot.
-        const t = player.aerobatic === true ? 0 : clamp(player.altitude / PLANE_CEILING, 0, 1);
+        const over = groundAt === undefined ? player.altitude : player.position.length() - groundAt(player.position);
+        const t = player.aerobatic === true ? 0 : clamp((over - FLIGHT_CHASE_UNTIL) / (PLANE_CEILING - FLIGHT_CHASE_UNTIL), 0, 1);
         // Two different eases: the angle has to open early, or the first thousand
         // units of a climb look like nothing is happening.
         const elevation = mix(FLIGHT_LOW.elevation, FLIGHT_HIGH.elevation, Math.pow(t, 0.6));

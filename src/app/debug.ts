@@ -80,6 +80,8 @@ export function exposeDebug(app: App): void {
       talk: app.talk,
       /** `.burst('crash' | 'splash' | 'dust' | 'ripple')` where you stand; `.enabled = false` is the A/B. */
       effects: app.effects,
+      /** `.stats`: hosts and props registered, folded, thrown and returning; `.clear()` puts everything back. */
+      breakables: app.breakables,
       /** Which guarded subsystems have thrown in the loop, and how often. */
       failures: app.failures,
       /** Ms a frame each guarded subsystem costs, smoothed, dearest first. */
@@ -109,6 +111,12 @@ export function exposeDebug(app: App): void {
       /** `atlas.brightness(0)` turns every emitting surface off. */
       brightness: lightBrightness,
       nav: app.nav,
+      /** The rings: `.stats`, `.record`, `.course()`, `.clear()`. */
+      rings: app.thrills.rings,
+      /** The line to the marker: `.stats`. */
+      guide: app.thrills.guide,
+      /** The rush: `.rush`, `.pulse(1)`, `.speedLines.stats`. */
+      thrills: app.thrills,
       map: app.map,
       placements: app.placements,
       places,

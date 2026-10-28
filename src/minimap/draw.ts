@@ -1,11 +1,11 @@
 import { TAU } from '../cartography.ts';
 import { BASE_GAP, BASE_GAP_MAX } from './constants.ts';
 import { drawBase } from './base.ts';
-import { drawFrameMarks } from './marks.ts';
+import { drawCourseRing, drawFrameMarks } from './marks.ts';
 import { cream, ink, pink } from './palette.ts';
 import type { MinimapState } from './state.ts';
 
-/** One overlay redraw: the paper (rebuilt when stale, else carried along), the rim marks, the other players and the arrow. */
+/** One overlay redraw: the paper (rebuilt when stale, else carried along), the rim marks, a course's ring, the other players and the arrow. */
 export function draw(m: MinimapState): void {
   const { size, canvas, ctx, base, centre, discRadius, uiScale, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
   const dpr = Math.min(devicePixelRatio || 1, 3);
@@ -53,6 +53,7 @@ export function draw(m: MinimapState): void {
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawFrameMarks(m);
+  drawCourseRing(m);
 
   const rim = discRadius - 5 * uiScale;
   for (const mark of m.peerMarks) {

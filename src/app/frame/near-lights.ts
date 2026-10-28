@@ -6,7 +6,7 @@
  */
 import * as THREE from 'three';
 import {
-  FIRE_GLOW_REACH, FIRE_STRIDE, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS,
+  FIRE_GLOW_REACH, FIRE_STRIDE, HEAD_REACH, LAMPS_OFF_ABOVE, LAMP_FIELD, MAX_FIRE_GLOWS, NEAR_HEADLIGHTS, NEAR_LAMPS,
   setFires, setHeadlights, setNearLamps,
 } from '../../lights.ts';
 import { HEADLIGHTS_OF, LAMPS_LIKE } from '../../craft/contract.ts';
@@ -15,6 +15,10 @@ import type { App } from '../context.ts';
 
 /** Floats per headlight in the buffer `setHeadlights` reads: position, direction, strength. */
 const HEADLIGHT_STRIDE = 7;
+/** Units between two samples of a beam against the walls: under a wall's thinnest. */
+const BEAM_STEP = 2.5;
+/** How far past the first wall sample a beam still lights, units: the wall's own face. */
+const BEAM_FACE = 2;
 
 /**
  * A vehicle whose headlamps may be lit this frame: its model's origin and
@@ -52,6 +56,30 @@ export function createNearLights(app: App): (now: number) => void {
   const { guard, rig, sky, player, life, fleet, countryMotion, settlements, roads, monuments, harbours, craftModels } = app;
   const nearLamps = new Float32Array(NEAR_LAMPS * 4);
   const headlights = new Float32Array(NEAR_HEADLIGHTS * HEADLIGHT_STRIDE);
+  const beamReach = new Float32Array(NEAR_HEADLIGHTS);
+  const beamAt = new THREE.Vector3();
+  /**
+   * How far each beam gets before a building or a monument stops it, walked in
+   * `BEAM_STEP`s along its axis, so a headlight lights the wall it meets and
+   * not the street behind it.
+   */
+  const stopBeams = (): void => {
+    for (let i = 0; i < headlightCount; i++) {
+      const o = i * HEADLIGHT_STRIDE;
+      beamReach[i] = HEAD_REACH;
+      for (let d = BEAM_STEP; d < HEAD_REACH; d += BEAM_STEP) {
+        beamAt.set(
+          headlights[o]! + headlights[o + 3]! * d,
+          headlights[o + 1]! + headlights[o + 4]! * d,
+          headlights[o + 2]! + headlights[o + 5]! * d,
+        );
+        if (settlements.blocksSight(beamAt) || monuments.blocksSight(beamAt)) {
+          beamReach[i] = d + BEAM_FACE;
+          break;
+        }
+      }
+    }
+  };
   const fires = new Float32Array(MAX_FIRE_GLOWS * FIRE_STRIDE);
   let headlightCount = 0;
   const headAt = new THREE.Vector3();
@@ -156,8 +184,11 @@ export function createNearLights(app: App): (now: number) => void {
     guard('near lamps', () => {
       rig.camera.updateMatrixWorld();
       headlightCount = 0;
-      if (sky.state.daylight < 0.6) gatherHeadlights();
-      setHeadlights(rig.camera, headlights, headlightCount);
+      if (sky.state.daylight < 0.6) {
+        gatherHeadlights();
+        stopBeams();
+      }
+      setHeadlights(rig.camera, headlights, headlightCount, beamReach);
       const fireCount = sky.state.elevation > LAMPS_OFF_ABOVE ? 0 : countryMotion.fires(fires, MAX_FIRE_GLOWS, FIRE_GLOW_REACH);
       setFires(rig.camera, fires, fireCount, now / 1000);
       // By day no lamp is lit, so none is looked for.

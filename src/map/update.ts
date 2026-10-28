@@ -3,6 +3,7 @@ import { latLonOf } from '../sphere.ts';
 import { uOf, vOf } from '../map-tiles.ts';
 import { DEG, LATE_FRAME_MS, MAX_FPS, RELAYOUT_PX, TILE_BUDGET_MS, TILE_BUSY_MS } from './constants.ts';
 import { draw } from './draw-sheet.ts';
+import { courseSitesOf } from './courses.ts';
 import { drawMarks } from './marks.ts';
 import { askPads } from './pads.ts';
 import type { MapSheet } from './sheet.ts';
@@ -61,6 +62,11 @@ export function updateSheet(s: MapSheet, position: THREE.Vector3, forward: THREE
     unmark.hidden = mark === null;
     s.dirty = true;
   }
+
+  // A course's ring passed moves its mark; the courses first known lay the sheet out again.
+  if ((options.courseRing?.()?.next ?? null) !== s.lastCourseRing) s.marksDirty = true;
+  const sites = courseSitesOf(s);
+  if (sites.length > 0 && s.courseSpotsFor !== sites) s.dirty = true;
 
   const meX = screenX(s, me.u);
   const meY = screenY(s, me.v);

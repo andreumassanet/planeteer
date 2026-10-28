@@ -9,6 +9,7 @@ import type { Continent, Passport, Stamp } from '../passport.ts';
 import type { PassportChapter } from '../planet.ts';
 import { CONTINENT_INK, PER_PAGE, inked } from './constants.ts';
 import type { Nation } from './seal-svg.ts';
+import type { PassportRings } from './rings-model.ts';
 import type { PassportCardOptions } from '../passport-card.ts';
 
 export type Side = 'verso' | 'recto';
@@ -25,6 +26,8 @@ export interface Visa {
   ink: string;
   dye: string;
   entries: readonly { iso: string; name: string }[];
+  /** What its bookmark counts, got and of, where that is not its entries stamped. */
+  tally?: () => [number, number];
 }
 
 export interface BookModel {
@@ -32,7 +35,11 @@ export interface BookModel {
   readonly countryOf: Map<string, { iso: string; name: string; continent: string }>;
   /** Earth's visas: every continent with a country. */
   readonly earthVisas: Visa[];
-  /** Earth's visas followed by one per chapter. */
+  /** The rings' two: the landmarks' rings and the course log, after the continents; none without `rings`. */
+  readonly ringVisas: Visa[];
+  /** What the book holds of the rings, read when a page is laid; null with no rings to show. */
+  readonly rings: (() => PassportRings | null) | null;
+  /** Earth's visas, then the rings', then one per chapter. */
   visas: Visa[];
   /** The other worlds, once the caller has handed them over. */
   chapters: readonly PassportChapter[];
@@ -41,6 +48,8 @@ export interface BookModel {
   /** The page each visa begins on, and each chapter, as `pagesOf` last laid the book out. */
   readonly firstPageOf: Map<string, number>;
   readonly chapterStart: Map<string, number>;
+  /** How many pages each of the rings' visas ran to when `pagesOf` last laid the book out. */
+  readonly partsOf: Map<string, number>;
   pages: PageMaker[];
   /** The spread on show: pages `2n` and `2n + 1`. */
   spread: number;
@@ -64,15 +73,45 @@ export function createBookModel(options: PassportCardOptions): BookModel {
     dye: inked(CONTINENT_INK[continent], 0.3),
     entries: continents.get(continent)!,
   }));
+  const rings = options.rings ?? null;
+  const ringVisas: Visa[] = rings === null ? [] : [
+    {
+      key: 'rings',
+      chapter: 'earth',
+      title: 'Rings',
+      ink: inked(PALETTE.gold, 0.35),
+      dye: inked(PALETTE.gold, 0.32),
+      entries: [],
+      tally: () => {
+        const now = readRings(rings);
+        return now === null ? [0, 0] : [now.landmarks.filter((landmark) => now.collected.has(landmark.id)).length, now.landmarks.length];
+      },
+    },
+    {
+      key: 'courses',
+      chapter: 'earth',
+      title: 'Courses',
+      ink: inked(PALETTE.green, 0.45),
+      dye: inked(PALETTE.green, 0.35),
+      entries: [],
+      tally: () => {
+        const now = readRings(rings);
+        return now === null ? [0, 0] : [now.courses.size, now.totals.air + now.totals.land + now.totals.sea];
+      },
+    },
+  ];
   return {
     passport: options.passport,
     countryOf: new Map(options.countries.map((country) => [country.iso, country])),
     earthVisas,
-    visas: earthVisas,
+    ringVisas,
+    rings,
+    visas: [...earthVisas, ...ringVisas],
     chapters: [],
     nationOf: new Map(),
     firstPageOf: new Map(),
     chapterStart: new Map(),
+    partsOf: new Map(),
     pages: [],
     spread: 0,
     turned: false,
@@ -91,6 +130,7 @@ export function otherWorlds(list: readonly PassportChapter[]): readonly Passport
 export function layoutModel(model: BookModel): void {
   model.visas = [
     ...model.earthVisas,
+    ...model.ringVisas,
     ...model.chapters.map((chapter) => ({
       key: chapter.body,
       chapter: chapter.body,
@@ -107,6 +147,15 @@ export function layoutModel(model: BookModel): void {
       if (chapter.script !== undefined) entry.script = chapter.script;
       model.nationOf.set(nation.iso, entry);
     }
+  }
+}
+
+/** The rings as the caller has them now, or null when it has none yet (or asking throws). */
+export function readRings(rings: (() => PassportRings | null) | null): PassportRings | null {
+  try {
+    return rings?.() ?? null;
+  } catch {
+    return null;
   }
 }
 

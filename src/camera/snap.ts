@@ -39,7 +39,7 @@ export function createSnap(core: CameraCore, framer: Framing, optics: Lens, eyes
     // Only take `view` over if the rig already owns it, or is about to: a
     // teleport must not quietly reset a framing the console set by hand.
     if (s.driving || seated(player)) {
-      want(player);
+      want(player, groundRadiusAt);
       view.distance = framing.distance;
       view.height = framing.height;
       s.driving = seated(player);
