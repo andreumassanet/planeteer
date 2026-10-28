@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy · planeteer</title>
+  <meta name="description" content="What planeteer keeps about you, and how to delete it." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <style>
+    @font-face {
+      font-family: 'Nunito';
+      font-style: normal;
+      font-display: swap;
+      font-weight: 200 1000;
+      src: url('/fonts/nunito-latin.woff2') format('woff2');
+    }
+    :root {
+      --ink: #1e0603;
+      --paper: #fff8ee;
+      --card: #fffdf8;
+      --muted: rgba(30, 6, 3, 0.68);
+      --rule: rgba(30, 6, 3, 0.14);
+      --sky: #2b7fa8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 16px 64px;
+      background: var(--paper);
+      color: var(--ink);
+      font: 500 17px/1.6 'Nunito', system-ui, sans-serif;
+    }
+    main {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 36px 40px 32px;
+      background: var(--card);
+      border: 3px solid var(--ink);
+      border-radius: 14px;
+      box-shadow: 0 5px 0 var(--ink);
+    }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    header img { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: 30px; font-weight: 900; line-height: 1.1; }
+    .when { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+    h2 { margin: 30px 0 6px; font-size: 19px; font-weight: 900; }
+    p, li { color: var(--ink); }
+    ul { padding-left: 22px; margin: 6px 0; }
+    li { margin: 4px 0; }
+    a { color: var(--sky); font-weight: 800; }
+    .back { display: inline-block; margin-top: 28px; }
+    hr { border: 0; border-top: 2px solid var(--rule); margin: 28px 0 0; }
+    @media (max-width: 560px) {
+      body { padding: 20px 12px 40px; }
+      main { padding: 24px 20px; }
+      h1 { font-size: 25px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="/favicon.svg" alt="" />
+      <h1>Privacy</h1>
+    </header>
+    <p class="when">planeteer is a personal, non-commercial project. This page says what it keeps about you and how to remove it.</p>
+
+    <h2>Playing without an account</h2>
+    <p>You can play without signing in. Your settings, your traveller's look, your name, your passport and your best times are kept only in your own browser (its local storage). Clearing your browser's site data removes them.</p>
+    <p>When you play online, the multiplayer server passes your position, your name, your traveller's look and your chat lines on to the other players while you are connected. It keeps the last 50 chat lines and where vehicles were left parked for up to 24 hours, and nothing else.</p>
+
+    <h2>Signing in with Discord</h2>
+    <p>An account is optional. If you sign in with Discord, Discord shares your Discord user ID, username, avatar and, if your account has one, your email address. With it the game keeps:</p>
+    <ul>
+      <li>the name you choose to be seen by;</li>
+      <li>your traveller's look;</li>
+      <li>your progress: passport stamps, landmark rings, best times and medals, landmarks visited;</li>
+      <li>your role (player, moderator or the game's owner).</li>
+    </ul>
+    <p>All of it is used only to show your name and keep your progress across your devices. It is never sold, shared or used for advertising, and the game has no ads and no tracking cookies.</p>
+
+    <h2>Where it is kept</h2>
+    <p>Accounts are stored with <a href="https://supabase.com/privacy">Supabase</a> (in Europe), the game is served by <a href="https://vercel.com/legal/privacy-policy">Vercel</a> and the multiplayer server runs on <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare</a>. Like any website, these services see your IP address to answer your requests.</p>
+
+    <h2>Deleting your account</h2>
+    <p>In the game, open <b>Settings → Account → Delete account</b>. Your account and everything kept with it are deleted at once and for good; your own browser keeps its local copy until you clear it. You can also disconnect planeteer from Discord in Discord's <i>User Settings → Authorized Apps</i>.</p>
+
+    <h2>Questions</h2>
+    <p>Open an issue on the project's <a href="https://github.com/andreumassanet/planeteer/issues">GitHub page</a>.</p>
+
+    <hr />
+    <a class="back" href="/">← Back to planeteer</a>
+  </main>
+</body>
+</html>
