@@ -107,7 +107,7 @@ function readPointer(ctx: MenuCtx): void {
         tipName.textContent = next.name;
         tipFlag.replaceChildren(flag(next.key, 30, 20));
         const count = ctx.sitesOf.get(next.key)?.length ?? 0;
-        tipSub.textContent = `${next.note} · ${count.toLocaleString('en')} ${ctx.words.sites} · click to explore`;
+        tipSub.textContent = `${next.note}, ${count.toLocaleString('en')} ${ctx.words.sites}`;
       }
       tip.classList.add('on');
       tip.style.transform = `translate(${ctx.pointer.x + 16}px, ${ctx.pointer.y + 16}px)`;

@@ -21,7 +21,7 @@ export function createCreditsPage(): HTMLElement[] {
       h('dl', {
         class: 'atlas-settings-credit',
         html:
-          `<dt>Map data</dt><dd>${link('https://www.naturalearthdata.com/', 'Natural Earth')} · ` +
+          `<dt>Map data</dt><dd>${link('https://www.naturalearthdata.com/', 'Natural Earth')}, ` +
           `${link('https://www.geonames.org/', 'GeoNames')} (${link('https://creativecommons.org/licenses/by/4.0/', 'CC&nbsp;BY&nbsp;4.0')})</dd>` +
           `<dt>Stars</dt><dd>${link('https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50', 'Bright Star Catalogue')} ` +
           `(Hoffleit &amp; Warren 1991, NASA ADC), distributed by the ${link('https://cds.unistra.fr/', 'CDS')}, Strasbourg</dd>` +

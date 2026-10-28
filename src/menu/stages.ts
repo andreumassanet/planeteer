@@ -278,11 +278,10 @@ export function touch(ctx: MenuCtx): void {
 }
 
 export function bindStages(ctx: MenuCtx): void {
-  const { back, backButton, continueButton, deps, fallback, home, leaveButton } = ctx;
+  const { backButton, continueButton, deps, fallback, home, leaveButton } = ctx;
   leaveButton?.addEventListener('click', () => goBack(ctx));
 
   backButton.addEventListener('click', () => goBack(ctx));
-  back.addEventListener('click', () => goBack(ctx));
   continueButton.addEventListener('click', () => {
     if (ctx.flight !== null) return;
     // A world the relay of this build cannot reach any more is Earth's fallback.

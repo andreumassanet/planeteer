@@ -153,15 +153,7 @@ export const STYLE = `
 @starting-style {
   .atlas-side > .ui-card.on, .atlas-side > .ui-card.in { opacity: 0; transform: translateX(16px); }
 }
-.atlas-card-eyebrow {
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  opacity: 0.5;
-}
 .atlas-found-name {
-  margin-top: 1px;
   font-size: 17px;
   font-weight: 800;
   letter-spacing: -0.015em;
@@ -432,22 +424,8 @@ body.atlas-hud-hidden .atlas-chat:not(.open) {
 .atlas-welcome.on { opacity: 1; visibility: visible; }
 .atlas-welcome.on .atlas-welcome-card { animation: ui-pop 0.4s var(--ui-spring) both; }
 .atlas-welcome-card { width: min(470px, 100%); padding: 22px 24px 20px; }
-.atlas-welcome-head { display: flex; align-items: center; gap: 14px; }
-.atlas-welcome-badge {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 46px;
-  height: 46px;
-  border: 3px solid var(--ui-ink);
-  border-radius: 50%;
-  background: var(--ui-ink);
-  color: var(--ui-gold);
-  box-shadow: 0 3px 0 var(--ui-ink);
-}
-.atlas-welcome-badge svg { width: 26px; height: 26px; }
-.atlas-welcome-title { font-size: 23px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.atlas-welcome-sub { margin-top: 4px; font-size: 13px; font-weight: 600; line-height: 1.4; opacity: 0.62; }
+.atlas-welcome-title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; text-wrap: balance; }
+.atlas-welcome-sub { margin-top: 6px; font-size: 13.5px; font-weight: 600; line-height: 1.45; color: var(--ui-muted); text-wrap: pretty; }
 .atlas-welcome-list {
   display: grid;
   gap: 10px;
@@ -559,7 +537,6 @@ html.touch-ui .atlas-welcome-row > span:first-child { min-width: 0; }
   html.touch-ui .atlas-welcome-card { width: min(640px, 100%); padding: 14px 16px 12px; }
   html.touch-ui .atlas-welcome-title { font-size: 19px; }
   html.touch-ui .atlas-welcome-sub { display: none; }
-  html.touch-ui .atlas-welcome-badge { width: 38px; height: 38px; }
   html.touch-ui .atlas-welcome-list { grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 10px 0 12px; padding-top: 10px; }
   html.touch-ui .atlas-welcome-row { font-size: 13px; gap: 9px; }
 }

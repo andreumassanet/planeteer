@@ -56,6 +56,10 @@ const STYLE = `
   --ui-space: ${SPACE_CSS};
   --ui-muted: rgba(30, 6, 3, 0.6);
   --ui-rule: rgba(30, 6, 3, 0.14);
+  /* A pointer over a plain row, and the paper's text where it stands on space. */
+  --ui-hover: rgba(30, 6, 3, 0.08);
+  --ui-paper-dim: rgba(255, 242, 232, 0.86);
+  --ui-space-shadow: 0 2px 0 rgba(4, 6, 14, 0.7);
   --ui-font: ${FONT};
   --ui-radius: 14px;
   --ui-drop: 0 5px 0 var(--ui-ink);
@@ -133,12 +137,13 @@ const STYLE = `
 }
 .ui-kbd.wide { min-width: 44px; }
 
-.ui-eyebrow {
-  font-size: 10.5px;
+/* A section's name: the body face a step smaller, in sentence case, never tracked or capitalised. */
+.ui-label {
+  font-size: 13px;
   font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.55;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  color: var(--ui-muted);
 }
 .ui-flag {
   display: block;
@@ -150,11 +155,10 @@ const STYLE = `
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 3px 8px 3px 7px;
+  line-height: 1;
+  padding: 3px 8px;
   border: 2px solid var(--ui-ink);
   border-radius: 999px;
   background: var(--ui-cream);
@@ -243,7 +247,7 @@ const STYLE = `
   cursor: pointer;
   transition: background 0.15s ease;
 }
-.ui-seg button:hover { background: rgba(30, 6, 3, 0.08); }
+.ui-seg button:hover { background: var(--ui-hover); }
 .ui-seg button[aria-pressed='true'] { background: var(--ui-ink); color: var(--ui-paper); }
 .ui-seg button:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
 

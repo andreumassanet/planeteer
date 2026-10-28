@@ -74,7 +74,7 @@ export function createWidgets(signal: AbortSignal) {
 }
 
 export const section = (title: string, ...rows: (HTMLElement | null)[]): HTMLElement =>
-  h('section', { class: 'atlas-settings-section' }, h('div', { class: 'ui-eyebrow', text: title }), ...rows);
+  h('section', { class: 'atlas-settings-section' }, h('div', { class: 'ui-label', text: title }), ...rows);
 
 export const link = (href: string, text: string): string => `<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
 

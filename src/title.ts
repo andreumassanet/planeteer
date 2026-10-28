@@ -100,47 +100,47 @@ const STYLE = `
   -webkit-user-select: none;
 }
 .atlas-title.on { opacity: 1; visibility: visible; transition-delay: 0s; }
-.ti-left { display: flex; flex-direction: column; justify-content: center; gap: 26px; min-width: 0; pointer-events: auto; transition: opacity 0.35s ease, transform 0.45s var(--ui-ease); }
+.ti-left { display: flex; flex-direction: column; justify-content: center; gap: 32px; min-width: 0; pointer-events: auto; transition: opacity 0.35s ease, transform 0.45s var(--ui-ease); }
 .atlas-title.on .ti-left > * { animation: ti-rise 0.6s var(--ui-ease) both; }
 .atlas-title.on .ti-left > :nth-child(2) { animation-delay: 0.06s; }
 .ti-wordmark {
-  font-size: 118px;
+  font-size: 96px;
   font-weight: 800;
   letter-spacing: -0.05em;
-  line-height: 0.82;
+  line-height: 0.85;
   color: var(--ui-paper);
-  -webkit-text-stroke: 9px var(--ui-ink);
+  -webkit-text-stroke: 8px var(--ui-ink);
   paint-order: stroke fill;
-  text-shadow: 0 9px 0 var(--ui-ink);
+  text-shadow: 0 7px 0 var(--ui-ink);
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 .ti-tagline {
   margin-top: 18px;
-  max-width: 400px;
-  font-size: 19px;
+  max-width: 24ch;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.35;
-  color: rgba(255, 242, 232, 0.92);
-  text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7);
+  color: var(--ui-paper-dim);
+  text-shadow: var(--ui-space-shadow);
+  text-wrap: balance;
 }
-.ti-card { padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px; max-width: 420px; }
+/* The choice: two ways to play, one of them the way you played last, and the settings under them. */
+.ti-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 360px; }
 .ti-play {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
   width: 100%;
-  padding: 13px 16px;
+  padding: 12px 18px 11px;
   text-align: left;
   white-space: normal;
 }
-.ti-play svg { width: 26px; height: 26px; }
-.ti-play b { display: block; font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
-.ti-play small { display: block; margin-top: 3px; font-size: 12.5px; font-weight: 700; opacity: 0.62; }
-.ti-play.peopled small::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--ui-green); border: 1.5px solid var(--ui-ink); vertical-align: 0; }
-.ti-play .ui-tag { visibility: hidden; }
-.ti-play.last .ui-tag { visibility: visible; }
-.ti-row { display: flex; gap: 8px; }
-.ti-row .ui-btn { flex: 1; }
+.ti-play b { display: block; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+.ti-play small { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; color: var(--ui-muted); }
+.ti-play.primary small { color: var(--ui-ink); opacity: 0.7; }
+.ti-row { display: flex; gap: 8px; margin-top: 6px; }
 .ti-right { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
 .ti-custom { position: relative; pointer-events: auto; transition: opacity 0.3s ease, transform 0.4s var(--ui-ease); }
 /* Backwards, not both: a fill kept after the rise would outrank the aside rule and leave the button under the creator. */
@@ -198,14 +198,9 @@ const STYLE = `
 /** The title's two columns: the play buttons and settings on the left, *Customise* on the right. */
 function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
   const stage = options.stage;
-  function playButton(mode: PlayMode, glyph: SVGSVGElement, label: string, note: string, primary: boolean): HTMLButtonElement {
-    const button = h(
-      'button',
-      { class: `ui-btn ${primary ? 'primary' : ''} ti-play`, type: 'button', 'data-mode': mode },
-      glyph,
-      h('span', {}, h('b', { text: label }), h('small', { text: note })),
-      h('span', { class: 'ui-tag', text: 'Last time' }),
-    );
+  // The way played last is the gold one; `markLast` keeps that up to date.
+  function playButton(mode: PlayMode, label: string, note: string): HTMLButtonElement {
+    const button = h('button', { class: 'ui-btn ti-play', type: 'button', 'data-mode': mode }, h('b', { text: label }), h('small', { text: note }));
     button.addEventListener('click', () => choose(mode));
     button.addEventListener('pointerenter', () => {
       options.sound?.hover();
@@ -213,13 +208,13 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
     });
     return button;
   }
-  const onlineNote = options.online ? 'Meet the other travellers on the same planet' : 'No server to meet anyone on in this version';
-  const onlineButton = playButton('online', icon('globe'), 'Play online', onlineNote, true);
+  const onlineNote = options.online ? 'The other travellers are on the same planet' : 'No server to meet anyone on in this version';
+  const onlineButton = playButton('online', 'Play online', onlineNote);
   onlineButton.disabled = !options.online;
-  const offlineButton = playButton('offline', icon('walk'), 'Play offline', 'Just you and the worlds, nothing sent anywhere', false);
+  const offlineButton = playButton('offline', 'Play offline', 'Nothing is sent anywhere');
 
   const settingsButton =
-    options.settings === undefined ? null : h('button', { class: 'ui-btn', type: 'button' }, icon('gear', 18), 'Settings');
+    options.settings === undefined ? null : h('button', { class: 'ui-btn quiet small', type: 'button' }, icon('gear', 16), 'Settings');
   settingsButton?.addEventListener('click', () => options.settings?.());
 
   const customButton = h('button', { class: 'ui-btn big ti-custom', type: 'button' }, icon('sparkle', 20), 'Customise');
@@ -229,10 +224,10 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
   const left = h(
     'div',
     { class: 'ti-left' },
-    h('div', {}, h('h1', { class: 'ti-wordmark', text: 'planeteer' }), h('div', { class: 'ti-tagline', text: 'Explore the solar system — on foot, by sea and by air.' })),
+    h('div', {}, h('h1', { class: 'ti-wordmark', text: 'planeteer' }), h('div', { class: 'ti-tagline', text: 'Explore the solar system on foot, by sea and by air.' })),
     h(
       'div',
-      { class: 'ti-card ui-card' },
+      { class: 'ti-card' },
       onlineButton,
       offlineButton,
       settingsButton === null ? null : h('div', { class: 'ti-row' }, settingsButton),
@@ -262,13 +257,13 @@ export function createTitle(options: TitleOptions): Title {
       if (n === null) onlineSmall.textContent = onlineNote;
       else if (n === 0) onlineSmall.textContent = 'Nobody online right now: be the first';
       else onlineSmall.textContent = `${n.toLocaleString('en')} ${n === 1 ? 'traveller' : 'travellers'} online now`;
-      onlineButton.classList.toggle('peopled', n !== null && n > 0);
     });
     counting = window.setTimeout(count, COUNT_EVERY_MS);
   }
   function markLast(): void {
-    onlineButton.classList.toggle('last', chosen === 'online' && options.online);
-    offlineButton.classList.toggle('last', chosen === 'offline');
+    const offline = chosen === 'offline' || !options.online;
+    onlineButton.classList.toggle('primary', !offline);
+    offlineButton.classList.toggle('primary', offline);
   }
 
   /** Tells the stage what the column and the button cover, so the traveller stands in the rest. */

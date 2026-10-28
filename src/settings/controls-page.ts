@@ -54,7 +54,7 @@ export function createControlsPage(panel: HTMLElement, signal: AbortSignal, w: W
         h(
           'section',
           { class: 'atlas-settings-section' },
-          h('div', { class: 'ui-eyebrow', text: section.title }),
+          h('div', { class: 'ui-label', text: section.title }),
           h(
             'div',
             { class: 'atlas-settings-binds' },

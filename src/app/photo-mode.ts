@@ -136,7 +136,7 @@ function createPhotoMode(app: App): PhotoMode {
   const card = h(
     'div',
     { class: 'ui-card atlas-photo-card', role: 'dialog', 'aria-label': 'Photo mode' },
-    h('div', { class: 'ui-eyebrow', text: 'Photo mode' }),
+    h('div', { class: 'ui-label', text: 'Photo mode' }),
     help,
     field('Focus', focus, focusShown),
     field('Blur', blur, blurShown),

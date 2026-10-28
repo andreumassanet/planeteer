@@ -33,9 +33,8 @@ export function fillRegionPanel(ctx: MenuCtx): void {
   const surpriseButton = h('button', { class: 'ui-btn' }, icon('dice', 18), 'Surprise me');
   surpriseButton.addEventListener('click', () => surprise(ctx));
   panel.replaceChildren(
-    h('div', { class: 'ui-eyebrow', text: `${ctx.body.name} · ${ctx.body.note}` }),
-    h('h2', { text: 'Where do you want to start?' }),
-    h('p', { text: `Drag to turn the globe, then ${isTouch() ? 'tap' : 'click'} a ${ctx.words.region}. Or type the name of a place in the search.` }),
+    h('h2', { text: `Choose a ${ctx.words.region}` }),
+    h('p', { text: `Turn the globe and ${isTouch() ? 'tap' : 'click'} one, or search for a place by name.` }),
     surpriseButton,
   );
 }
@@ -46,11 +45,12 @@ export function fillSitePanel(ctx: MenuCtx, next: MenuRegion): void {
   const list = h('div', { class: 'm-list', role: 'list' });
   rowOf.clear();
   for (const site of all.slice(0, LIST_LENGTH)) {
+    // The capital is said, not marked with a dot nobody was given the key to.
     const row = h(
       'button',
-      { class: site.capital === true ? 'm-row capital' : 'm-row', role: 'listitem' },
-      h('i'),
+      { class: 'm-row', role: 'listitem' },
       h('span', { text: site.name }),
+      site.capital === true ? h('em', { text: 'capital' }) : null,
       site.weight > 0 ? h('small', { text: compact(site.weight) }) : null,
     );
     row.addEventListener('click', () => pickTown(ctx, site, true));
@@ -73,19 +73,14 @@ export function fillSitePanel(ctx: MenuCtx, next: MenuRegion): void {
     list.append(h('div', { class: 'm-more', text: `and ${(all.length - LIST_LENGTH).toLocaleString('en')} smaller ${ctx.words.sites} on the map` }));
   }
   const count = all.length;
+  const towns = count === 1 ? `one ${ctx.words.site}` : `${count.toLocaleString('en')} ${ctx.words.sites}`;
   panel.replaceChildren(
     h(
       'div',
       { class: 'm-country' },
-      flag(next.key, 48, 32),
-      h(
-        'div',
-        {},
-        h('h2', { text: next.name }),
-        h('div', { class: 'm-country-sub', text: `${next.note} · ${count === 1 ? `one ${ctx.words.site}` : `${count.toLocaleString('en')} ${ctx.words.sites}`}` }),
-      ),
+      flag(next.key, 44, 30),
+      h('div', {}, h('h2', { text: next.name }), h('div', { class: 'm-country-sub', text: `${next.note}, ${towns}` })),
     ),
-    h('p', { text: `Pick a ${ctx.words.site} on the map or in the list. Drag the globe to browse the next ${ctx.words.region} — its ${ctx.words.sites} come up when you let go.` }),
     list,
   );
 }
@@ -122,13 +117,13 @@ export function fillInfo(ctx: MenuCtx, entry: OrreryBody): void {
   const exploreButton = explore ? h('button', { class: 'ui-btn primary' }, icon('play', 16), `Explore ${short}`) : null;
   exploreButton?.addEventListener('click', () => void exploreFrom(ctx, entry, exploreButton));
 
-  const eyebrow =
-    b.kind === 'star' ? 'Star · the centre of it all'
-      : b.kind === 'moon' ? 'Moon · Earth\'s own'
-        : `${kindOf(entry)} · ${ordinal(entry.order)} from the Sun`;
+  const what =
+    b.kind === 'star' ? 'The star at the centre'
+      : b.kind === 'moon' ? 'Earth\'s own moon'
+        : `${kindOf(entry)}, ${ordinal(entry.order)} from the Sun`;
   info.replaceChildren(
-    h('div', { class: 'ui-eyebrow', text: eyebrow }),
     h('h2', { text: b.name }),
+    h('div', { class: 'm-info-sub', text: what }),
     h('p', { text: b.blurb }),
     h(
       'div',
@@ -147,7 +142,6 @@ export function fillSelect(ctx: MenuCtx): void {
       h(
         'div',
         {},
-        h('div', { class: 'ui-eyebrow', text: 'Here we go' }),
         h('div', { class: 'm-select-name', text: ctx.chosen.name === '' ? 'Back where you left off' : `Landing in ${ctx.chosen.name}` }),
         h('div', { class: 'm-select-sub', text: ctx.chosen.region || 'Earth' }),
       ),
@@ -158,17 +152,14 @@ export function fillSelect(ctx: MenuCtx): void {
   const site = ctx.picked;
   const startButton = h('button', { class: 'ui-btn primary big' }, 'Start here', kbd('⏎'));
   startButton.addEventListener('click', () => start(ctx, site));
-  const details = [regionName(ctx, site.key)];
+  // What it is, then how many live there and what time it is for them.
+  const region = regionName(ctx, site.key);
+  const details = [site.capital === true ? `Capital of ${region}` : region];
   if (site.weight > 0) details.push(people(site.weight));
   details.push(`${ctx.body.clock?.(site, time()) ?? clockAt(time(), site.key, site.lon, site.lat)} local time`);
   select.replaceChildren(
-    flag(site.key, 48, 32),
-    h(
-      'div',
-      {},
-      h('div', { class: 'm-select-name' }, site.name, site.capital === true ? ' ' : null, site.capital === true ? h('span', { class: 'ui-tag gold' }, icon('star'), 'Capital') : null),
-      h('div', { class: 'm-select-sub', text: details.join(' · ') }),
-    ),
+    flag(site.key, 44, 30),
+    h('div', {}, h('div', { class: 'm-select-name', text: site.name }), h('div', { class: 'm-select-sub', text: details.join(', ') })),
     startButton,
   );
 }

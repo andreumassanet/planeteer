@@ -110,7 +110,7 @@ export function menuBodyOf(
   return {
     id: body.id,
     name: body.name,
-    note: `${regions.length} nations · ${sites.length} towns`,
+    note: `${regions.length} nations, ${sites.length} towns`,
     radius: drawnRadius,
     // The orrery's own vector, live: the menu follows the body round its orbit.
     centre,

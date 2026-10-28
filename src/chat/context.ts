@@ -61,7 +61,7 @@ export function createChatState(): ChatState {
 export function createChatDom(): ChatDom {
   const log = h('div', { class: 'atlas-chat-log', role: 'log', 'aria-live': 'polite', 'aria-label': 'Chat' });
   const count = h('span', { class: 'atlas-chat-count' });
-  const head = h('div', { class: 'atlas-chat-head' }, h('span', { class: 'ui-eyebrow', text: 'Chat' }), count);
+  const head = h('div', { class: 'atlas-chat-head' }, h('span', { class: 'ui-label', text: 'Chat' }), count);
   const field = h('input', {
     type: 'text',
     maxlength: CHAT_MAX * 2,

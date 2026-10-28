@@ -3,11 +3,12 @@ import { h, icon } from '../ui.ts';
 import type { SettingsPage } from './types.ts';
 
 export function createRail(panel: HTMLElement, signal: AbortSignal, onTurn: () => void) {
-  const PAGES: readonly { id: SettingsPage; label: string; glyph: string; note: string }[] = [
-    { id: 'graphics', label: 'Graphics', glyph: 'eye', note: 'How far the world is built, how sharp, what is drawn in it, and the hour of the sun.' },
-    { id: 'sound', label: 'Sound', glyph: 'sound', note: 'The world, the voices and the music, each with its own level.' },
-    { id: 'controls', label: 'Controls', glyph: 'keyboard', note: 'The mouse, and every key. Press a key to change it.' },
-    { id: 'credits', label: 'Credits', glyph: 'star', note: 'Who made atlas, and whose maps, models and sounds it is made of.' },
+  // A page says what it is by its rows; only one needs a line on how to use it.
+  const PAGES: readonly { id: SettingsPage; label: string; glyph: string; note?: string }[] = [
+    { id: 'graphics', label: 'Graphics', glyph: 'eye' },
+    { id: 'sound', label: 'Sound', glyph: 'sound' },
+    { id: 'controls', label: 'Controls', glyph: 'keyboard', note: 'Click a key, then press the one you want instead.' },
+    { id: 'credits', label: 'Credits', glyph: 'star' },
   ];
   const rail = h('div', { class: 'atlas-settings-rail', role: 'tablist', 'aria-label': 'Settings pages', 'aria-orientation': 'vertical' });
   const content = h('div', { class: 'atlas-settings-content' });
@@ -24,7 +25,7 @@ export function createRail(panel: HTMLElement, signal: AbortSignal, onTurn: () =
       'div',
       { class: 'atlas-settings-page', id: `atlas-settings-${entry.id}`, role: 'tabpanel', 'aria-labelledby': `atlas-settings-tab-${entry.id}` },
       h('div', { class: 'atlas-settings-page-title', text: entry.label }),
-      h('p', { class: 'atlas-settings-page-note', text: entry.note }),
+      entry.note === undefined ? null : h('p', { class: 'atlas-settings-page-note', text: entry.note }),
     );
     tab.addEventListener('click', () => turnTo(entry.id), { signal });
     tabs.set(entry.id, tab);

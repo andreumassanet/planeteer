@@ -41,7 +41,7 @@ export const STYLE = `
   paint-order: stroke fill;
   text-shadow: 0 4px 0 var(--ui-ink);
 }
-.cr-head p { margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: rgba(255, 242, 232, 0.78); text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7); }
+.cr-head p { margin: 4px 0 0; font-size: 12.5px; font-weight: 700; color: var(--ui-paper-dim); text-shadow: var(--ui-space-shadow); }
 .cr-main { flex: 1; min-height: 0; display: flex; gap: 12px; }
 .cr-rail { display: flex; flex-direction: column; gap: 8px; flex: none; width: 78px; overflow-y: auto; scrollbar-width: none; padding: 2px 2px 6px; }
 .cr-tab {
@@ -71,11 +71,10 @@ export const STYLE = `
 .cr-page { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 18px 20px; scrollbar-width: thin; }
 .cr-page[hidden] { display: none; }
 .cr-page.fresh { animation: cr-in 0.3s var(--ui-ease) both; }
-.cr-title { font-size: 25px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-.cr-note { margin: 6px 0 4px; font-size: 12.5px; font-weight: 600; line-height: 1.4; opacity: 0.62; }
+.cr-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
 .cr-section { margin-top: 16px; }
 .cr-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
-.cr-section-head output { font-size: 12.5px; font-weight: 800; text-transform: capitalize; }
+.cr-section-head output { font-size: 12.5px; font-weight: 800; }
 .cr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 9px; }
 .cr-tiles.two { grid-template-columns: repeat(2, 1fr); }
 .cr-tile {
@@ -150,10 +149,10 @@ export const STYLE = `
   pointer-events: auto;
   transform: translateX(-50%);
   opacity: 0;
-  transition: opacity 0.35s ease 0.1s, left 0.3s var(--ui-ease);
+  transition: opacity 0.35s ease 0.1s;
 }
 .atlas-creator.on .cr-views { opacity: 1; }
-.cr-hint { font-size: 12px; font-weight: 700; color: rgba(255, 242, 232, 0.72); text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7); white-space: nowrap; }
+.cr-hint { font-size: 12px; font-weight: 700; color: var(--ui-paper-dim); text-shadow: var(--ui-space-shadow); white-space: nowrap; }
 @keyframes cr-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes cr-wait { from { opacity: 0.55; } to { opacity: 1; } }
 @media (max-width: 760px) {

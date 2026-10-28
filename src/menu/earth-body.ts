@@ -41,7 +41,7 @@ export function earthBody(world: World, places: readonly Place[], aliases?: Read
   return {
     id: 'earth',
     name: 'Earth',
-    note: `${regions.length} countries · ${built.length.toLocaleString('en')} towns`,
+    note: `${regions.length} countries, ${built.length.toLocaleString('en')} towns`,
     radius: PLANET_RADIUS,
     centre: new THREE.Vector3(0, 0, 0),
     relief: reliefAt,

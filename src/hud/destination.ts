@@ -58,14 +58,13 @@ export function trackDestination(ctx: HudCtx, distanceKm: number | null, x: numb
 }
 
 export function showLandmark(ctx: HudCtx, landmark: LandmarkArrival): void {
-  const { found, foundEyebrow, foundFact, foundFlag, foundName, foundNote } = ctx;
-  foundEyebrow.textContent = 'Landmark';
+  const { found, foundFact, foundFlag, foundName, foundNote } = ctx;
   foundName.textContent = landmark.name;
   // Country first: the one fact every landmark has.
   const lines = [landmark.country];
   if (landmark.height !== undefined && landmark.height > 0) lines.push(`${landmark.height.toLocaleString('en')} m`);
   if (landmark.year !== undefined) lines.push(yearText(landmark.year));
-  foundFact.textContent = lines.join(' · ');
+  foundFact.textContent = lines.join(', ');
   foundNote.textContent = landmark.note ?? '';
   foundFlag.replaceChildren(createFlagCanvas(landmark.iso, 36, 24));
   found.classList.add('in');

@@ -67,7 +67,7 @@ export const STYLE = `
   transition: background 0.15s ease, transform 0.12s ease;
 }
 .atlas-settings-rail button svg { flex: none; width: 20px; height: 20px; }
-.atlas-settings-rail button:hover { background: rgba(30, 6, 3, 0.07); }
+.atlas-settings-rail button:hover { background: var(--ui-hover); }
 .atlas-settings-rail button[aria-selected='true'] {
   border-color: var(--ui-ink);
   background: var(--ui-gold);
@@ -84,20 +84,9 @@ export const STYLE = `
   scrollbar-width: thin;
 }
 .atlas-settings-page-title { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.atlas-settings-page-note { margin: 4px 0 0; font-size: 13px; font-weight: 600; line-height: 1.4; opacity: 0.6; }
-.atlas-settings-badge {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border: 3px solid var(--ui-ink);
-  border-radius: 50%;
-  background: var(--ui-gold);
-  box-shadow: 0 3px 0 var(--ui-ink);
-}
-.atlas-settings-badge svg { width: 24px; height: 24px; }
+.atlas-settings-page-note { margin: 4px 0 0; font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--ui-muted); text-wrap: pretty; }
 .atlas-settings-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
-.atlas-settings-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
+.atlas-settings-sub { margin-top: 4px; font-size: 13px; font-weight: 600; color: var(--ui-muted); }
 .atlas-settings-close { margin-left: auto; }
 .atlas-settings-page { padding-bottom: 24px; }
 /* The controls page ends on its foot, which is held to the bottom of the card. */
@@ -110,7 +99,7 @@ export const STYLE = `
 }
 .atlas-settings-page-note + .atlas-settings-section,
 .atlas-settings-page-title + .atlas-settings-section { margin-top: 14px; }
-.atlas-settings-section > .ui-eyebrow { margin-bottom: 4px; }
+.atlas-settings-section > .ui-label { margin-bottom: 4px; }
 
 /* --- a setting: its name, its ?, its control, on one line ----------------- */
 .atlas-settings-row {
@@ -297,8 +286,6 @@ export const STYLE = `
   .atlas-settings { padding: max(8px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
   .atlas-settings-panel { height: 100%; }
   .atlas-settings-head { padding: 8px 14px; gap: 10px; }
-  .atlas-settings-badge { width: 34px; height: 34px; }
-  .atlas-settings-badge svg { width: 19px; height: 19px; }
   .atlas-settings-title { font-size: 20px; }
   .atlas-settings-sub { display: none; }
   .atlas-settings-rail button { padding-top: 8px; padding-bottom: 8px; }

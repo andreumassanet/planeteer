@@ -133,7 +133,7 @@ html.touch-ui body:has(.atlas-chat.open) #minimap { opacity: 0; visibility: hidd
 .atlas-chat-form:focus-within { outline: var(--ui-ring); outline-offset: 3px; }
 .atlas-chat-head { display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 0 4px; }
 .atlas-chat.open .atlas-chat-head { display: flex; }
-.atlas-chat-head .ui-eyebrow { opacity: 0.8; }
+.atlas-chat-head .ui-label { color: var(--ui-ink); }
 .atlas-chat-count { font-size: 11px; font-weight: 800; color: var(--ui-muted); }
 .atlas-chat-entry { position: relative; }
 .atlas-chat-field { position: relative; flex: 1; min-width: 0; display: flex; }

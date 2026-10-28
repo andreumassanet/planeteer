@@ -56,10 +56,8 @@ html.touch-ui .atlas-touch { display: block; }
   bottom: calc(100% + 10px);
   transform: translateX(-50%);
   padding: 3px 9px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   background: var(--ui-gold);
   border: 2.5px solid var(--ui-ink);
   border-radius: 999px;

@@ -14,9 +14,9 @@ import { EARTH_WORDS, type MenuBody } from './types.ts';
 export function refreshWords(ctx: MenuCtx): void {
   const { searchInput } = ctx;
   ctx.words = ctx.body.words ?? EARTH_WORDS;
-  const what = 'Search a country or a town, on any world';
-  searchInput.placeholder = what;
-  searchInput.setAttribute('aria-label', what);
+  // Short enough to fit the box beside its key; the label says it whole.
+  searchInput.placeholder = 'Search a place, on any world';
+  searchInput.setAttribute('aria-label', 'Search a country or a town, on any world');
 }
 
 /** Every name the search answers on one body, made on first search and kept. */
@@ -28,7 +28,7 @@ function entriesFor(ctx: MenuCtx, of: MenuBody): Entry[] {
   const entries: Entry[] = [];
   // Its own regions' names, and the world's after them when it is not Earth.
   const { regionIndexOf: indexIn } = catalogueOf(ctx, of);
-  const where = of === home ? '' : ` · ${of.name.replace(/^The /, '')}`;
+  const where = of === home ? '' : `, ${of.name.replace(/^The /, '')}`;
   const nameIn = (key: string): string => `${of.regions[(indexIn.get(key) ?? 0) - 1]?.name ?? key}${where}`;
   of.regions.forEach((candidate) => {
     if (candidate.rings.length === 0) return;
@@ -45,7 +45,7 @@ function entriesFor(ctx: MenuCtx, of: MenuBody): Entry[] {
       key: candidate.key,
       site: null,
       // A world's region is noted with the world already: it is not said twice.
-      sub: `${candidate.note} · ${count.toLocaleString('en')} ${(of.words ?? EARTH_WORDS).sites}${candidate.note.includes(of.name.replace(/^The /, '')) ? '' : where}`,
+      sub: `${candidate.note}, ${count.toLocaleString('en')} ${(of.words ?? EARTH_WORDS).sites}${candidate.note.includes(of.name.replace(/^The /, '')) ? '' : where}`,
     });
   });
   for (const site of of.sites) {
@@ -59,7 +59,7 @@ function entriesFor(ctx: MenuCtx, of: MenuBody): Entry[] {
       weight: site.weight,
       key: site.key,
       site,
-      sub: site.weight > 0 ? `${nameIn(site.key)} · ${compact(site.weight)} people` : nameIn(site.key),
+      sub: site.weight > 0 ? `${nameIn(site.key)}, ${compact(site.weight)} people` : nameIn(site.key),
     });
   }
   // The other names a town answers to: the row is the town that stands and says which name found it.
@@ -78,7 +78,7 @@ function entriesFor(ctx: MenuCtx, of: MenuBody): Entry[] {
       weight: site.weight,
       key: site.key,
       site,
-      sub: `for ${alias} · ${nameIn(site.key)}`,
+      sub: `for ${alias}, in ${nameIn(site.key)}`,
     });
   }
   entriesOf.set(of.id, entries);

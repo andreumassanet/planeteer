@@ -58,7 +58,6 @@ export function createSettings(options: SettingsOptions): Settings {
     h(
       'div',
       { class: 'atlas-settings-head' },
-      h('div', { class: 'atlas-settings-badge' }, icon('gear')),
       h(
         'div',
         {},

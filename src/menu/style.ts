@@ -33,44 +33,42 @@ export const STYLE = `
 /* --- the brand, over the system ------------------------------------------ */
 .m-brand {
   position: absolute;
-  top: 36px;
-  left: 42px;
+  top: 32px;
+  left: 40px;
   max-width: 420px;
   pointer-events: none;
 }
 .m-brand.m-off { transform: translateX(-24px); }
 .m-wordmark {
-  font-size: 56px;
+  font-size: 44px;
   font-weight: 800;
   letter-spacing: -0.04em;
-  line-height: 0.85;
+  line-height: 0.9;
   color: var(--ui-paper);
-  -webkit-text-stroke: 6px var(--ui-ink);
+  -webkit-text-stroke: 5px var(--ui-ink);
   paint-order: stroke fill;
-  text-shadow: 0 5px 0 var(--ui-ink);
+  text-shadow: 0 4px 0 var(--ui-ink);
 }
 .m-tagline {
-  margin-top: 16px;
-  font-size: 17px;
+  margin-top: 12px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
-  color: rgba(255, 242, 232, 0.9);
-  text-shadow: 0 2px 0 rgba(4, 6, 14, 0.7);
+  color: var(--ui-paper-dim);
+  text-shadow: var(--ui-space-shadow);
 }
 
-/* --- the dock of bodies -------------------------------------------------- */
+/* --- the dock of bodies: one shelf, a body a button ------------------------ */
 .m-dock {
   position: absolute;
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
   display: flex;
-  gap: 10px;
+  gap: 2px;
   max-width: calc(100vw - 48px);
   overflow-x: auto;
-  /* Room for the lift on hover and for the focus ring, which the scroller
-     would otherwise clip on the first and last item. */
-  padding: 8px 8px 12px;
+  padding: 6px;
   scrollbar-width: none;
 }
 .m-dock.m-off { transform: translate(-50%, 24px); }
@@ -80,24 +78,27 @@ export const STYLE = `
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
-  width: 98px;
-  padding: 13px 6px 10px;
+  gap: 6px;
+  width: 92px;
+  padding: 10px 6px 8px;
   font: inherit;
+  color: var(--ui-ink);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
   cursor: pointer;
-  transition: transform 0.12s var(--ui-ease), box-shadow 0.12s ease, background 0.15s ease;
+  transition: background 0.15s ease;
 }
-.m-dock-item:hover, .m-dock-item.hot { transform: translateY(-4px); box-shadow: 0 9px 0 var(--ui-ink); }
-.m-dock-item:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ui-ink); }
-.m-dock-item:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
-.m-dock-item.walk { background: var(--ui-gold); }
+.m-dock-item:hover, .m-dock-item.hot { background: var(--ui-cream); }
+.m-dock-item:active { background: var(--ui-gold); }
+/* Inside the shelf, which clips a ring drawn past its edge. */
+.m-dock-item:focus-visible { outline: var(--ui-ring); outline-offset: -3px; }
 .m-dock-name { font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em; }
-/* The same height as the tag Earth carries, so the row reads as one row. */
 .m-dock-sub {
   font-size: 12px;
   font-weight: 700;
-  line-height: 20px;
-  opacity: 0.58;
+  line-height: 16px;
+  color: var(--ui-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -107,26 +108,20 @@ export const STYLE = `
   position: absolute;
   left: 0;
   top: 0;
-  display: flex;
-  align-items: center;
-  gap: 5px;
   font: 800 12.5px/1 var(--ui-font);
   letter-spacing: -0.005em;
   color: var(--ui-ink);
   background: var(--ui-paper);
-  border: 2.5px solid var(--ui-ink);
+  border: 2px solid var(--ui-ink);
   border-radius: 999px;
-  box-shadow: 0 3px 0 var(--ui-ink);
+  box-shadow: 0 2px 0 var(--ui-ink);
   padding: 5px 10px;
   white-space: nowrap;
   cursor: pointer;
   pointer-events: auto;
   transition: background 0.12s ease, opacity 0.25s ease;
 }
-.m-label svg { width: 12px; height: 12px; }
-.m-label.walk { background: var(--ui-gold); }
-.m-label.hot { background: var(--ui-cream); box-shadow: 0 4px 0 var(--ui-ink); }
-.m-label.walk.hot { background: var(--ui-apricot); }
+.m-label.hot { background: var(--ui-gold); }
 .m-marks.quiet .m-label { opacity: 0; pointer-events: none; }
 /* The Sun: named, never a destination. */
 .m-label.inert, .m-dock-item.inert { cursor: default; pointer-events: none; }
@@ -173,34 +168,32 @@ export const STYLE = `
   padding: 6px 8px;
   cursor: pointer;
 }
-.m-crumb:hover { background: rgba(30, 6, 3, 0.08); }
+.m-crumb:hover { background: var(--ui-hover); }
 .m-crumb.here { cursor: default; background: none; }
 .m-crumb:focus-visible { outline: var(--ui-ring); outline-offset: 1px; }
 .m-crumb .ui-flag { border-width: 1.5px; border-radius: 3px; }
-.m-back { position: absolute; left: 24px; bottom: 24px; }
-.m-back.m-off { transform: translateX(-16px); }
 
 /* --- the stage card on the left ------------------------------------------- */
 .m-panel {
   position: absolute;
   top: 86px;
   left: 24px;
-  width: 340px;
-  max-height: calc(100vh - 86px - 96px);
+  width: 320px;
+  max-height: calc(100vh - 86px - 48px);
   display: flex;
   flex-direction: column;
   padding: 18px 16px 12px 18px;
 }
 .m-panel.m-off { transform: translateX(-24px); }
-.m-panel h2 { margin-top: 5px; font-size: 27px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.02; }
-.m-panel p { margin-top: 9px; font-size: 13px; font-weight: 600; line-height: 1.42; opacity: 0.66; }
-.m-panel .ui-btn { margin-top: 14px; align-self: flex-start; }
+.m-panel h2 { font-size: 24px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05; text-wrap: balance; }
+.m-panel p { margin-top: 8px; font-size: 13.5px; font-weight: 600; line-height: 1.45; color: var(--ui-muted); text-wrap: pretty; }
+.m-panel .ui-btn { margin-top: 16px; align-self: flex-start; }
 .m-country { display: flex; align-items: center; gap: 12px; }
-.m-country-sub { margin-top: 3px; font-size: 12.5px; font-weight: 700; opacity: 0.58; }
+.m-country-sub { margin-top: 3px; font-size: 12.5px; font-weight: 700; color: var(--ui-muted); }
 .m-list {
   flex: 1;
   min-height: 0;
-  margin: 12px -8px 0 -6px;
+  margin: 14px -8px 0 -6px;
   padding: 6px 6px 0;
   border-top: 2.5px solid var(--ui-rule);
   overflow-y: auto;
@@ -209,7 +202,7 @@ export const STYLE = `
 .m-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
   font: 700 13.5px/1.1 var(--ui-font);
   color: var(--ui-ink);
@@ -225,18 +218,10 @@ export const STYLE = `
 /* Inside the ring rather than outside it: the list scrolls, and a ring drawn
    past a row's edge is clipped by it. */
 .m-row:focus-visible { outline: var(--ui-ring); outline-offset: -3px; }
-.m-row i {
-  flex: none;
-  width: 9px;
-  height: 9px;
-  border: 2px solid var(--ui-ink);
-  border-radius: 50%;
-  background: var(--ui-paper);
-}
-.m-row.capital i { background: var(--ui-gold); }
 .m-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.m-row small { margin-left: auto; font-size: 12px; font-weight: 700; opacity: 0.5; font-variant-numeric: tabular-nums; }
-.m-more { padding: 8px 8px 10px; font-size: 11.5px; font-weight: 700; opacity: 0.5; }
+.m-row em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--ui-muted); }
+.m-row small { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.m-more { padding: 8px 8px 10px; font-size: 12px; font-weight: 700; color: var(--ui-muted); }
 
 /* --- top right: continue and search --------------------------------------- */
 .m-top-right {
@@ -249,12 +234,12 @@ export const STYLE = `
   gap: 12px;
 }
 .m-continue .quiet { font-weight: 700; opacity: 0.66; }
-.m-search { position: relative; z-index: 1; width: 330px; }
+.m-search { position: relative; z-index: 1; width: 300px; }
 .m-search-box {
   display: flex;
   align-items: center;
   gap: 9px;
-  height: 48px;
+  height: 46px;
   padding: 0 10px 0 13px;
   cursor: text;
 }
@@ -268,12 +253,12 @@ export const STYLE = `
   font: 700 15px var(--ui-font);
   color: var(--ui-ink);
 }
-.m-search-box input::placeholder { color: rgba(30, 6, 3, 0.45); }
+.m-search-box input::placeholder { color: var(--ui-muted); }
 .m-search-box input::-webkit-search-cancel-button { display: none; }
 .m-search:focus-within .m-search-box { outline: var(--ui-ring); outline-offset: 3px; }
 .m-results {
   position: absolute;
-  top: 58px;
+  top: 56px;
   left: 0;
   right: 0;
   padding: 6px;
@@ -298,13 +283,13 @@ export const STYLE = `
   margin-top: 2px;
   font-size: 12px;
   font-weight: 600;
-  opacity: 0.6;
+  color: var(--ui-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .m-result .ui-tag { margin-left: auto; }
-.m-empty { padding: 10px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
+.m-empty { padding: 10px; font-size: 12.5px; font-weight: 600; color: var(--ui-muted); text-wrap: pretty; }
 
 /* --- a body up close ------------------------------------------------------ */
 .m-info {
@@ -318,30 +303,30 @@ export const STYLE = `
   padding: 22px 22px 18px;
 }
 .m-info.m-off { transform: translate(28px, -46%); }
-.m-info h2 { margin-top: 4px; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
-.m-info p { margin-top: 11px; font-size: 14px; font-weight: 600; line-height: 1.45; opacity: 0.75; }
+.m-info h2 { font-size: 34px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.m-info-sub { margin-top: 6px; font-size: 13.5px; font-weight: 700; color: var(--ui-muted); }
+.m-info p { margin-top: 12px; font-size: 14px; font-weight: 600; line-height: 1.5; text-wrap: pretty; }
 .m-facts {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 11px 16px;
+  gap: 12px 16px;
   margin-top: 16px;
   padding-top: 14px;
   border-top: 2.5px solid var(--ui-rule);
 }
-.m-fact small { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.48; }
-.m-fact b { display: block; margin-top: 2px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+.m-fact small { display: block; font-size: 12px; font-weight: 700; color: var(--ui-muted); }
+.m-fact b { display: block; margin-top: 1px; font-size: 16px; font-weight: 800; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .m-lines { display: grid; gap: 7px; margin-top: 14px; }
 .m-line {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
 }
 .m-line svg { width: 15px; height: 15px; flex: none; margin-top: 1px; opacity: 0.55; }
-.m-line.quiet { font-weight: 600; opacity: 0.66; }
-.m-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.m-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 
 /* --- the town you picked -------------------------------------------------- */
 .m-select {
@@ -358,7 +343,7 @@ export const STYLE = `
 }
 .m-select.m-off { transform: translate(-50%, 24px); }
 .m-select-name { font-size: 23px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; }
-.m-select-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; opacity: 0.62; white-space: nowrap; }
+.m-select-sub { margin-top: 3px; font-size: 12.5px; font-weight: 600; color: var(--ui-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .m-select .ui-btn { margin-left: auto; }
 
 /* --- hover card, reticle, pins --------------------------------------------- */
@@ -375,7 +360,7 @@ export const STYLE = `
 }
 .m-tip.on { display: flex; }
 .m-tip b { display: block; font-size: 14.5px; font-weight: 800; letter-spacing: -0.012em; line-height: 1.15; }
-.m-tip small { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 600; opacity: 0.6; }
+.m-tip small { display: block; margin-top: 1px; font-size: 12.5px; font-weight: 600; color: var(--ui-muted); }
 .m-reticle {
   position: absolute;
   left: 50%;
@@ -408,10 +393,10 @@ export const STYLE = `
   letter-spacing: -0.01em;
   color: var(--ui-ink);
   background: var(--ui-paper);
-  border: 2.5px solid var(--ui-ink);
+  border: 2px solid var(--ui-ink);
   border-radius: 9px;
-  box-shadow: 0 3px 0 var(--ui-ink);
-  padding: 5px 10px 5px 7px;
+  box-shadow: 0 2px 0 var(--ui-ink);
+  padding: 5px 9px 5px 7px;
   white-space: nowrap;
   cursor: pointer;
   pointer-events: auto;
@@ -427,19 +412,19 @@ export const STYLE = `
   background: var(--ui-paper);
 }
 .m-pin.capital i { background: var(--ui-gold); }
-.m-pin:hover, .m-pin.hot { background: var(--ui-cream); box-shadow: 0 4px 0 var(--ui-ink); z-index: 1; }
+.m-pin:hover, .m-pin.hot { background: var(--ui-cream); box-shadow: 0 3px 0 var(--ui-ink); z-index: 1; }
 .m-pin.picked { background: var(--ui-gold); z-index: 2; }
 .m-pin:focus-visible { outline: var(--ui-ring); outline-offset: 3px; z-index: 4; }
 /* A pin whose name lost the collision is a dot on a map, not a card with the
    writing rubbed off: it keeps the ring and loses the card, and the border
-   stays as a transparent 2.5px so the dot does not move off its town. */
+   stays as a transparent 2px so the dot does not move off its town. */
 .m-pin.away { padding: 5px 7px; background: transparent; border-color: transparent; box-shadow: none; }
 .m-pin.away span { display: none; }
 .m-pin.away:hover, .m-pin.away.hot, .m-pin.away.picked {
   background: var(--ui-cream);
   border-color: var(--ui-ink);
-  box-shadow: 0 3px 0 var(--ui-ink);
-  padding: 5px 10px 5px 7px;
+  box-shadow: 0 2px 0 var(--ui-ink);
+  padding: 5px 9px 5px 7px;
   z-index: 3;
 }
 .m-pin.away.picked { background: var(--ui-gold); }
@@ -461,7 +446,7 @@ export const STYLE = `
 @media (max-width: 900px) {
   .m-panel { width: 290px; }
   .m-search { width: 260px; }
-  .m-wordmark { font-size: 44px; }
+  .m-wordmark { font-size: 38px; }
   .m-info { width: 320px; }
 }
 
@@ -474,20 +459,18 @@ export const STYLE = `
 html.touch-ui .atlas-menu .ui-kbd { display: none; }
 @media (max-width: 700px), (max-height: 520px) {
   .m-brand { top: max(14px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
-  .m-wordmark { font-size: 34px; -webkit-text-stroke-width: 4px; text-shadow: 0 3px 0 var(--ui-ink); }
+  .m-wordmark { font-size: 32px; -webkit-text-stroke-width: 4px; text-shadow: 0 3px 0 var(--ui-ink); }
   .m-tagline { margin-top: 6px; font-size: 13px; }
   .m-crumbs { top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); gap: 8px; }
   .m-trail { height: 42px; }
   .m-top-right { top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); gap: 8px; }
   .m-search-box { height: 44px; }
   .m-search-box input { font-size: 16px; }
-  .m-back { left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); }
-  .m-dock { bottom: max(4px, env(safe-area-inset-bottom)); gap: 8px; padding: 8px 8px 10px; max-width: 100vw; box-sizing: border-box; }
-  .m-dock-item { width: 74px; gap: 4px; padding: 9px 4px 7px; }
+  .m-dock { bottom: max(4px, env(safe-area-inset-bottom)); gap: 0; padding: 4px; max-width: 100vw; box-sizing: border-box; }
+  .m-dock-item { width: 72px; gap: 4px; padding: 8px 4px 6px; }
   .m-dock-item .world-disc { --d: 30px !important; }
   .m-dock-name { font-size: 12px; }
-  .m-dock-sub { font-size: 10.5px; line-height: 18px; }
-  .m-dock-item .ui-tag { font-size: 9.5px; padding: 2px 6px; }
+  .m-dock-sub { font-size: 10.5px; line-height: 14px; }
   .m-panel { padding: 14px 14px 10px; }
   .m-panel h2 { font-size: 21px; }
   .m-panel p { font-size: 12.5px; margin-top: 6px; }
@@ -509,7 +492,7 @@ html.touch-ui .atlas-menu .ui-kbd { display: none; }
   .m-tagline { display: none; }
   .m-top-right { display: contents; }
   .m-search { position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 54px); left: 12px; right: 12px; width: auto; }
-  .m-continue, .m-leave { position: absolute; bottom: calc(max(4px, env(safe-area-inset-bottom)) + 124px); }
+  .m-continue, .m-leave { position: absolute; bottom: calc(max(4px, env(safe-area-inset-bottom)) + 108px); }
   .m-continue { right: 12px; }
   .m-leave { left: 12px; }
   .atlas-menu:not([data-stage='system']) .m-continue { bottom: max(12px, env(safe-area-inset-bottom)); }
@@ -536,19 +519,17 @@ html.touch-ui .atlas-menu .ui-kbd { display: none; }
   .m-info { right: max(12px, env(safe-area-inset-right)); width: 300px; top: calc(max(12px, env(safe-area-inset-top)) + 56px); max-height: calc(100vh - 56px - 24px); transform: none; }
   .m-info.m-off { transform: translateX(28px); }
   .m-facts { gap: 8px 12px; margin-top: 10px; padding-top: 10px; }
-  .m-dock-item { padding: 7px 4px 5px; }
+  .m-dock-item { padding: 6px 4px 4px; }
 }
 /*
  * A country on a small screen is its map and nothing else. The pins are the
- * choice: no list of its towns, no paragraph on how to choose, no search and
- * no way back but the crumbs' arrow. Along the bottom one card, which is the
- * country and its count until a town is picked, and that town and the button
- * that starts there once one is.
+ * choice: no list of its towns, no search and no way back but the crumbs'
+ * arrow. Along the bottom one card, which is the country and its count until
+ * a town is picked, and that town and the button that starts there once one is.
  */
 @media (max-width: 700px), (max-height: 520px) {
   .atlas-menu[data-stage='region'] .m-search, .atlas-menu[data-stage='site'] .m-search,
-  .atlas-menu[data-stage='region'] .m-continue, .atlas-menu[data-stage='site'] .m-continue,
-  .m-back { display: none; }
+  .atlas-menu[data-stage='region'] .m-continue { display: none; }
   .m-panel p, .m-list, .m-more { display: none; }
   .m-panel {
     top: auto;
@@ -559,9 +540,9 @@ html.touch-ui .atlas-menu .ui-kbd { display: none; }
     padding: 10px 14px;
   }
   .m-panel.m-off { transform: translateY(16px); }
-  .m-panel h2 { margin-top: 0; font-size: 19px; }
+  .m-panel h2 { font-size: 19px; }
   .m-country .ui-flag { width: 36px; height: 24px; }
-  .m-country-sub::after { content: ' · pick one on the map'; }
+  .m-country-sub::after { content: '. Pick one on the map'; }
   .atlas-menu.picking .m-panel { opacity: 0 !important; visibility: hidden; pointer-events: none !important; }
   .m-select {
     left: max(12px, env(safe-area-inset-left));
@@ -598,10 +579,10 @@ html.touch-ui .atlas-menu .ui-kbd { display: none; }
 /* The cards fade and do not slide; the pop of the results is a fade too. */
 @media (prefers-reduced-motion: reduce) {
   .atlas-menu .m-fade { transition: opacity 0.2s ease, visibility 0.2s; }
-  .m-brand.m-off, .m-crumbs.m-off, .m-back.m-off, .m-panel.m-off { transform: none; }
+  .m-brand.m-off, .m-crumbs.m-off, .m-panel.m-off { transform: none; }
   .m-dock.m-off, .m-select.m-off { transform: translateX(-50%); }
   .m-info.m-off { transform: translateY(-46%); }
-  .m-dock-item, .m-dock-item:hover, .m-dock-item.hot, .m-dock-item:active { transition: none; transform: none; }
+  .m-dock-item, .m-label, .m-pin { transition: none; }
   .m-results { animation-name: ui-fade; }
 }
 `;

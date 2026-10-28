@@ -17,7 +17,7 @@ export function buildDom(deps: MenuDeps) {
     'div',
     { class: 'm-brand m-fade m-chrome' },
     h('div', { class: 'm-wordmark', text: 'planeteer' }),
-    h('div', { class: 'm-tagline', text: 'Pick a world to explore.' }),
+    h('div', { class: 'm-tagline', text: 'Choose a world.' }),
   );
 
   const backButton = h('button', { class: 'ui-btn icon', title: 'Back (Esc)', 'aria-label': 'Back' }, icon('back'));
@@ -30,10 +30,10 @@ export function buildDom(deps: MenuDeps) {
   const continueButton = h('button', { class: 'ui-btn primary m-continue m-fade' }, icon('play', 16), continueLabel);
   const searchInput = h('input', {
     type: 'search',
-    placeholder: 'Search a country or a town',
+    placeholder: 'Search a place, on any world',
     spellcheck: 'false',
     autocomplete: 'off',
-    'aria-label': 'Search a country or a town',
+    'aria-label': 'Search a country or a town, on any world',
   });
   const results = h('div', { class: 'm-results ui-card', role: 'listbox' });
 
@@ -47,14 +47,12 @@ export function buildDom(deps: MenuDeps) {
   const leaveButton =
     deps.onLeave === undefined
       ? null
-      : h('button', { class: 'ui-btn m-leave m-fade', title: 'Your traveller, and online or offline' }, icon('back', 16), 'Main menu', kbd('Esc'));
+      : h('button', { class: 'ui-btn quiet small m-leave m-fade', title: 'Your traveller, and online or offline' }, icon('back', 16), 'Title screen', kbd('Esc'));
 
   const topRight = h('div', { class: 'm-top-right m-chrome' }, search, continueButton, leaveButton);
 
-  const dock = h('div', { class: 'm-dock m-fade m-chrome' });
+  const dock = h('div', { class: 'm-dock ui-card m-fade m-chrome' });
   const info = h('div', { class: 'm-info ui-card m-fade m-chrome' });
-  const backLabel = h('span');
-  const back = h('button', { class: 'ui-btn m-back m-fade m-chrome' }, icon('back', 18), backLabel, kbd('Esc'));
   const select = h('div', { class: 'm-select ui-card m-fade' });
 
   const tipFlag = h('span');
@@ -65,7 +63,7 @@ export function buildDom(deps: MenuDeps) {
   const reticleLabel = h('span', { class: 'ui-tag gold' });
   const reticle = h('div', { class: 'm-reticle' }, h('i'), reticleLabel);
 
-  root.append(marks, dipLayer, reticle, brand, crumbs, panel, dock, info, back, select, topRight, tip);
+  root.append(marks, dipLayer, reticle, brand, crumbs, panel, dock, info, select, topRight, tip);
   return {
     root,
     halo,
@@ -86,8 +84,6 @@ export function buildDom(deps: MenuDeps) {
     topRight,
     dock,
     info,
-    backLabel,
-    back,
     select,
     tipFlag,
     tipName,

@@ -29,8 +29,8 @@ export function createGraphicsPage(options: SettingsOptions, w: Widgets, signal:
     },
     'Render distance',
     (v) => [
-      options.detailDistance === undefined ? detailWord(v) : `${detailWord(v)} · ${options.detailDistance(v)}`,
-      `${v.toFixed(2)}×${autoToggle?.get() === true ? ' · auto' : ''}`,
+      options.detailDistance === undefined ? detailWord(v) : `${detailWord(v)}, ${options.detailDistance(v)}`,
+      `${v.toFixed(2)}×${autoToggle?.get() === true ? ', auto' : ''}`,
     ],
   );
   const performance = makeSwitch(options.performance, 'Performance overlay');

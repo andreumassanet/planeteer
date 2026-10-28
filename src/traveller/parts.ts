@@ -18,7 +18,7 @@ export function section(title: string, value: HTMLElement | null, ...body: (Node
   return h(
     'section',
     { class: 'cr-section' },
-    h('div', { class: 'cr-section-head' }, h('span', { class: 'ui-eyebrow', text: title }), value),
+    h('div', { class: 'cr-section-head' }, h('span', { class: 'ui-label', text: title }), value),
     ...body,
   );
 }

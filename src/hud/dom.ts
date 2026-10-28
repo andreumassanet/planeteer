@@ -63,7 +63,6 @@ function buildBar(options: HudOptions, signal: AbortSignal) {
 
 /** The landmark card, the marker panel and the waypoint. */
 function buildCards() {
-  const foundEyebrow = h('div', { class: 'atlas-card-eyebrow' });
   const foundName = h('div', { class: 'atlas-found-name' });
   const foundFact = h('div', { class: 'atlas-found-fact' });
   const foundFlag = h('span');
@@ -71,7 +70,7 @@ function buildCards() {
   const found = h(
     'div',
     { class: 'atlas-found ui-card' },
-    h('div', { class: 'atlas-found-text' }, foundEyebrow, foundName, foundFact, foundNote),
+    h('div', { class: 'atlas-found-text' }, foundName, foundFact, foundNote),
     foundFlag,
   );
 
@@ -80,7 +79,7 @@ function buildCards() {
   // Two spans and a fixed separator, because only the right-hand one changes.
   const destinationPlace = h('span');
   const destinationRange = h('span');
-  const destinationSub = h('div', { class: 'atlas-destination-sub' }, destinationPlace, ' · ', destinationRange);
+  const destinationSub = h('div', { class: 'atlas-destination-sub' }, destinationPlace, ', ', destinationRange);
   const destination = h(
     'div',
     { class: 'atlas-destination ui-card' },
@@ -90,7 +89,7 @@ function buildCards() {
   const waypointPin = h('div', { class: 'atlas-waypoint-pin' });
   const waypointLabel = h('div', { class: 'atlas-waypoint-label ui-card' });
   const waypoint = h('div', { class: 'atlas-waypoint' }, waypointPin, waypointLabel);
-  return { foundEyebrow, foundName, foundFact, foundFlag, foundNote, found, destinationFlag, destinationName, destinationPlace, destinationRange, destinationSub, destination, waypointPin, waypointLabel, waypoint };
+  return { foundName, foundFact, foundFlag, foundNote, found, destinationFlag, destinationName, destinationPlace, destinationRange, destinationSub, destination, waypointPin, waypointLabel, waypoint };
 }
 
 /** The keys of the moment, the toast, the prompt, the pause card and the frame counter. */
@@ -128,16 +127,11 @@ function buildWelcome() {
   const welcomeTitle = h('div', { class: 'atlas-welcome-title' });
   const welcomeSub = h('div', { class: 'atlas-welcome-sub' });
   const welcomeList = h('div', { class: 'atlas-welcome-list' });
-  const welcomeGo = h('button', { class: 'ui-btn primary big atlas-welcome-go' }, 'Start exploring', icon('next'));
+  const welcomeGo = h('button', { class: 'ui-btn primary big atlas-welcome-go' }, 'Start exploring');
   const welcomeCard = h(
     'div',
     { class: 'atlas-welcome-card ui-card' },
-    h(
-      'div',
-      { class: 'atlas-welcome-head' },
-      h('div', { class: 'atlas-welcome-badge' }, icon('star')),
-      h('div', {}, welcomeTitle, welcomeSub),
-    ),
+    h('div', { class: 'atlas-welcome-head' }, welcomeTitle, welcomeSub),
     welcomeList,
     welcomeGo,
   );

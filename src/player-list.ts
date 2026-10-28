@@ -106,7 +106,7 @@ const STYLE = `
 .atlas-players-sea svg { width: 13px; height: 13px; }
 .atlas-players-world { display: grid; place-items: center; width: 30px; height: 20px; }
 .atlas-players-name { font-size: 14px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.atlas-players-name small { margin-left: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ui-muted); }
+.atlas-players-name small { margin-left: 6px; font-size: 12px; font-weight: 700; color: var(--ui-muted); }
 .atlas-players-note { margin-top: 8px; padding-top: 7px; border-top: 2px solid var(--ui-rule); font-size: 12px; font-weight: 700; color: var(--ui-muted); text-align: center; }
 .atlas-players-note:empty { display: none; }
 @media (prefers-reduced-motion: reduce) {

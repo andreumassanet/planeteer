@@ -24,7 +24,7 @@ function crumb(label: string | Node, action: (() => void) | null, flagKey?: stri
 }
 
 function refreshTrail(ctx: MenuCtx): void {
-  const { backLabel, trail } = ctx;
+  const { backButton, trail } = ctx;
   // No *Solar system* at the head: every trail starts there, and the back button says the way.
   const parts: HTMLElement[] = [];
   if (ctx.stage === 'planet') {
@@ -38,7 +38,10 @@ function refreshTrail(ctx: MenuCtx): void {
     if (i > 0) trail.append(icon('chevron'));
     trail.append(part);
   });
-  backLabel.textContent = ctx.stage === 'site' ? capital(ctx.words.regions) : 'Solar system';
+  // The arrow says where it goes, since nothing beside it does.
+  const to = ctx.stage === 'site' ? capital(ctx.words.regions) : 'Solar system';
+  backButton.title = `${to} (Esc)`;
+  backButton.setAttribute('aria-label', `Back to ${to.toLowerCase()}`);
 }
 
 export function refreshContinue(ctx: MenuCtx): void {
@@ -61,7 +64,7 @@ export function refreshContinue(ctx: MenuCtx): void {
 }
 
 export function refreshChrome(ctx: MenuCtx): void {
-  const { back, brand, continueButton, crumbs, dock, info, leaveButton, panel, root, search, select } = ctx;
+  const { brand, continueButton, crumbs, dock, info, leaveButton, panel, root, search, select } = ctx;
   const flying = ctx.flight !== null;
   const open = ctx.chosen === null && !ctx.held;
   const settled = !flying && open;
@@ -74,11 +77,11 @@ export function refreshChrome(ctx: MenuCtx): void {
   setOff(ctx, crumbs, !(ctx.stage !== 'system' && open));
   setOff(ctx, panel, !((ctx.stage === 'region' || ctx.stage === 'site') && settled));
   setOff(ctx, info, !(ctx.stage === 'planet' && settled));
-  setOff(ctx, back, !(ctx.stage !== 'system' && open));
   setOff(ctx, search, !(open && ctx.stage !== 'planet'));
   refreshContinue(ctx);
-  // The newer memory is offered on every stage and globe.
-  setOff(ctx, continueButton, !open);
+  // The remembered place is offered on every stage but the one where a town is
+  // being chosen: *Start here* is that stage's one button.
+  setOff(ctx, continueButton, !open || ctx.stage === 'site');
   if (leaveButton !== null) setOff(ctx, leaveButton, !(ctx.stage === 'system' && open));
   // The town picked, or once chosen the landing it is waiting for — never
   // under the title, which holds the menu with neither.

@@ -1,5 +1,5 @@
 /** The system's labels over each body and the dock along the bottom. */
-import { h, icon } from '../ui.ts';
+import { h } from '../ui.ts';
 import { worldDisc } from '../world-disc.ts';
 import { chooseBody } from './bodies.ts';
 import type { Disc, MenuCtx } from './context.ts';
@@ -18,7 +18,6 @@ export function bindBodies(ctx: MenuCtx): void {
       'button',
       { class: inert ? 'm-label inert' : explorable ? 'm-label walk' : 'm-label', 'aria-label': entry.body.name, tabindex: -1 },
       entry.body.name,
-      explorable ? icon('chevron') : null,
     );
     label.addEventListener('click', () => chooseBody(ctx, id));
     label.addEventListener('pointerenter', () => (ctx.hoverBody = id));
@@ -27,11 +26,11 @@ export function bindBodies(ctx: MenuCtx): void {
     labels.set(id, label);
 
     const disc = worldDisc(id);
-    // Earth says it can be explored; every other body says how far away it is today, as the light's travel time.
+    // Earth is home; every other body says how far away it is today, as the light's travel time.
     let tag: HTMLElement;
     let title: string;
     if (enterable) {
-      tag = h('span', { class: 'ui-tag ink' }, icon('play'), 'Explore');
+      tag = h('span', { class: 'm-dock-sub', text: 'home' });
       title = `${entry.body.name}: explore it`;
     } else {
       const seen = sighting(entry.body, time());
@@ -40,7 +39,7 @@ export function bindBodies(ctx: MenuCtx): void {
     }
     const item = h(
       'button',
-      { class: inert ? 'm-dock-item ui-card inert' : enterable ? 'm-dock-item ui-card walk' : 'm-dock-item ui-card', title, ...(inert ? { tabindex: -1, 'aria-disabled': 'true' } : {}) },
+      { class: inert ? 'm-dock-item inert' : enterable ? 'm-dock-item walk' : 'm-dock-item', title, ...(inert ? { tabindex: -1, 'aria-disabled': 'true' } : {}) },
       disc,
       h('span', { class: 'm-dock-name', text: entry.body.name.replace(/^The /, '') }),
       tag,

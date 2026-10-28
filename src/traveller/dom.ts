@@ -11,7 +11,7 @@ export function buildDom(stage: HeroStage) {
   const panel = h('div', { class: 'cr-panel ui-card' });
 
   const randomButton = h('button', { type: 'button', class: 'ui-btn', title: 'A traveller at random' }, icon('dice'), 'Randomise');
-  const undoButton = h('button', { type: 'button', class: 'ui-btn', title: 'Undo (Ctrl+Z)', html: `${glyph(UNDO)}Undo` });
+  const undoButton = h('button', { type: 'button', class: 'ui-btn quiet', title: 'Undo (Ctrl+Z)', html: `${glyph(UNDO)}Undo` });
   const defaultButton = h('button', { type: 'button', class: 'ui-btn quiet', title: 'Back to the traveller everyone starts as' }, 'Default');
   const doneButton = h('button', { type: 'button', class: 'ui-btn primary cr-done', html: `${glyph(CHECK)}Done` });
 
@@ -39,7 +39,7 @@ export function buildDom(stage: HeroStage) {
     'div',
     { class: 'cr-views' },
     h('div', { class: 'ui-seg', role: 'group', 'aria-label': 'Camera' }, ...viewButtons.map(([, button]) => button)),
-    h('div', { class: 'cr-hint', text: 'Drag to turn · scroll to zoom' }),
+    h('div', { class: 'cr-hint', text: 'Drag to turn, scroll to zoom' }),
   );
 
   const root = h('div', { class: 'atlas-creator', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your traveller' }, side, views);

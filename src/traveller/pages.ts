@@ -72,7 +72,6 @@ export function page(ctx: TravellerCtx, category: Category): HTMLElement {
     'div',
     { class: 'cr-page', role: 'tabpanel', id: `cr-page-${category.id}`, 'aria-label': category.label },
     h('div', { class: 'cr-title', text: category.label }),
-    h('p', { class: 'cr-note', text: category.note }),
     ...body,
   );
 }
