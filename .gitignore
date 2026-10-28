@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.tsbuildinfo
 .wrangler/
+
+# Local environment: keys and endpoints stay on this machine. `.env.example` lists them.
+.env
+.env.*
+!.env.example

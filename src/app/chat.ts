@@ -24,7 +24,7 @@ export async function createWorldChat(app: App): Promise<Chat> {
   return createChat({
     peers,
     ...(peers === null ? {} : { elsewhere: () => relayPlayers(peersUrl) }),
-    name: () => peers?.name || peersModule.storedName(),
+    name: () => peers?.name || peersModule.shownName(peersModule.storedName()),
     here: () => {
       const { lat, lon } = toLatLon(player.position);
       const country = countryOf(player.position);

@@ -8,6 +8,7 @@
  * (`src/app/deferred.ts`); `src/worlds/` and `src/system/` are only ever
  * imported dynamically (`scripts/check-worlds.ts`).
  */
+import { accountSeam } from './account.ts';
 import { dismissLoading, fail, hasWebGL2, reload, stage } from './app/boot.ts';
 import type { App } from './app/context.ts';
 import { loadData } from './app/data.ts';
@@ -40,6 +41,8 @@ async function start(): Promise<void> {
     );
     return;
   }
+  // Before anything reads the address, on every world: a return from signing in is taken off it.
+  const account = accountSeam();
   // Another world straight away, with none of Earth loaded; leaving reloads without the parameter.
   const otherWorld = new URLSearchParams(location.search).get('world');
   if (otherWorld !== null && otherWorld !== '' && otherWorld !== 'earth') {
@@ -54,6 +57,7 @@ async function start(): Promise<void> {
 
   await stage('reading the outlines');
   const app = { began, ...createGuard() } as App;
+  app.account = account;
   Object.assign(app, await loadData());
   app.deferred = loadDeferred();
   app.vehicleKit = loadVehicleKit(app.deferred);

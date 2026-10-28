@@ -8,6 +8,7 @@ export function createRail(panel: HTMLElement, signal: AbortSignal, onTurn: () =
     { id: 'graphics', label: 'Graphics', glyph: 'eye' },
     { id: 'sound', label: 'Sound', glyph: 'sound' },
     { id: 'controls', label: 'Controls', glyph: 'keyboard', note: 'Click a key, then press the one you want instead.' },
+    { id: 'account', label: 'Account', glyph: 'passport' },
     { id: 'credits', label: 'Credits', glyph: 'star' },
   ];
   const rail = h('div', { class: 'atlas-settings-rail', role: 'tablist', 'aria-label': 'Settings pages', 'aria-orientation': 'vertical' });

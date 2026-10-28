@@ -3,6 +3,7 @@ import { PALETTE } from '../theme.ts';
 import { h } from '../ui.ts';
 import { encodeAppearance } from '../appearance.ts';
 import { stampDateText, worldOf } from '../passport.ts';
+import { shownName } from '../peers/names.ts';
 import type { PassportChapter } from '../planet.ts';
 import type { PassportCardOptions } from '../passport-card.ts';
 import { PER_PAGE, inked } from './constants.ts';
@@ -40,7 +41,7 @@ function worldsStamped(model: BookModel): number {
 
 function holderPage(model: BookModel, options: PassportCardOptions, side: Side, number: number): HTMLElement {
   const who = options.holder?.() ?? null;
-  const name = who?.name.trim() || 'Traveller';
+  const name = shownName(who?.name ?? '');
   const code = who === null ? '' : encodeAppearance(who.appearance);
   const stamps = model.passport.data.stamps;
   const earthly = stamps.filter((stamp) => worldOf(stamp.iso) === 'earth');

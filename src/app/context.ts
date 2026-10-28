@@ -4,6 +4,7 @@
  * part made later (the HUD, the map, the camera) read it from here when
  * they run, which is always after it has been set.
  */
+import type { AccountSeam } from '../account.ts';
 import type * as THREE from 'three';
 import type { Surface } from '../audio.ts';
 import type { Knock, PropKind } from '../breakables.ts';
@@ -64,6 +65,8 @@ export interface App
   vehicleKit: Promise<Model[]>;
   avatarReady: Promise<void>;
 
+  /** The optional accounts, or null when this build has none. */
+  account: AccountSeam | null;
   /** The relay's address (`VITE_PEERS_URL`, or the local relay in development); `''` for none. */
   peersUrl: string;
   peersModule: typeof PeersModule;

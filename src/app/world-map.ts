@@ -72,7 +72,7 @@ export async function createWorldPlayerList(app: App): Promise<PlayerList> {
     rows: () => [
       {
         id: peers?.id ?? 'you',
-        name: peers?.name || peersModule.storedName() || 'Traveller',
+        name: peers?.name || peersModule.shownName(peersModule.storedName()),
         iso: isoAtPoint(player.position),
         you: true,
       },

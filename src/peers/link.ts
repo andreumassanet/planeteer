@@ -3,6 +3,7 @@
  */
 import { cleanEmote, cleanFlags } from '../../server/src/limits.ts';
 import { RETRY_MS } from './constants.ts';
+import { shownName } from './names.ts';
 import type { PeersStats, RelayMessage, State } from './types.ts';
 import type { PeersCore } from './core.ts';
 import type { Outbound } from './outbound.ts';
@@ -29,7 +30,7 @@ export function createLink(core: PeersCore, roster: Roster, outbound: Outbound) 
       const address = new URL(url);
       // Earth's room is the one an address without a body reaches.
       if (!onEarth) address.searchParams.set('body', bodyId);
-      if (stats.name !== '') address.searchParams.set('name', stats.name);
+      address.searchParams.set('name', shownName(stats.name));
       if (s.look !== '') address.searchParams.set('look', s.look);
       s.lookInAddress = s.look;
       address.searchParams.set('key', key);

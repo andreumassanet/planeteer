@@ -355,7 +355,9 @@ export function decodeAppearance(code: unknown): Appearance | null {
 // This device
 // ---------------------------------------------------------------------------
 
-const STORED = 'atlas.traveller.v1';
+/** Where the device keeps the look, as its wire code. */
+export const LOOK_KEY = 'atlas.traveller.v1';
+const STORED = LOOK_KEY;
 
 /** The appearance kept on this device, or the default. Never throws. */
 export function storedAppearance(): Appearance {

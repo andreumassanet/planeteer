@@ -1,7 +1,7 @@
 /** The others: online, a link to the relay with its people drawn in the world; offline, nobody. */
 
 import type { Peers, PeerSelf } from '../../peers.ts';
-import { createPeers, storedName } from '../../peers.ts';
+import { createPeers, shownName, storedName } from '../../peers.ts';
 import { createFolk } from '../../folk.ts';
 import { createPlayerList } from '../../player-list.ts';
 import type { PlayerList } from '../../player-list.ts';
@@ -46,7 +46,7 @@ export function createWorldPlayerList(world: ShellWorld, peers: Peers | null, on
   return createPlayerList({
     world: spec.id,
     rows: () => [
-      { id: peers?.id ?? 'you', name: peers?.name || host.name() || storedName() || 'Traveller', iso: null, world: spec.id, you: true },
+      { id: peers?.id ?? 'you', name: peers?.name || shownName(host.name() || storedName()), iso: null, world: spec.id, you: true },
       ...[...(peers?.marks ?? [])]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((mark) => ({ id: mark.id, name: mark.name, iso: null, world: spec.id })),

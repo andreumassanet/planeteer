@@ -5,7 +5,7 @@
  * `?at=` link or a journey skips the menus, `TO_SYSTEM_KEY` skips the title.
  */
 import { dressHero, heroAppearance, wardrobeCast } from '../avatar.ts';
-import { encodeAppearance } from '../appearance.ts';
+import { decodeAppearance, encodeAppearance } from '../appearance.ts';
 import { relayPlayers } from '../relay-players.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, detail, setAutoDetail, setDetail } from '../view.ts';
 import type { HeroStage } from '../hero-stage.ts';
@@ -89,6 +89,19 @@ export async function openFrontDoor(app: App): Promise<FrontDoor> {
     },
   });
   document.body.appendChild(traveller.root);
+  // What an account changes on the front door: the name on the plate and the relay, the look.
+  app.account?.attach({
+    name: (name) => {
+      app.peersLink?.rename(name);
+      heroStage.refreshName();
+    },
+    look: (code) => {
+      const appearance = decodeAppearance(code);
+      if (appearance === null) return;
+      dressHero(appearance).catch((error: unknown) => console.warn('atlas: the new clothes did not arrive', error));
+      app.peersLink?.setLook(code);
+    },
+  });
 
   const { createMenu, earthBody } = await deferred.menu;
   const { createMenuSound } = await deferred.menuSound;
@@ -128,6 +141,7 @@ export async function openFrontDoor(app: App): Promise<FrontDoor> {
       players: () => relayPlayers(app.peersUrl).then((all) => (all === null ? null : all.length)),
       customise: () => traveller.show(),
       settings: () => frontSettings.show(),
+      ...(app.account === null ? {} : { account: (into: HTMLElement) => app.account!.mount(into, 'title', () => frontSettings.show('account')) }),
       covered: () => traveller.open || frontSettings.open,
       sound: { hover: () => menuSound.cue('hover'), select: () => menuSound.cue('select') },
       onChoose: () => menu.hold(false),

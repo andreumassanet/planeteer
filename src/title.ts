@@ -54,6 +54,8 @@ export interface TitleOptions {
   customise(): void;
   /** Opens the settings. Omit it and there is no button. */
   settings?(): void;
+  /** Builds the account's chip beside the settings (`account.ts`). Omit it and there is none. */
+  account?(into: HTMLElement): void;
   /** Whether a card in front of this screen has the keyboard: its keys wait. */
   covered?(): boolean;
   /** A pointer over a control, and a choice made, for the menu's sound. */
@@ -140,7 +142,11 @@ const STYLE = `
 .ti-play b { display: block; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
 .ti-play small { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; color: var(--ui-muted); }
 .ti-play.primary small { color: var(--ui-ink); opacity: 0.7; }
-.ti-row { display: flex; gap: 8px; margin-top: 6px; }
+.ti-row { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 10px; width: 100%; margin-top: 2px; }
+.ti-row > :only-child { grid-column: 1 / -1; }
+.ti-row .ui-btn { width: 100%; height: 48px; justify-content: center; font-size: 15px; }
+.ti-row .ac-chip { display: flex; width: 100%; }
+.ti-row .ui-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ti-right { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
 .ti-custom { position: relative; pointer-events: auto; transition: opacity 0.3s ease, transform 0.4s var(--ui-ease); }
 /* Backwards, not both: a fill kept after the rise would outrank the aside rule and leave the button under the creator. */
@@ -186,7 +192,7 @@ const STYLE = `
   .ti-play svg { width: 22px; height: 22px; }
   .ti-play b { font-size: 16px; }
   .ti-play small { font-size: 11.5px; margin-top: 1px; }
-  .ti-row .ui-btn { height: 40px; padding-top: 0; padding-bottom: 0; }
+  .ti-row .ui-btn { height: 40px; padding-top: 0; padding-bottom: 0; font-size: 14px; }
   .ti-custom { transform: scale(0.85); transform-origin: 50% 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -214,8 +220,11 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
   const offlineButton = playButton('offline', 'Play offline', 'Nothing is sent anywhere');
 
   const settingsButton =
-    options.settings === undefined ? null : h('button', { class: 'ui-btn quiet small', type: 'button' }, icon('gear', 16), 'Settings');
+    options.settings === undefined ? null : h('button', { class: 'ui-btn quiet', type: 'button' }, icon('gear', 18), h('span', { text: 'Settings' }));
   settingsButton?.addEventListener('click', () => options.settings?.());
+
+  const accountSlot = options.account === undefined ? null : h('div', { class: 'ti-account' });
+  if (accountSlot !== null) options.account!(accountSlot);
 
   const customButton = h('button', { class: 'ui-btn big ti-custom', type: 'button' }, icon('sparkle', 20), 'Customise');
   customButton.addEventListener('click', () => options.customise());
@@ -230,7 +239,7 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
       { class: 'ti-card' },
       onlineButton,
       offlineButton,
-      settingsButton === null ? null : h('div', { class: 'ti-row' }, settingsButton),
+      settingsButton === null && accountSlot === null ? null : h('div', { class: 'ti-row' }, settingsButton, accountSlot),
     ),
   );
   const right = h('div', { class: 'ti-right' }, customButton);

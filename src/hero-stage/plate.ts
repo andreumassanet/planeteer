@@ -1,13 +1,14 @@
 /** The name plate over the hero's head: show, edit and keep the traveller's name. */
 import type { HeroCtx } from './ctx.ts';
+import { shownName } from '../peers/names.ts';
 import { CHECK, glyph, PEN } from './glyph.ts';
 
 export function refreshName(ctx: HeroCtx): void {
   const { nameText, options, plate } = ctx;
   const name = options.name.get();
-  nameText.textContent = name === '' ? 'Traveller' : name;
+  nameText.textContent = shownName(name);
   nameText.classList.toggle('empty', name === '');
-  plate.title = name === '' ? 'No name yet: the others see a traveller with a number' : '';
+  plate.title = name === '' ? `No name yet: the others see ${shownName('')}` : '';
 }
 
 export function editName(ctx: HeroCtx): void {

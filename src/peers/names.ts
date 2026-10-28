@@ -1,5 +1,5 @@
 /** The name this device plays under, and what a name may be. */
-import { NAME_KEY } from './constants.ts';
+import { GUEST_KEY, NAME_KEY } from './constants.ts';
 
 /** The name kept on this device, which the next connection sends. */
 export function storedName(): string {
@@ -9,6 +9,36 @@ export function storedName(): string {
     return '';
   }
 }
+
+let guest = '';
+
+/**
+ * What a traveller without a name of their own is called: `Traveller 4821`,
+ * the number drawn once and kept on this device, so the others see the same
+ * guest from one visit to the next.
+ */
+export function guestName(): string {
+  if (guest !== '') return guest;
+  let number = '';
+  try {
+    number = localStorage.getItem(GUEST_KEY) ?? '';
+  } catch {
+    // No store: a number for this visit.
+  }
+  if (!/^\d{4}$/.test(number)) {
+    number = String(1000 + Math.floor(Math.random() * 9000));
+    try {
+      localStorage.setItem(GUEST_KEY, number);
+    } catch {
+      // Private mode; the number lasts this visit.
+    }
+  }
+  guest = `Traveller ${number}`;
+  return guest;
+}
+
+/** The name the others see: the one kept, or the guest's. */
+export const shownName = (name: string): string => (name.trim() === '' ? guestName() : name);
 
 /**
  * A name as the relay will take it: printable, one line, twenty code points

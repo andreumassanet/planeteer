@@ -162,6 +162,34 @@ export function serialisePassport(data: PassportData): string {
 }
 
 /**
+ * Two books as one: every country stamped in either, each keeping its
+ * earliest stamp, and every town walked into in either. The stamps stay in
+ * the order they were dated (`a`'s order among a day's), the towns in `a`'s
+ * order with `b`'s new ones after. Pure; neither book is changed.
+ */
+export function mergePassports(a: PassportData, b: PassportData): PassportData {
+  const first = new Map<string, Stamp>();
+  const order: string[] = [];
+  for (const stamp of [...a.stamps, ...b.stamps]) {
+    const held = first.get(stamp.iso);
+    if (held === undefined) order.push(stamp.iso);
+    if (held === undefined || earlier(stamp, held)) first.set(stamp.iso, stamp);
+  }
+  const stamps = order.map((iso) => ({ ...first.get(iso)! }));
+  // Stable: a day's stamps keep the order they were met in.
+  stamps.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
+  const towns = [...new Set([...a.towns, ...b.towns])];
+  if (towns.length > MAX_TOWNS) towns.splice(0, towns.length - MAX_TOWNS);
+  return { version: 1, stamps, towns };
+}
+
+/** Whether `x` is the stamp to keep over `y` for one country: the earlier date, then a fixed order, so the merge is commutative. */
+function earlier(x: Stamp, y: Stamp): boolean {
+  if (x.date !== y.date) return x.date < y.date;
+  return JSON.stringify(x) < JSON.stringify(y);
+}
+
+/**
  * The date a stamp carries: the sky's clock as a calendar day on the player's
  * own calendar, so a landing late in their evening is dated that evening's day
  * and not, east of Greenwich, yesterday's or, west of it, tomorrow's.
@@ -261,6 +289,8 @@ export interface Passport {
   onStamp: ((stamp: Stamp) => void) | null;
   /** Empties the book, here and on the device. */
   clear(): void;
+  /** Takes in another book (an account's), as `mergePassports` does, without a stamp dropping. */
+  absorb(other: PassportData): void;
 }
 
 /** The device's store, if the browser will hand it over at all. */
@@ -351,6 +381,17 @@ export function createPassport(storage: PassportStorage | null | undefined = dev
       data.towns.length = 0;
       countries.clear();
       towns.clear();
+      save();
+    },
+    absorb(other) {
+      const merged = mergePassports(data, other);
+      data.stamps.splice(0, data.stamps.length, ...merged.stamps);
+      data.towns.splice(0, data.towns.length, ...merged.towns);
+      countries.clear();
+      for (const stamp of data.stamps) countries.add(stamp.iso);
+      towns.clear();
+      for (const town of data.towns) towns.add(town);
+      if (candidate !== null && countries.has(candidate.iso)) candidate = null;
       save();
     },
   };

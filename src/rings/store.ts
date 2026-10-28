@@ -67,6 +67,26 @@ export function serialiseRecord(record: RingRecord): string {
   return JSON.stringify({ landmarks: [...record.landmarks].sort(), courses });
 }
 
+/**
+ * Two records as one: every ring collected in either, and for each course the
+ * faster time and the better medal, each kept on its own (a slower run may
+ * have earned the better medal). The title goes with the faster time. Pure.
+ */
+export function mergeRecords(a: RingRecord, b: RingRecord): RingRecord {
+  const merged: RingRecord = { landmarks: new Set([...a.landmarks, ...b.landmarks]), courses: new Map() };
+  for (const key of new Set([...a.courses.keys(), ...b.courses.keys()])) {
+    const x = a.courses.get(key);
+    const y = b.courses.get(key);
+    if (x === undefined || y === undefined) {
+      merged.courses.set(key, { ...(x ?? y)! });
+      continue;
+    }
+    const fast = x.ms < y.ms || (x.ms === y.ms && x.title <= y.title) ? x : y;
+    merged.courses.set(key, { ms: fast.ms, medal: Math.max(x.medal, y.medal), title: fast.title, kind: fast.kind });
+  }
+  return merged;
+}
+
 /** The device's store, if the browser will hand it over at all. */
 export function deviceStore(): RingStorage | null {
   try {

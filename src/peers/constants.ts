@@ -11,6 +11,8 @@ export const DRAW_REACH = 2_500;
 /** Reconnection backoff, doubling from the first to the last. */
 export const RETRY_MS = [1_000, 30_000] as const;
 export const NAME_KEY = 'atlas.peers.name';
+/** The four digits of this device's guest name, `Traveller 4821`. */
+export const GUEST_KEY = 'atlas.peers.guest';
 /** A gesture not yet made this long after it was heard is not made at all: a wave is a moment. */
 export const GESTURE_STALE_MS = 3_000;
 /**

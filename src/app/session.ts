@@ -64,6 +64,13 @@ export async function startSession(app: App): Promise<void> {
   app.timeOfDay = createTimeOfDay(app);
   app.settings = await createWorldSettings(app);
   app.chat = await createWorldChat(app);
+  // An account's progress reaches the book, the rings and the minimap as it arrives.
+  app.account?.attach({
+    passport: app.passport,
+    rings: app.thrills.rings,
+    minimap: app.minimap,
+    notice: (text) => app.announce(text, 'passport'),
+  });
   app.resize = watchResize(app, app.rig);
   app.toSolarSystem = keepLastPlace(app).toSolarSystem;
 

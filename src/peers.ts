@@ -30,7 +30,7 @@ import { createSampler } from './peers/sample.ts';
 import { createUpdate } from './peers/update.ts';
 import type { Peers, PeersOptions } from './peers/types.ts';
 
-export { cleanName, storeName, storedName } from './peers/names.ts';
+export { cleanName, guestName, shownName, storeName, storedName } from './peers/names.ts';
 export type {
   PeerMark,
   PeerSeat,

@@ -78,7 +78,7 @@ export interface SettingsOptions {
 }
 
 /** The card's pages, in the rail's order. */
-export type SettingsPage = 'graphics' | 'sound' | 'controls' | 'credits';
+export type SettingsPage = 'graphics' | 'sound' | 'controls' | 'account' | 'credits';
 
 export interface Settings {
   root: HTMLElement;

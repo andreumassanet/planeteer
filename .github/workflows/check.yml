@@ -99,6 +99,8 @@ jobs:
         run: pnpm passport
       - name: rings
         run: pnpm rings
+      - name: account
+        run: pnpm account
       - name: music
         run: pnpm music
       - name: maps

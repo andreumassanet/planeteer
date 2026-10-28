@@ -44,6 +44,7 @@
     "sea": "node scripts/check-sea.ts",
     "passport": "node scripts/check-passport.ts",
     "rings": "node scripts/check-rings.ts",
+    "account": "node scripts/check-account.ts",
     "fleet": "node scripts/check-fleet.ts",
     "flight": "node scripts/check-flight.ts",
     "sky": "node scripts/check-sky.ts",

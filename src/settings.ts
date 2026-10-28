@@ -11,7 +11,7 @@
  * so `Tab` walks its own controls and the arrows move its sliders instead of
  * the player.
  *
- * Four pages on a rail down the left (graphics, sound, controls, credits), in
+ * Pages on a rail down the left (graphics, sound, controls, account, credits), in
  * one card size whichever is open. The controls page lists every key in the
  * game; a cap is a button, and the next key pressed becomes that action's
  * (`captureKey` in `controls.ts`), `Esc` keeping the old one. `O` opens and
@@ -20,6 +20,7 @@
  * The pages live in `settings/`.
  */
 
+import { accountSeam } from './account.ts';
 import {
   actionOf,
   holdFocus,
@@ -77,6 +78,10 @@ export function createSettings(options: SettingsOptions): Settings {
   rail.fill('sound', ...sound.sections);
   rail.tabs.get('sound')!.hidden = sound.hidden;
   rail.fill('controls', ...controls.sections);
+  // The same Account page on every world's card: the page has one account, not a world.
+  const account = accountSeam();
+  rail.tabs.get('account')!.hidden = account === null;
+  account?.mount(rail.pages.get('account')!, 'settings');
   rail.fill('credits', ...createCreditsPage());
   rail.turnTo('graphics');
 
