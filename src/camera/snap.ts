@@ -43,6 +43,7 @@ export function createSnap(core: CameraCore, framer: Framing, optics: Lens, eyes
       view.distance = framing.distance;
       view.height = framing.height;
       s.driving = seated(player);
+      s.framingEased = false;
     }
 
     if (s.firstPerson && seated(player) && cockpit(player)) return;

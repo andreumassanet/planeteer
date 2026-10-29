@@ -44,8 +44,14 @@ export interface CameraFields {
   lead: number;
   /** How strongly what is in the way is seen through, eased; see `see-through.ts`. */
   sight: number;
-  /** The lens's field of view before the rush is laid on, eased towards what the player is doing. */
+  /** The lens's field of view before the rush is laid on, eased towards what the player is doing through `fovMid`. */
   fovBase: number;
+  fovMid: number;
+  /** The rush the lens is opened by, as a critically damped spring follows `rig.rush`, and its rate. */
+  rushNow: number;
+  rushRate: number;
+  /** `viewMid` holds the framing's first ease (`chase.ts`). */
+  framingEased: boolean;
 }
 
 export interface CameraCore {
@@ -89,6 +95,8 @@ export interface CameraCore {
   readonly previous: THREE.Vector3;
   readonly transport: THREE.Quaternion;
   readonly framing: { distance: number; height: number };
+  /** The framing's first ease towards `framing`, which `view` follows in turn. */
+  readonly viewMid: { distance: number; height: number };
 }
 
 export function createCameraCore(options: CameraOptions): CameraCore {
@@ -114,6 +122,10 @@ export function createCameraCore(options: CameraOptions): CameraCore {
       lead: 0,
       sight: 0,
       fovBase: FOV_FOOT,
+      fovMid: FOV_FOOT,
+      rushNow: 0,
+      rushRate: 0,
+      framingEased: false,
     },
     camera: new THREE.PerspectiveCamera(FOV_FOOT, 1, NEAR, FAR),
     blocks: options.blocks,
@@ -143,5 +155,6 @@ export function createCameraCore(options: CameraOptions): CameraCore {
     previous: new THREE.Vector3(),
     transport: new THREE.Quaternion(),
     framing: { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height },
+    viewMid: { distance: WALK_FRAMING.distance, height: WALK_FRAMING.height },
   };
 }

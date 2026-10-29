@@ -31,7 +31,7 @@ export function createChase(
   eyes: FirstPerson,
   placement: Placement,
 ) {
-  const { camera, desired, drift, framing, orbit, pivot, previous, travel, view } = core;
+  const { camera, desired, drift, framing, orbit, pivot, previous, travel, view, viewMid } = core;
   const s = core.fields;
   const { want } = framer;
   const { lens } = optics;
@@ -43,12 +43,21 @@ export function createChase(
   /** Chase the player. Call after `player.update`. */
   function follow(dt: number, player: CameraSubject, groundRadiusAt: (p: THREE.Vector3) => number): void {
     want(player, groundRadiusAt);
-    lens(player, approach(FOV_RATE, dt));
+    lens(player, approach(FOV_RATE, dt), dt);
     if (seated(player)) s.driving = true;
     if (s.driving) {
-      const rate = approach(FRAMING_RATE, dt);
-      view.distance += (framing.distance - view.distance) * rate;
-      view.height += (framing.height - view.height) * rate;
+      // Through a midway framing, two eases in a row: a change of mode or a
+      // climb opens the view without a kink as it begins.
+      const rate = approach(2 * FRAMING_RATE, dt);
+      if (!s.framingEased) {
+        viewMid.distance = view.distance;
+        viewMid.height = view.height;
+        s.framingEased = true;
+      }
+      viewMid.distance += (framing.distance - viewMid.distance) * rate;
+      viewMid.height += (framing.height - viewMid.height) * rate;
+      view.distance += (viewMid.distance - view.distance) * rate;
+      view.height += (viewMid.height - view.height) * rate;
       // Hand `view` back once a landing has finished putting it away, so the
       // console lever stays the player's on foot.
       if (
@@ -59,8 +68,9 @@ export function createChase(
         view.distance = framing.distance;
         view.height = framing.height;
         s.driving = false;
+        s.framingEased = false;
       }
-    }
+    } else s.framingEased = false;
 
     // Where the vehicle will be, not where it is: adding the trail back on
     // cancels it, so the smoothing only absorbs turns instead of lagging behind

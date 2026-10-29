@@ -47,6 +47,8 @@ export interface WorldRig {
   snap(player: WorldPlayer, groundAt: (point: THREE.Vector3) => number, radius: number, top: number): void;
   /** Height over the ground under the player, for the haze and the reach. */
   readonly altitude: number;
+  /** A knock felt through the lens, as Earth's (`CameraRig.shake`). */
+  shake(strength: number): void;
   resize(width: number, height: number): void;
 }
 
@@ -191,6 +193,7 @@ export function createWorldRig(blocks: (point: THREE.Vector3) => boolean): World
     get altitude() {
       return altitude;
     },
+    shake: (strength) => rig.shake(strength),
     aim(dt, input, player) {
       traveller = player;
       up.copy(player.position).normalize();

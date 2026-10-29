@@ -199,7 +199,8 @@ export function createThrills(app: App): Thrills {
       punch *= Math.exp(-dt / PULSE_TIME);
       if (punch < 1e-3) punch = 0;
       rig.rush = Math.min(1, rush + punch);
-      if (seated && rush > TREMOR_FROM) rig.shake((TREMOR * (rush - TREMOR_FROM)) / (1 - TREMOR_FROM));
+      // Aloft, half of it: an aircraft's own frame already sways the lens.
+      if (seated && rush > TREMOR_FROM) rig.shake(((aircraft ? TREMOR * 0.5 : TREMOR) * (rush - TREMOR_FROM)) / (1 - TREMOR_FROM));
       // The streaks come in ahead of the lens: a third of the way into the rush they are already plain.
       const lines = Math.min(1, Math.max(rush * LINES_GAIN, punch * 0.9));
       const [x, y] = lines > 0.01 ? focusOnScreen() : [null, null];

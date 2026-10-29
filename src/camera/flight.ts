@@ -18,7 +18,7 @@ import {
   MIN_ELEVATION_RIDING,
   PIVOT_HEIGHT,
 } from './constants.ts';
-import { approach, clamp, ramp } from './math.ts';
+import { approach, ramp } from './math.ts';
 import type { CameraSubject } from './types.ts';
 import type { CameraCore } from './core.ts';
 
@@ -40,10 +40,19 @@ export function createFlightChase(core: CameraCore) {
   const basis = new THREE.Matrix4();
   const wanted = new THREE.Quaternion();
   const levelled = new THREE.Quaternion();
-  /** The lens's frame as it has turned so far: +Z the way it looks along, +Y its up. */
+  /**
+   * The lens's frame as it has turned so far: +Z the way it looks along, +Y
+   * its up. It follows `wanted` through `midway`, two eases in a row, so a
+   * turn begins and ends without a kink (critically damped, never a snap).
+   */
   const frame = new THREE.Quaternion();
+  const midway = new THREE.Quaternion();
   let following = false;
-  /** The heading's rate of turn, radians a second, positive to the left, eased. */
+  /** How much of the aircraft's own frame the lens takes, eased the same way: 1 close behind, 0 the level chase high up. */
+  let weightMid = 1;
+  let weightNow = 1;
+  /** The heading's rate of turn, radians a second, positive to the left, eased twice. */
+  let turningMid = 0;
   let turning = 0;
 
   /** An aircraft in the air, with an attitude to follow. */
@@ -63,12 +72,14 @@ export function createFlightChase(core: CameraCore) {
 
   /** The turn the heading made since the last frame, as a rate, eased into `turning`. */
   function readTurn(player: CameraSubject, dt: number): void {
-    if (!following || dt <= 0) {
-      turning = 0;
-    } else {
+    if (!following) {
+      turning = turningMid = 0;
+    } else if (dt > 0) {
       cross.crossVectors(lastForward, player.forward);
       const turned = Math.atan2(cross.dot(player.up), lastForward.dot(player.forward));
-      turning += (turned / dt - turning) * approach(FLIGHT_LEAD_EASE, dt);
+      const ease = approach(2 * FLIGHT_LEAD_EASE, dt);
+      turningMid += (turned / dt - turningMid) * ease;
+      turning += (turningMid - turning) * ease;
     }
     lastForward.copy(player.forward);
   }
@@ -97,17 +108,27 @@ export function createFlightChase(core: CameraCore) {
     basis.makeBasis(across, bodyUp, nose);
     wanted.setFromRotationMatrix(basis);
 
-    // High over the map, the heading's level chase.
+    // High over the map, the heading's level chase; between the two modes the share eases.
     const base = Math.atan2(view.height, view.distance);
-    const weight = player.aerobatic === true ? 1 : 1 - ramp(base, FLIGHT_FADE_FROM, FLIGHT_FADE_TO);
+    const asked = player.aerobatic === true ? 1 : 1 - ramp(base, FLIGHT_FADE_FROM, FLIGHT_FADE_TO);
+    const ease = approach(2 * FLIGHT_FOLLOW_RATE, dt);
+    if (!following) weightMid = weightNow = asked;
+    weightMid += (asked - weightMid) * ease;
+    weightNow += (weightMid - weightNow) * ease;
+    const weight = weightNow;
     if (weight < 1) {
       across.crossVectors(player.up, heading).normalize();
       basis.makeBasis(across, player.up, heading);
       levelled.setFromRotationMatrix(basis);
       wanted.copy(levelled.slerp(wanted, weight));
     }
-    if (!following) frame.copy(wanted);
-    else frame.slerp(wanted, approach(FLIGHT_FOLLOW_RATE, dt));
+    if (!following) {
+      frame.copy(wanted);
+      midway.copy(wanted);
+    } else {
+      midway.slerp(wanted, ease);
+      frame.slerp(midway, ease);
+    }
     following = true;
 
     s.pitch = Math.min(Math.max(s.pitch, Math.min(MIN_ELEVATION_RIDING, base) - base), MAX_ELEVATION_RIDING - base);
@@ -116,7 +137,8 @@ export function createFlightChase(core: CameraCore) {
     pivot.copy(player.position).addScaledVector(player.up, PIVOT_HEIGHT);
     desired.copy(pivot).add(local);
     // The aim leads into the turn: a left turn is a positive rate and `side` is the left.
-    const lead = clamp(turning * FLIGHT_TURN_LEAD, -FLIGHT_LEAD_MAX, FLIGHT_LEAD_MAX) * weight;
+    // Held within its most by a smooth saturation, so a hard turn reaching it is no kink.
+    const lead = FLIGHT_LEAD_MAX * Math.tanh((turning * FLIGHT_TURN_LEAD) / FLIGHT_LEAD_MAX) * weight;
     target.copy(pivot).addScaledVector(side, Math.tan(lead) * view.distance);
     return true;
   }
