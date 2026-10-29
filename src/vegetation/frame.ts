@@ -120,7 +120,13 @@ export function createFramer(world: World, broken: string[]): Framer {
       const from = solids.length;
       placeShape(shape, item.matrix.elements, ground, solids);
       if (item.machine !== undefined) machineWalls.set(item.machine, solids.slice(from));
-      else if (kind === 'trunk' || kind === 'boulder' || item.flat.breaks !== undefined) propWalls.set(item, solids.slice(from));
+      else if (kind === 'trunk' || kind === 'boulder' || item.flat.breaks !== undefined) {
+        // A body higher than the plant's own top passes over it.
+        const e = item.matrix.elements;
+        const over = Math.hypot(e[12]!, ground + e[13]!, e[14]!) + item.flat.height * Math.hypot(e[0]!, e[1]!, e[2]!);
+        for (let i = from; i < solids.length; i++) solids[i]!.over = over;
+        propWalls.set(item, solids.slice(from));
+      }
     }
     if (solids.length === 0) return null;
     return {

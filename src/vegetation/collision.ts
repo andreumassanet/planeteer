@@ -53,11 +53,12 @@ export function createQueries(state: StreamState): Queries {
     collide(point, radius, push) {
       push.set(0, 0, 0);
       solidDir.copy(point).normalize();
+      const height = point.length();
       let hit = false;
       for (const entry of walled) {
         const walls = entry.walls!;
         if (solidDir.dot(walls.up) < walls.cosBound) continue;
-        if (!pushOut(walls.field, point.dot(walls.across), point.dot(walls.north), radius, solidPush)) continue;
+        if (!pushOut(walls.field, point.dot(walls.across), point.dot(walls.north), radius, solidPush, height)) continue;
         push.addScaledVector(walls.across, solidPush.x).addScaledVector(walls.north, solidPush.z);
         hit = true;
       }

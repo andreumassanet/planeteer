@@ -24,6 +24,12 @@ export interface Solid {
   hz: number;
   /** The roof, as a radius from the planet's centre. The camera's; a body ignores it. */
   top: number;
+  /**
+   * How high a body must be, as a radius from the planet's centre, to pass
+   * over it, where that is not `top`: a tree's or a boulder's own top, which
+   * a car flying off a crest clears though the camera's `top` is 0.
+   */
+  over?: number;
   /** A disc of radius `hx` rather than a rectangle; its axes are then unused. */
   round: boolean;
 }
@@ -321,7 +327,7 @@ export function pushOut(
     let dz = 0;
     for (let k = 0; k < count; k++) {
       const solid = field.solids[field.found[k]!]!;
-      if (solid.top <= over) continue;
+      if ((solid.over ?? solid.top) <= over) continue;
       const depth = separate(solid, px, pz, radius);
       // Strictly deeper, so a tie goes to the lower index: deterministic.
       if (depth <= deepest) continue;
