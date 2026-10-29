@@ -39,17 +39,15 @@ export const DROP_HIT = 330;
 
 /**
  * The open book as designed, in CSS pixels: two pages of 420 by 560 inside a
- * cover `COVER_PAD` wider all round, under a band of `TAB_ROOM` the bookmarks
- * stand up into, over a line of `HINT_ROOM` that names the keys.
+ * cover `COVER_PAD` wider all round, under a band of `TAB_ROOM` that holds the
+ * chapters' bar, over a band of `HINT_ROOM` that holds the worlds'.
  */
 export const BOOK_W = 840;
 export const BOOK_H = 560;
 export const COVER_PAD = 10;
-export const TAB_ROOM = 40;
-export const HINT_ROOM = 30;
+export const TAB_ROOM = 50;
+export const HINT_ROOM = 54;
 export const SHEET_W = BOOK_W + 2 * COVER_PAD;
-/** Room on the right for the planet tabs, used only when the book has other worlds' chapters. */
-export const SIDE_ROOM = 30;
 /** Diameter of a planet's disc on its tab. */
 export const DISC = 28;
 export const SHEET_H = TAB_ROOM + BOOK_H + 2 * COVER_PAD + HINT_ROOM;
@@ -85,9 +83,9 @@ export function inked(colour: number, towardsInk = 0.25): string {
   return `rgb(${mix(16)}, ${mix(8)}, ${mix(0)})`;
 }
 
-/** The cover's cloth: crimson mixed most of the way to the ink. */
-export const LEATHER = inked(PALETTE.crimson, 0.45);
-export const LEATHER_DEEP = inked(PALETTE.crimson, 0.62);
+/** The cover's cloth: crimson nearly all the way to the ink, the dark of every menu's glass. */
+export const LEATHER = inked(PALETTE.crimson, 0.8);
+export const LEATHER_DEEP = inked(PALETTE.crimson, 0.9);
 
 /** Paper grain: tiled noise tinted with a little ink. */
 export const GRAIN =

@@ -6,6 +6,7 @@
  */
 import { dressHero, heroAppearance, wardrobeCast } from '../avatar.ts';
 import { decodeAppearance, encodeAppearance } from '../appearance.ts';
+import { Vector3 } from 'three';
 import { relayPlayers } from '../relay-players.ts';
 import { DETAIL_MAX, DETAIL_MIN, autoDetail, detail, setAutoDetail, setDetail } from '../view.ts';
 import type { HeroStage } from '../hero-stage.ts';
@@ -20,6 +21,8 @@ import { takeJourney, takeToSystem } from './journey.ts';
 import type { Journey } from './journey.ts';
 import { exploreWorld, loadMenuBody } from './other-worlds.ts';
 import { renderDistanceWords } from './render-distance.ts';
+import { PASSPORT_KEY, parsePassport } from '../passport.ts';
+import type { PassportCard } from '../passport-card.ts';
 import {
   HINTS_KEY, OVERLAY_KEY, PERFORMANCE_KEY, RESOLUTION_KEY, SENSITIVITY_KEY, WEATHER_KEY,
   readSetting, storedToggle, writeSetting,
@@ -133,16 +136,50 @@ export async function openFrontDoor(app: App): Promise<FrontDoor> {
   const sharedSettings = createSharedSettings(app);
   const frontSettings = await createFrontSettings(app, sharedSettings);
 
+  // The book from the title: this device's passport, read when it is first opened, and let go with the title.
+  let book: PassportCard | null = null;
+  const openBook = async (): Promise<void> => {
+    if (book === null) {
+      const [{ createPassport }, { createPassportCard }] = await Promise.all([deferred.passport, deferred.passportCard]);
+      book = createPassportCard({
+        passport: createPassport(),
+        countries: world.countries,
+        chapters: () => import('../system/geography.ts').then((module) => module.chaptersOf()),
+        holder: () => ({ name: app.peersLink?.name ?? peersModule.storedName(), appearance: heroAppearance() }),
+        here: () => '',
+        lockTarget: renderer.domElement,
+        onOpen: () => menuSound.cue('select'),
+        onTurn: () => menuSound.cue('hover'),
+        rings: () => null,
+      });
+      document.body.appendChild(book.root);
+    }
+    book.toggle();
+  };
+
   // Made even when going straight to the planets, and kept hidden, so `Esc` there reaches it.
   if (launch.skipTo === null) {
     const title = createTitle({
       stage: heroStage,
       online: app.peersUrl !== '',
-      players: () => relayPlayers(app.peersUrl).then((all) => (all === null ? null : all.length)),
+      players: () => relayPlayers(app.peersUrl).then((all) =>
+        all === null
+          ? null
+          : all.map((player) => {
+            const earth = player.world === 'earth';
+            const id = earth && player.at !== undefined ? world.countryAtPoint(new Vector3(player.at.x, player.at.y, player.at.z)) : 0;
+            return { name: player.name, iso: id > 0 ? world.countries[id - 1]!.iso : null, world: earth ? 'Earth' : player.world.replace(/^./, (c) => c.toUpperCase()) };
+          })),
       customise: () => traveller.show(),
       settings: () => frontSettings.show(),
       ...(app.account === null ? {} : { account: (into: HTMLElement) => app.account!.mount(into, 'title', () => frontSettings.show('account')) }),
-      covered: () => traveller.open || frontSettings.open,
+      covered: () => traveller.open || frontSettings.open || (book?.open ?? false),
+      openTravels: () => void openBook(),
+      onDispose: () => book?.dispose(),
+      travels: () => {
+        const data = parsePassport(readSetting(PASSPORT_KEY));
+        return { stamps: data.stamps.length, towns: data.towns.length };
+      },
       sound: { hover: () => menuSound.cue('hover'), select: () => menuSound.cue('select') },
       onChoose: () => menu.hold(false),
     });

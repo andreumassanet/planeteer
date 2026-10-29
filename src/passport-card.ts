@@ -31,11 +31,10 @@
  * `turning.ts`, `tabs.ts`, `tip.ts`, `sizing.ts`, `dom.ts`,
  * `stamp-svg.ts`, `seal-svg.ts`, `art.ts`, `style.ts`, `constants.ts`.
  */
-import { actionOf, holdFocus, inputBlocked, labelOf, registerModal } from './controls.ts';
+import { actionOf, holdFocus, inputBlocked, registerModal } from './controls.ts';
 import type { Appearance } from './appearance.ts';
 import { loadCountryFacts } from './country-facts.ts';
 import { ensureStyle, installUi } from './ui.ts';
-import { isTouch } from './touch.ts';
 import type { Passport, Stamp } from './passport.ts';
 import type { PassportChapter } from './planet.ts';
 import type { PassportRings } from './passport-card/rings-model.ts';
@@ -106,7 +105,7 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
   const { signal } = events;
   const model = createBookModel(options);
   const dom = createBookDom();
-  const { overlay, panel, root, hint, holderTab } = dom;
+  const { overlay, panel, root, holderTab } = dom;
   const tip = createTip(model, dom, signal);
   const turner = createTurner(model, dom, options, signal, () => updateChrome(model, dom, tip.hide));
 
@@ -182,8 +181,6 @@ export function createPassportCard(options: PassportCardOptions): PassportCard {
     // On the first spread, the holder's page rather than the notice inside the cover.
     model.half = model.spread === 0 ? 1 : 0;
     turner.showSpread();
-    const key = labelOf('passport');
-    hint.textContent = isTouch() ? 'Tap a corner to turn the page · tap outside to close' : `← → turn the page · ${key} or Esc to close`;
     resizeBook();
     addEventListener('resize', resizeBook, { signal });
     if (!root.isConnected) document.body.append(root);

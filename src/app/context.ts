@@ -121,6 +121,8 @@ export interface App
   resize(): void;
   /** Saves the place and reloads to the solar system. */
   toSolarSystem(): void;
+  /** Out of the game to the title screen, the last place kept. */
+  toTitle(): void;
   frameStats: FrameStats;
   /** When the loop started, for the curtain's timeout. */
   loopStarted: number;

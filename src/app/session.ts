@@ -72,7 +72,9 @@ export async function startSession(app: App): Promise<void> {
     notice: (text) => app.announce(text, 'passport'),
   });
   app.resize = watchResize(app, app.rig);
-  app.toSolarSystem = keepLastPlace(app).toSolarSystem;
+  const lastPlace = keepLastPlace(app);
+  app.toSolarSystem = lastPlace.toSolarSystem;
+  app.toTitle = lastPlace.toTitle;
 
   // Without this the first frames render from the planet's centre.
   app.rig.snap(app.player, app.groundAt);

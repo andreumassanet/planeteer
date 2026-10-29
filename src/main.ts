@@ -88,6 +88,8 @@ async function start(): Promise<void> {
   installMenuStreamers(app);
 
   Object.assign(app, await arrive(app));
+  // Behind the arrival's curtain the world builds unheard; the curtain's lift lets it be heard.
+  if (app.curtain !== null) app.sound.audio.hush(true);
   restoreWorldSky(app);
   await startSession(app);
 }

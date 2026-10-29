@@ -15,7 +15,14 @@ import { miniSeal } from './seal-svg.ts';
 import { continentOfIso, countOf, stampsByIso, visaOf } from './model.ts';
 import type { BookModel, PageMaker, Side, Visa } from './model.ts';
 
-/** The inside of the front cover, with the notice every passport prints there. */
+/** A globe in its orbit, struck in gold: the cover's emblem. */
+const EMBLEM =
+  '<svg viewBox="0 0 120 120" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true">' +
+  '<circle cx="60" cy="60" r="34"/><ellipse cx="60" cy="60" rx="14" ry="34"/><path d="M26 60h68M31 43h58M31 77h58"/>' +
+  '<ellipse cx="60" cy="60" rx="56" ry="17" transform="rotate(-20 60 60)" stroke-width="2.5"/>' +
+  '<circle cx="110" cy="42" r="4" fill="currentColor" stroke="none"/></svg>';
+
+/** The inside of the front cover: the emblem and the name, struck in gold, and when the book was first stamped. */
 function endpaper(model: BookModel): HTMLElement {
   const stamps = model.passport.data.stamps;
   return h(
@@ -23,12 +30,11 @@ function endpaper(model: BookModel): HTMLElement {
     { class: 'p-page endpaper verso' },
     h(
       'div',
-      { class: 'p-label' },
-      h('b', { text: 'Notice to the holder' }),
-      h('p', { text: 'Every country you come down in is stamped in this book: walking in, swimming ashore, driving, sailing or landing. Flying over does not count.' }),
-      h('p', { text: 'Each continent has its visa, with a place for every one of its countries. The ones still in grey are the ones you have not been to.' }),
-      model.chapters.length === 0 ? null : h('p', { text: 'Every other world has a chapter of its own, behind the planets on the right-hand edge, with a seal for each of its nations.' }),
-      h('small', { text: stamps.length === 0 ? 'Not yet stamped.' : `First stamp: ${stamps[0]!.name}, ${stampDateText(stamps[0]!.date)}.` }),
+      { class: 'p-crest' },
+      h('div', { class: 'p-crest-emblem', html: EMBLEM }),
+      h('b', { text: 'Planeteer' }),
+      h('span', { text: 'Passport' }),
+      h('small', { text: stamps.length === 0 ? 'Every country you come down in is stamped here' : `First stamp · ${stamps[0]!.name} · ${stampDateText(stamps[0]!.date)}` }),
     ),
   );
 }

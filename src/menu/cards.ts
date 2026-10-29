@@ -30,11 +30,10 @@ function surprise(ctx: MenuCtx): void {
 
 export function fillRegionPanel(ctx: MenuCtx): void {
   const { panel } = ctx;
-  const surpriseButton = h('button', { class: 'ui-btn' }, icon('dice', 18), 'Surprise me');
+  const surpriseButton = h('button', { class: 'm-ghost' }, icon('dice', 16), 'Surprise me');
   surpriseButton.addEventListener('click', () => surprise(ctx));
   panel.replaceChildren(
-    h('h2', { text: `Choose a ${ctx.words.region}` }),
-    h('p', { text: `Turn the globe and ${isTouch() ? 'tap' : 'click'} one, or search for a place by name.` }),
+    h('p', { class: 'm-prompt', text: `${isTouch() ? 'Tap' : 'Click'} a ${ctx.words.region} on the globe, or search.` }),
     surpriseButton,
   );
 }
@@ -74,15 +73,8 @@ export function fillSitePanel(ctx: MenuCtx, next: MenuRegion): void {
   }
   const count = all.length;
   const towns = count === 1 ? `one ${ctx.words.site}` : `${count.toLocaleString('en')} ${ctx.words.sites}`;
-  panel.replaceChildren(
-    h(
-      'div',
-      { class: 'm-country' },
-      flag(next.key, 44, 30),
-      h('div', {}, h('h2', { text: next.name }), h('div', { class: 'm-country-sub', text: `${next.note}, ${towns}` })),
-    ),
-    list,
-  );
+  // The name and the flag are the title over this panel.
+  panel.replaceChildren(h('div', { class: 'm-country-sub', text: `${next.note} · ${towns}` }), list);
 }
 
 export function fillInfo(ctx: MenuCtx, entry: OrreryBody): void {
@@ -121,8 +113,8 @@ export function fillInfo(ctx: MenuCtx, entry: OrreryBody): void {
     b.kind === 'star' ? 'The star at the centre'
       : b.kind === 'moon' ? 'Earth\'s own moon'
         : `${kindOf(entry)}, ${ordinal(entry.order)} from the Sun`;
+  // The name is the title on the left.
   info.replaceChildren(
-    h('h2', { text: b.name }),
     h('div', { class: 'm-info-sub', text: what }),
     h('p', { text: b.blurb }),
     h(

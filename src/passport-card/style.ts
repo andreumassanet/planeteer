@@ -12,8 +12,9 @@ export const STYLE = `
   z-index: 12;
   display: grid;
   place-items: center;
-  background: rgba(30, 6, 3, 0.58);
-  backdrop-filter: blur(4px);
+  background: rgba(4, 6, 14, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.2s ease, visibility 0s 0.2s;
@@ -36,93 +37,91 @@ export const STYLE = `
   width: ${SHEET_W}px;
   height: ${BOOK_H + 2 * COVER_PAD}px;
   box-sizing: border-box;
-  border: 3px solid var(--ui-ink);
+  border: 1.5px solid rgba(228, 169, 12, 0.5);
   border-radius: 18px;
   background-color: ${LEATHER};
   background-image: ${WEAVE}, linear-gradient(90deg, transparent 47%, ${LEATHER_DEEP} 50%, transparent 53%);
-  box-shadow: 0 8px 0 rgba(30, 6, 3, 0.45);
+  box-shadow: 0 16px 48px rgba(4, 6, 14, 0.55);
   z-index: 0;
 }
 .p-ribbons {
   position: absolute;
-  left: ${COVER_PAD + 18}px;
-  right: ${COVER_PAD + 18}px;
+  left: 0;
+  right: 0;
   top: 0;
-  height: ${TAB_ROOM + COVER_PAD + 18}px;
+  height: ${TAB_ROOM - 12}px;
   display: flex;
+  justify-content: center;
   gap: 6px;
   z-index: 1;
 }
+/* A chapter is a pill, its own colour a dot; the open one gold. */
 .p-tab {
-  position: relative;
-  top: 9px;
-  flex: 1 1 0;
-  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
   height: 100%;
   box-sizing: border-box;
-  padding: 6px 6px 0;
-  border: 2.5px solid var(--ui-ink);
-  border-bottom: 0;
-  border-radius: 10px 10px 0 0;
-  background: var(--tab, ${LEATHER});
-  background-image: ${GRAIN};
-  color: ${hex(PALETTE.white)};
+  padding: 0 13px 0 11px;
+  border: 1.5px solid rgba(255, 242, 232, 0.16);
+  border-radius: 999px;
+  background: rgba(30, 6, 3, 0.66);
+  color: rgba(255, 242, 232, 0.82);
   font-family: var(--ui-font);
-  text-align: center;
   cursor: pointer;
-  filter: saturate(0.75) brightness(0.88);
-  transition: top 0.2s var(--ui-spring), filter 0.15s ease;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.p-tab:hover { top: 3px; filter: none; }
-.p-tab[aria-current='true'] { top: 0; filter: none; }
+.p-tab::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--tab, var(--ui-gold)); }
+.p-tab.holder::before { display: none; }
+.p-tab[hidden] { display: none; }
+.p-tab:hover { color: ${hex(PALETTE.white)}; background: rgba(30, 6, 3, 0.85); border-color: rgba(255, 242, 232, 0.34); }
+.p-tab[aria-current='true'] { color: ${hex(PALETTE.ink)}; background: var(--ui-gold); border-color: var(--ui-gold); }
+.p-tab[aria-current='true']::before { box-shadow: 0 0 0 1.5px ${hex(PALETTE.ink)}; }
 .p-tab:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
-.p-tab b {
-  display: block;
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-shadow: 0 1px 0 rgba(30, 6, 3, 0.4);
-}
-.p-tab em { display: block; font-style: normal; font-size: 9.5px; font-weight: 800; opacity: 0.85; font-variant-numeric: tabular-nums; }
-.p-tab.holder { color: var(--ui-gold); background-color: ${LEATHER}; }
-/* A world's chapter has one or two bookmarks; they keep a bookmark's width. */
-.p-tab { max-width: 150px; }
+.p-tab b { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+/* The tally only on the chapter that is open: the bar stays one line. */
+.p-tab em { display: none; font-style: normal; font-size: 11px; font-weight: 800; opacity: 0.7; font-variant-numeric: tabular-nums; }
+.p-tab[aria-current='true'] em { display: inline; }
+.p-tab.holder:not([aria-current='true']) { color: var(--ui-gold); }
 
-/* --- the planets down the right edge, a chapter each ------------------------- */
+/* --- the worlds, a disc each, along the foot -------------------------------- */
 .p-worlds {
   position: absolute;
-  left: ${SHEET_W - 18}px;
-  top: ${TAB_ROOM + COVER_PAD + 22}px;
+  left: 50%;
+  bottom: 0;
+  height: ${HINT_ROOM - 14}px;
   display: flex;
-  flex-direction: column;
-  gap: 7px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  transform: translateX(-50%);
+  border: 1.5px solid rgba(255, 242, 232, 0.16);
+  border-radius: 999px;
+  background: rgba(30, 6, 3, 0.66);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   z-index: 1;
 }
 .p-worlds[hidden] { display: none; }
 .p-world {
-  position: relative;
-  left: 0;
-  width: ${DISC + 16}px;
-  height: ${DISC + 10}px;
-  box-sizing: border-box;
-  padding: 3px 3px 3px 10px;
-  border: 2.5px solid var(--ui-ink);
-  border-left: 0;
-  border-radius: 0 999px 999px 0;
-  background-color: ${LEATHER};
-  background-image: ${GRAIN};
+  display: grid;
+  place-items: center;
+  width: ${DISC + 6}px;
+  height: ${DISC + 6}px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   cursor: pointer;
-  filter: saturate(0.75) brightness(0.88);
-  transition: left 0.2s var(--ui-spring), filter 0.15s ease;
+  transition: background 0.15s ease, transform 0.15s var(--ui-spring);
 }
-.p-world:hover { left: 4px; filter: none; }
-.p-world[aria-current='true'] { left: 8px; filter: none; }
+.p-world:hover { transform: scale(1.1); }
+.p-world[aria-current='true'] { background: var(--ui-gold); }
 .p-world:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
-.p-world svg { display: block; width: ${DISC}px; height: ${DISC}px; overflow: visible; }
+.p-world svg { display: block; width: ${DISC - 4}px; height: ${DISC - 4}px; overflow: visible; }
 
 /* --- a world's frontispiece -------------------------------------------------- */
 .p-front { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 30px; text-align: center; }
@@ -134,7 +133,7 @@ export const STYLE = `
 .p-script svg { display: block; height: 100%; width: auto; max-width: 300px; }
 .p-front p { margin: 6px 0 0; max-width: 290px; font-size: 12.5px; font-weight: 600; line-height: 1.5; opacity: 0.75; }
 .p-front .p-bar { width: 240px; }
-.p-tab.holder svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 3px; }
+.p-tab.holder svg { width: 14px; height: 14px; }
 /*
  * A phone held upright shows one page at a time (\`single\`): the scaler is
  * slid so the left or the right page fills the window, a swipe turns, and
@@ -143,26 +142,10 @@ export const STYLE = `
  */
 .p-panel.single .p-fit { overflow: hidden; touch-action: none; }
 .p-panel.single .p-scaler { transition: transform 0.32s var(--ui-ease); }
-.p-panel.single .p-hint { display: none; }
 .p-panel.single.half0 .p-corner.next { right: 50%; }
 .p-panel.single.half1 .p-corner.prev { left: 50%; }
 .p-swipe { display: none; margin-top: 12px; text-align: center; font-size: 12.5px; font-weight: 700; color: rgba(255, 242, 232, 0.82); }
 .p-panel.single .p-swipe { display: block; }
-.p-hint {
-  position: absolute;
-  left: 0;
-  width: ${SHEET_W}px;
-  bottom: 0;
-  height: ${HINT_ROOM}px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 6px;
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--ui-paper);
-  opacity: 0.55;
-}
 
 /* --- the book ------------------------------------------------------------------ */
 .p-book {
@@ -238,26 +221,26 @@ export const STYLE = `
 /* --- the inside of the cover ----------------------------------------------------- */
 .p-page.endpaper {
   background-color: ${LEATHER};
-  background-image: ${WEAVE}, repeating-linear-gradient(45deg, rgba(228, 169, 12, 0.1) 0 2px, transparent 2px 14px), repeating-linear-gradient(-45deg, rgba(228, 169, 12, 0.1) 0 2px, transparent 2px 14px);
+  background-image: ${WEAVE};
+  box-shadow: inset 0 0 0 14px ${LEATHER}, inset 0 0 0 15.5px rgba(228, 169, 12, 0.45);
   display: grid;
   place-items: center;
 }
 .p-page.endpaper::after { display: none; }
-.p-label {
-  width: 78%;
-  padding: 18px 20px;
-  background-color: ${hex(PALETTE.white)};
-  background-image: ${GRAIN};
-  border: 2.5px solid var(--ui-ink);
-  border-radius: 10px;
-  box-shadow: 0 4px 0 rgba(30, 6, 3, 0.4);
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.5;
+.p-crest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: rgba(228, 169, 12, 0.88);
+  text-align: center;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
 }
-.p-label b { display: block; margin-bottom: 8px; font-size: 11px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; color: ${inked(PALETTE.crimson)}; }
-.p-label p { margin: 0 0 8px; }
-.p-label small { display: block; font-size: 11px; opacity: 0.6; }
+.p-crest-emblem { width: 132px; height: 132px; margin-bottom: 8px; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.5)); }
+.p-crest-emblem svg { display: block; width: 100%; height: 100%; }
+.p-crest b { font-size: 34px; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1; }
+.p-crest span { font-size: 15px; font-weight: 800; letter-spacing: 0.5em; text-transform: uppercase; margin-right: -0.5em; }
+.p-crest small { margin-top: 26px; max-width: 260px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.6; line-height: 1.5; }
 
 /* --- the holder ---------------------------------------------------------------- */
 .p-id-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
@@ -335,29 +318,26 @@ export const STYLE = `
 .atlas-stamp-drop {
   position: fixed;
   z-index: 11;
-  left: 50%;
-  /* High enough that its caption clears the pause card centred on the screen. */
-  top: max(110px, calc(50% - 250px));
-  width: 240px;
-  height: 180px;
-  margin: -90px 0 0 -120px;
+  /* Over the minimap, by the passport's button, clear of the arrival title at the top (\`hud/style.ts\`). */
+  left: calc(var(--hud-left, 24px) + var(--hud-map, 230px) / 2);
+  bottom: calc(var(--hud-bottom, 24px) + var(--hud-map, 230px) + 48px);
+  width: 160px;
+  height: 120px;
+  margin: 0 0 0 -80px;
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
 }
+/* A finger's minimap is top right, so there the stamp drops in the middle, as high as clears the pause card. */
+html.touch-ui .atlas-stamp-drop {
+  left: 50%;
+  bottom: auto;
+  top: max(110px, calc(50% - 250px));
+  margin: -60px 0 0 -80px;
+}
 .atlas-stamp-drop.in { visibility: visible; animation: p-drop 0.62s cubic-bezier(0.3, 0, 0.3, 1) both; }
 .atlas-stamp-drop.out { visibility: visible; animation: p-lift 0.5s ease both; }
-.atlas-stamp-drop .p-stamp { width: 240px; height: 180px; filter: drop-shadow(0 3px 0 rgba(30, 6, 3, 0.25)); }
-.atlas-stamp-drop .p-caption {
-  position: absolute;
-  left: 50%;
-  top: 100%;
-  transform: translate(-50%, 8px);
-  white-space: nowrap;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 800;
-}
+.atlas-stamp-drop .p-stamp { width: 100%; height: 100%; filter: drop-shadow(0 3px 0 rgba(30, 6, 3, 0.25)); }
 @keyframes p-drop {
   0% { opacity: 0; transform: scale(2.3) rotate(-16deg); }
   53% { opacity: 1; transform: scale(0.94) rotate(0deg); }

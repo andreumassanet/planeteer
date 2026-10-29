@@ -30,7 +30,7 @@ export function createAudio(): Audio {
 
   function level(): number {
     // Linear: the Settings slider is already logarithmic, and squaring on top of it would bend it twice.
-    return rt.muted ? 0 : rt.volume;
+    return rt.muted || rt.hushed ? 0 : rt.volume;
   }
 
   return {
@@ -98,6 +98,13 @@ export function createAudio(): Audio {
     set muted(value: boolean) {
       rt.muted = value;
       if (rt.master !== null && rt.context !== null) follow(rt.master.gain, level(), rt.context.currentTime, 0.05);
+    },
+
+    hush(on: boolean) {
+      if (on === rt.hushed) return;
+      rt.hushed = on;
+      // Out quickly, back in over a breath, as the curtain lifts.
+      if (rt.master !== null && rt.context !== null) follow(rt.master.gain, level(), rt.context.currentTime, on ? 0.05 : 0.5);
     },
 
     get output() {

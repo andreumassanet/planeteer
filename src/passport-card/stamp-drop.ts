@@ -26,7 +26,7 @@ export interface StampDropOptions {
 
 export function createStampDrop(options: StampDropOptions): StampDrop {
   const { model, dom } = options;
-  const { drop, dropStamp, dropCaption, root } = dom;
+  const { drop, dropStamp, root } = dom;
   let dropTimer = 0;
   let thudTimer = 0;
 
@@ -42,7 +42,8 @@ export function createStampDrop(options: StampDropOptions): StampDrop {
         ? null
         : model.nationOf.get(stamp.iso) ?? { iso: stamp.iso, name: stamp.name, color: PALETTE.crimson, world: worldOf(stamp.iso).replace(/^./, (c) => c.toUpperCase()) };
     dropStamp.replaceChildren(stampElement(stamp, nation));
-    dropCaption.textContent = `Passport stamped · ${stamp.name}`;
+    // The stamp prints the country; a reader of the screen is told in words.
+    drop.setAttribute('aria-label', `Passport stamped: ${stamp.name}`);
     drop.classList.remove('in', 'out');
     void drop.offsetWidth;
     drop.classList.add('in');

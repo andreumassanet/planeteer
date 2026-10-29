@@ -1,4 +1,4 @@
-/** The passport's DOM skeleton: the book, its bookmarks and planet tabs, the tooltip and the dropped stamp. */
+/** The passport's DOM skeleton: the book, its chapters' bar over it and its worlds' under it, the tooltip and the dropped stamp. */
 import { h, icon } from '../ui.ts';
 import { cornerSvg } from './art.ts';
 
@@ -16,7 +16,6 @@ export interface BookDom {
   /** A planet per chapter down the right edge, once there is more than Earth. */
   worldTabs: Map<string, HTMLButtonElement>;
   worlds: HTMLElement;
-  hint: HTMLElement;
   scaler: HTMLElement;
   fit: HTMLElement;
   panel: HTMLElement;
@@ -27,7 +26,6 @@ export interface BookDom {
   tip: HTMLElement;
   overlay: HTMLElement;
   dropStamp: HTMLElement;
-  dropCaption: HTMLElement;
   drop: HTMLElement;
   root: HTMLElement;
 }
@@ -41,8 +39,7 @@ export function createBookDom(): BookDom {
   const holderTab = h('button', { class: 'p-tab holder', type: 'button', 'aria-label': 'The holder' }, h('b', {}, icon('passport', 14), 'Holder'), h('em', { text: 'ATL' }));
   const ribbons = h('nav', { class: 'p-ribbons', 'aria-label': 'Bookmarks' }, holderTab);
   const worlds = h('nav', { class: 'p-worlds', 'aria-label': 'Worlds' });
-  const hint = h('div', { class: 'p-hint' });
-  const scaler = h('div', { class: 'p-scaler' }, h('div', { class: 'p-cover-back' }), ribbons, worlds, book, hint);
+  const scaler = h('div', { class: 'p-scaler' }, h('div', { class: 'p-cover-back' }), ribbons, worlds, book);
   const fit = h('div', { class: 'p-fit' }, scaler);
   const swipe = h('div', { class: 'p-swipe', text: 'Swipe to turn the page · tap outside to close' });
   const panel = h('div', { class: 'p-panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Passport', tabindex: '-1' }, fit, swipe);
@@ -53,11 +50,10 @@ export function createBookDom(): BookDom {
   const tip = h('div', { class: 'p-tip ui-card', 'aria-hidden': 'true' }, tipFlag, h('div', {}, tipName, tipCapital, tipStamp));
   const overlay = h('div', { class: 'atlas-passport' }, panel, tip);
   const dropStamp = h('div');
-  const dropCaption = h('div', { class: 'p-caption ui-card' });
-  const drop = h('div', { class: 'atlas-stamp-drop', 'aria-live': 'polite' }, dropStamp, dropCaption);
+  const drop = h('div', { class: 'atlas-stamp-drop', role: 'status' }, dropStamp);
   const root = h('div', {}, overlay, drop);
   return {
-    left, right, previous, next, book, holderTab, tabs: new Map(), ribbons, worldTabs: new Map(), worlds, hint, scaler, fit, panel,
-    tipFlag, tipName, tipCapital, tipStamp, tip, overlay, dropStamp, dropCaption, drop, root,
+    left, right, previous, next, book, holderTab, tabs: new Map(), ribbons, worldTabs: new Map(), worlds, scaler, fit, panel,
+    tipFlag, tipName, tipCapital, tipStamp, tip, overlay, dropStamp, drop, root,
   };
 }

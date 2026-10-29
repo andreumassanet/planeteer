@@ -172,7 +172,7 @@ export function createContext(deps: MenuDeps): MenuCtx {
   const camera = new THREE.PerspectiveCamera(FOV, 1, 5, R * 300);
   const orrery = createOrrery();
   scene.add(orrery.group);
-  const dom = buildDom(deps);
+  const dom = buildDom();
   const events = new AbortController();
   const view = { lat: 20, lon: 6, dist: orbitDistance(R) };
   const sys: Orbit = { azimuth: 0, elevation: SYSTEM_ELEVATION, distance: orrery.extent * 1.5 };

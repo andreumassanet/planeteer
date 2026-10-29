@@ -168,6 +168,8 @@ export interface MenuSound {
 
 /** The cream that covers the cut from the menu's camera to the player's. */
 export interface Curtain {
+  /** How far the world under it has built, 0 to 1, for its bar. */
+  progress(fraction: number): void;
   /** Fade it away. Call once the world under it has had a few frames to stand. */
   lift(): void;
 }

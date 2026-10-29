@@ -1,18 +1,37 @@
 /** The sound page: the world's level, the voices and the music. */
-import type { SettingsOptions } from './types.ts';
+import type { Knob, SettingsOptions, Toggle } from './types.ts';
+
+/**
+ * A level with its switch folded in, as every game has it: at 0% it is off,
+ * and moved off 0% it is on again. A switch left off reads as 0%.
+ */
+/** A slider let down under this is off. */
+const OFF_BELOW = 0.02;
+
+function levelOf(level: Knob, on: Toggle): Knob {
+  return {
+    min: 0,
+    max: level.max,
+    get: () => (on.get() ? level.get() : 0),
+    set(value) {
+      const off = value <= OFF_BELOW;
+      on.set(!off);
+      return off ? 0 : level.set(Math.max(level.min, value));
+    },
+  };
+}
 import { section, type Widgets } from './widgets.ts';
 
 export function createSoundPage(options: SettingsOptions, w: Widgets) {
   const { row, makeSwitch, makeSlider } = w;
   const loudness = (v: number): [string, string] => [`${Math.round(v * 100)}%`, v > 0.75 ? 'loud' : v < 0.25 ? 'quiet' : 'default'];
   const sound = options.sound;
-  const volume = sound === undefined ? null : makeSlider(sound.volume, 'Volume', loudness);
-  const soundOn = sound === undefined ? null : makeSwitch(sound.on, 'Sound');
+  const loudnessOrOff = (v: number): [string, string] => (v <= 0 ? ['Off', 'silent'] : loudness(v));
+  const volume = sound === undefined ? null : makeSlider(levelOf(sound.volume, sound.on), 'Volume', loudnessOrOff);
   const voicesOn = sound?.voices === undefined ? null : makeSwitch(sound.voices, 'Voices');
   const chatSound = sound?.chat === undefined ? null : makeSwitch(sound.chat, 'Chat sound');
   const music = options.music;
-  const musicVolume = music === undefined ? null : makeSlider(music.volume, 'Music volume', loudness);
-  const musicOn = music === undefined ? null : makeSwitch(music.on, 'Music');
+  const musicVolume = music === undefined ? null : makeSlider(levelOf(music.volume, music.on), 'Music', loudnessOrOff);
 
   const sections = [
 
@@ -20,8 +39,7 @@ export function createSoundPage(options: SettingsOptions, w: Widgets) {
       ? null
       : section(
           'The world',
-          row('Sound', 'Wind, sea, engines, footsteps and the interface.', soundOn!.element),
-          row('Volume', 'How loud all of it is.', volume!.value, volume!.input),
+          row('Volume', 'Wind, sea, engines, footsteps and the interface. At 0% there is none.', volume!.value, volume!.input),
         ),
     sound === undefined || (voicesOn === null && chatSound === null)
       ? null
@@ -34,8 +52,7 @@ export function createSoundPage(options: SettingsOptions, w: Widgets) {
       ? null
       : section(
           'Music',
-          row('Music', 'Now and then, a tune in the style of the country you are in.', musicOn!.element),
-          row('Music volume', 'How loud the music is, apart from everything else.', musicVolume!.value, musicVolume!.input),
+          row('Music', 'Now and then, a tune in the style of the country you are in. At 0% there is none.', musicVolume!.value, musicVolume!.input),
         ),
 
   ];
@@ -45,11 +62,9 @@ export function createSoundPage(options: SettingsOptions, w: Widgets) {
     hidden: sound === undefined && music === undefined,
     refresh(): void {
       volume?.refresh();
-      soundOn?.refresh();
       voicesOn?.refresh();
       chatSound?.refresh();
       musicVolume?.refresh();
-      musicOn?.refresh();
     },
   };
 }

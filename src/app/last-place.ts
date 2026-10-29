@@ -1,13 +1,13 @@
 /** Remembering where the player was, for the menu's "Continue in …", and leaving for the solar system. */
 import { toLatLon } from '../geo.ts';
 import type { App } from './context.ts';
-import { reloadToSystem } from './journey.ts';
+import { reloadToSystem, reloadToTitle } from './journey.ts';
 import { LAST_PLACE_KEY, writeSetting } from './storage.ts';
 
 const LAST_PLACE_MS = 10_000;
 
 /** Saved every `LAST_PLACE_MS`, on `pagehide` (the last event a closing tab is sure to get) and when hidden. */
-export function keepLastPlace(app: App): { save(): void; toSolarSystem(): void } {
+export function keepLastPlace(app: App): { save(): void; toSolarSystem(): void; toTitle(): void } {
   const { world, places, player } = app;
   function save(): void {
     const { lat, lon } = toLatLon(player.position);
@@ -33,6 +33,10 @@ export function keepLastPlace(app: App): { save(): void; toSolarSystem(): void }
     toSolarSystem() {
       save();
       reloadToSystem();
+    },
+    toTitle() {
+      save();
+      reloadToTitle();
     },
   };
 }

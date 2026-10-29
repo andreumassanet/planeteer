@@ -72,6 +72,13 @@ export function travelTo(world: string, lat: number, lon: number, name: string, 
 }
 
 /** Reloads straight to the solar system, keeping every parameter but `?at=`. */
+/** The page again, onto the title, where the traveller is dressed and the way to play chosen. */
+export function reloadToTitle(): void {
+  const next = new URL(location.href);
+  next.searchParams.delete('at');
+  coverAndGo(next);
+}
+
 export function reloadToSystem(): void {
   try {
     sessionStorage.setItem(TO_SYSTEM_KEY, '1');

@@ -37,13 +37,17 @@ export async function exploreWorld(app: App, id: string, name: string, spawn?: M
   const { audio } = app.sound;
   menu.suspend(true);
   let left = false;
-  const back = (to?: 'system'): void => {
+  const back = (to?: 'system' | 'title'): void => {
     if (left) return;
     left = true;
     // The world's engine and wind stop; the menu's ear is quiet.
     audio.update(0, { mode: 'menu', speed: 0, throttle: 0, height: 0, sea: 0, daylight: 1, wild: 0, cold: true });
     menu.suspend(false);
-    if (to === 'system') menu.toSystem();
+    if (to === 'system' || to === 'title') menu.toSystem();
+    if (to === 'title' && app.title !== null) {
+      menu.hold(true);
+      app.title.show();
+    }
   };
   try {
     const load = import.meta.glob<WorldsModule>('../worlds/index.ts')['../worlds/index.ts'];

@@ -47,11 +47,14 @@ export const STYLE = `
   max-width: 300px;
   padding: 5px 5px 5px 15px;
   font-family: var(--ui-font);
-  color: var(--ui-ink);
-  background: var(--ui-paper);
-  border: 3px solid var(--ui-ink);
+  /* The glass of every menu, in colours of its own: the plate is carried from the title into the creator and must not change on the way. */
+  color: #fff2e8;
+  background: rgba(30, 6, 3, 0.72);
+  border: 1.5px solid rgba(255, 242, 232, 0.22);
   border-radius: 999px;
-  box-shadow: 0 4px 0 var(--ui-ink);
+  box-shadow: 0 10px 30px rgba(4, 6, 14, 0.4);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   pointer-events: auto;
   white-space: nowrap;
   transform: translate(-9999px, 0);
@@ -68,9 +71,9 @@ export const STYLE = `
   width: 12px;
   height: 12px;
   margin-left: -6px;
-  background: var(--ui-paper);
-  border: solid var(--ui-ink);
-  border-width: 0 3px 3px 0;
+  background: rgba(30, 6, 3, 0.72);
+  border: solid rgba(255, 242, 232, 0.22);
+  border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
 .hs-name { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; }
@@ -81,12 +84,12 @@ export const STYLE = `
   padding: 0 8px;
   border: 0;
   border-radius: 8px;
-  background: var(--ui-cream);
+  background: rgba(255, 242, 232, 0.1);
   font: 800 17px var(--ui-font);
   letter-spacing: -0.02em;
-  color: var(--ui-ink);
+  color: #fff2e8;
 }
-.hs-plate input::placeholder { color: rgba(30, 6, 3, 0.4); }
+.hs-plate input::placeholder { color: rgba(255, 242, 232, 0.45); }
 .hs-plate input:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ui-violet); }
 .hs-pen {
   display: grid;
@@ -95,10 +98,10 @@ export const STYLE = `
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 2.5px solid var(--ui-ink);
+  border: 0;
   border-radius: 50%;
   background: var(--ui-gold);
-  color: var(--ui-ink);
+  color: #1e0603;
   cursor: pointer;
   transition: transform 0.12s var(--ui-spring);
 }

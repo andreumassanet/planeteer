@@ -72,10 +72,11 @@ export interface WorldHost {
   time(): Date;
   /**
    * Hands the screen back to the planet menu; call once, after cleaning up.
-   * `'system'` (a rocket launch, the bar's *Solar system*) sends the menu out
-   * to the whole system; otherwise it returns to the world's globe.
+   * `'system'` (a rocket launch) sends the menu out to the whole system,
+   * `'title'` (the bar's *Main menu*) on to the title screen; otherwise it
+   * returns to the world's globe.
    */
-  exit(to?: 'system'): void;
+  exit(to?: 'system' | 'title'): void;
   /** Where to stand; `null` or absent and the world chooses (a `?world=` link without `&site=`). */
   arrival?: WorldArrival | null;
   /**

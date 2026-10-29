@@ -104,7 +104,6 @@ export function createPrompts(app: App): (tick: Tick) => void {
         country: owner?.name ?? near.iso,
         height: near.height,
         year: near.year,
-        note: near.note,
       });
     } else if (near === null && landmarkHere !== null && monuments.landmarkNear(player.position, LANDMARK_RANGE * 1.5) === null) {
       landmarkHere = null;
@@ -160,9 +159,13 @@ export function createPrompts(app: App): (tick: Tick) => void {
       const waited = now - app.loopStarted;
       const settled =
         app.settlements.stats.pending === 0 && app.roads.stats.pending === 0 && app.vegetation.stats.nearPending === 0;
+      // The bar runs on the clock towards the limit, and fills the moment the ground has stood.
+      curtain.progress(settled ? 1 : 0.3 + 0.65 * Math.min(1, waited / CURTAIN_LIMIT_MS));
       if ((waited > 450 && settled) || waited > CURTAIN_LIMIT_MS) {
         curtain.lift();
         app.curtain = null;
+        // The world is heard from the moment it is seen.
+        app.sound.audio.hush(false);
       }
     }
     // Kept as soon as it is shown, so a reload does not show it twice.

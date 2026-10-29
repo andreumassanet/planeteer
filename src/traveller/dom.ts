@@ -2,7 +2,7 @@
 import type { HeroStage } from '../hero-stage.ts';
 import { h, icon } from '../ui.ts';
 import type { CategoryId } from './categories.ts';
-import { CHECK, glyph, UNDO } from './format.ts';
+import { BODY, CHECK, FACE, glyph, RESET, UNDO } from './format.ts';
 
 export function buildDom(stage: HeroStage) {
   const pages = new Map<CategoryId, HTMLElement>();
@@ -10,22 +10,30 @@ export function buildDom(stage: HeroStage) {
   const rail = h('div', { class: 'cr-rail', role: 'tablist', 'aria-label': 'What to change', 'aria-orientation': 'vertical' });
   const panel = h('div', { class: 'cr-panel ui-card' });
 
-  const randomButton = h('button', { type: 'button', class: 'ui-btn', title: 'A traveller at random' }, icon('dice'), 'Randomise');
-  const undoButton = h('button', { type: 'button', class: 'ui-btn quiet', title: 'Undo (Ctrl+Z)', html: `${glyph(UNDO)}Undo` });
-  const defaultButton = h('button', { type: 'button', class: 'ui-btn quiet', title: 'Back to the traveller everyone starts as' }, 'Default');
-  const doneButton = h('button', { type: 'button', class: 'ui-btn primary cr-done', html: `${glyph(CHECK)}Done` });
+  // The tools are small and beside the title; the one way out is the gold button under the column.
+  const tool = (label: string, inner: string | SVGElement): HTMLButtonElement => {
+    const button = h('button', { type: 'button', class: 'cr-tool', title: label, 'aria-label': label });
+    if (typeof inner === 'string') button.innerHTML = inner;
+    else button.append(inner);
+    return button;
+  };
+  const randomButton = tool('Randomise', icon('dice', 18));
+  const undoButton = tool('Undo (Ctrl+Z)', glyph(UNDO));
+  const defaultButton = tool('Back to the traveller everyone starts as', glyph(RESET));
+  const doneButton = h('button', { type: 'button', class: 'ui-btn primary big cr-done', html: `${glyph(CHECK)}Done` });
 
   const side = h(
     'div',
     { class: 'cr-side' },
-    h('div', { class: 'cr-head' }, h('div', {}, h('h2', { text: 'Your traveller' }), h('p', { text: 'Saved on this device, and seen by everyone online.' }))),
+    h('div', { class: 'cr-head' }, h('h2', { text: 'Your traveller' }), h('div', { class: 'cr-tools' }, randomButton, undoButton, defaultButton)),
     h('div', { class: 'cr-main' }, rail, panel),
-    h('div', { class: 'cr-foot' }, randomButton, undoButton, defaultButton, doneButton),
+    doneButton,
   );
 
   // Under the hero: the two framings worth a button, and what the hand can do.
   const viewButtons = (['full', 'head'] as const).map((shot) => {
-    const button = h('button', { type: 'button', text: shot === 'full' ? 'Whole body' : 'Face', 'aria-pressed': 'false' });
+    const label = shot === 'full' ? 'Whole body' : 'Face';
+    const button = h('button', { type: 'button', class: 'cr-tool', title: label, 'aria-label': label, 'aria-pressed': 'false', html: glyph(shot === 'full' ? BODY : FACE) });
     button.addEventListener('click', () => {
       stage.shot(shot);
       refreshViews();
@@ -35,14 +43,9 @@ export function buildDom(stage: HeroStage) {
   const refreshViews = (): void => {
     for (const [shot, button] of viewButtons) button.setAttribute('aria-pressed', String(stage.shotName === shot));
   };
-  const views = h(
-    'div',
-    { class: 'cr-views' },
-    h('div', { class: 'ui-seg', role: 'group', 'aria-label': 'Camera' }, ...viewButtons.map(([, button]) => button)),
-    h('div', { class: 'cr-hint', text: 'Drag to turn, scroll to zoom' }),
-  );
+  const views = h('div', { class: 'cr-views', role: 'group', 'aria-label': 'Camera' }, ...viewButtons.map(([, button]) => button));
 
-  const root = h('div', { class: 'atlas-creator', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your traveller' }, side, views);
+  const root = h('div', { class: 'atlas-creator ui-glass', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Your traveller' }, side, views);
   return { pages, tabs, rail, panel, randomButton, undoButton, defaultButton, doneButton, side, refreshViews, root };
 }
 

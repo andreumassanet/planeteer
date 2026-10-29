@@ -81,8 +81,8 @@
       #minimap {
         position: fixed;
         /* The HUD's frame (`src/hud/style.ts`); the fallbacks paint before it loads. */
-        top: var(--hud-top, 24px);
-        right: var(--hud-right, 24px);
+        bottom: var(--hud-bottom, 24px);
+        left: var(--hud-left, 24px);
         /* Clicks go through to the canvas, which requests pointer lock. */
         pointer-events: none;
       }
@@ -186,40 +186,35 @@
         height: 34px;
         margin-left: -17px;
       }
+      /* The game's name as every title in it is set: capitals, a heavy ink stroke, a soft drop. */
       .l-title {
-        margin-top: 44px;
-        font-size: 84px;
-        font-weight: 800;
-        letter-spacing: -0.045em;
-        line-height: 0.9;
+        /* Clear of the orbit, which reaches 42 px under the globe, and of the plane riding it. */
+        margin-top: 88px;
+        font-size: 72px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        line-height: 1;
+        text-transform: uppercase;
         color: var(--ui-paper);
-        -webkit-text-stroke: 8px var(--ui-ink);
+        -webkit-text-stroke: 10px var(--ui-ink);
         paint-order: stroke fill;
-        text-shadow: 0 8px 0 var(--ui-ink);
+        text-shadow: 0 7px 0 rgba(30, 6, 3, 0.6);
       }
-      .l-tag {
-        margin-top: 16px;
-        font-size: 16px;
-        font-weight: 700;
-        color: rgba(255, 242, 232, 0.86);
-        text-shadow: 0 2px 0 rgba(4, 6, 14, 0.55);
-      }
-      .l-progress { margin-top: 34px; width: 320px; }
+      .l-progress { margin-top: 40px; width: 340px; }
       .l-bar {
         position: relative;
-        height: 22px;
+        height: 8px;
         overflow: hidden;
-        border: 3px solid var(--ui-ink);
         border-radius: 999px;
-        background: var(--ui-paper);
-        box-shadow: 0 4px 0 var(--ui-ink);
+        background: rgba(4, 6, 14, 0.4);
+        box-shadow: inset 0 0 0 1.5px rgba(255, 242, 232, 0.18);
       }
       /* A full-width bar slid in from the left, so its stripes are never squashed. */
       #loading-fill {
         position: absolute;
         inset: 0;
+        border-radius: inherit;
         background: var(--ui-gold);
-        border-right: 3px solid var(--ui-ink);
         transform: translateX(-100%);
         transition: transform 0.6s cubic-bezier(0.25, 0.8, 0.3, 1);
         overflow: hidden;
@@ -228,18 +223,21 @@
         position: absolute;
         top: 0;
         bottom: 0;
-        left: -40px;
+        left: -120px;
         right: 0;
-        background: repeating-linear-gradient(-45deg, rgba(255, 242, 232, 0) 0 9px, rgba(255, 242, 232, 0.34) 9px 18px);
-        animation: l-stripes 0.8s linear infinite;
+        background: linear-gradient(90deg, transparent 0 60%, rgba(255, 242, 232, 0.55) 80%, transparent 100%);
+        background-size: 120px 100%;
+        animation: l-stripes 1.1s linear infinite;
       }
       .l-status {
         display: flex;
         justify-content: space-between;
         margin-top: 12px;
-        font-size: 13px;
-        font-weight: 700;
-        color: rgba(255, 242, 232, 0.82);
+        font-size: 11.5px;
+        font-weight: 900;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: rgba(255, 242, 232, 0.75);
       }
       #loading-percent { font-variant-numeric: tabular-nums; color: var(--ui-paper); font-weight: 800; }
       /* Credits: GeoNames (CC BY 4.0) and the CDS star catalogue require one where
@@ -257,13 +255,13 @@
       .l-credit a { color: inherit; }
       @keyframes l-turn { to { transform: translateX(-336px); } }
       @keyframes l-spin { to { transform: rotate(360deg); } }
-      @keyframes l-stripes { to { transform: translateX(25.5px); } }
+      @keyframes l-stripes { to { transform: translateX(120px); } }
       @keyframes l-twinkle { from { opacity: 0.15; } to { opacity: 0.75; } }
       @media (prefers-reduced-motion: reduce) {
         .l-land, .l-weather, .l-orbit, #loading-fill i, .l-stars::after { animation: none; }
       }
       @media (max-width: 520px) {
-        .l-title { font-size: 64px; }
+        .l-title { font-size: 52px; }
         .l-progress { width: 260px; }
       }
       /* A phone on its side: the globe beside the name, both smaller. */
@@ -271,8 +269,7 @@
         .l-center { display: grid; grid-template-columns: auto auto; column-gap: 64px; align-items: center; text-align: left; }
         .l-world { grid-row: span 3; width: 132px; height: 132px; }
         .l-orbit { inset: -32px; }
-        .l-title { margin-top: 0; font-size: 60px; -webkit-text-stroke-width: 6px; text-shadow: 0 6px 0 var(--ui-ink); }
-        .l-tag { margin-top: 8px; font-size: 14px; }
+        .l-title { margin-top: 0; font-size: 48px; -webkit-text-stroke-width: 7px; }
         .l-progress { margin-top: 18px; width: 300px; }
         .l-credit { bottom: max(8px, env(safe-area-inset-bottom)); font-size: 10.5px; padding: 0 16px; }
       }
@@ -388,7 +385,6 @@
           </div>
         </div>
         <h1 class="l-title">planeteer</h1>
-        <p class="l-tag">Explore the solar system on foot, by sea and by air.</p>
         <div class="l-progress">
           <div class="l-bar"><div id="loading-fill"><i></i></div></div>
           <div class="l-status"><span id="loading-stage">starting up</span><span id="loading-percent">0%</span></div>

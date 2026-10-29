@@ -80,6 +80,18 @@ export function createRest(config: AuthConfig, fetch: Fetch) {
       const response = await fetch(`${root}/rpc/delete_my_account`, { method: 'POST', headers: headers(session), body: '{}' });
       if (!response.ok) throw new AuthError(response.status, `deleting the account answered ${response.status}`);
     },
+    /**
+     * Replaces the progress on the player's own row: a reset, the one write
+     * that is not a merge, since a merge never loses anything.
+     */
+    async replaceProgress(session: Session, progress: RowWrite['progress']): Promise<void> {
+      const response = await fetch(`${base}?${mine(session)}`, {
+        method: 'PATCH',
+        headers: headers(session),
+        body: JSON.stringify({ progress }),
+      });
+      if (!response.ok) throw new AuthError(response.status, `resetting the progress answered ${response.status}`);
+    },
     /** A last write as the page goes; nothing waits for it, and one too large is left to the next visit. */
     send(session: Session, row: RowWrite): void {
       const body = JSON.stringify(mergeBody(row));

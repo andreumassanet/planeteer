@@ -11,6 +11,7 @@ import { closeResults } from './search.ts';
 import { backToSystem, divePose } from './stages.ts';
 import type { Curtain, Menu, MenuSpawn } from './types.ts';
 import { verify } from './verify.ts';
+import { tipOfTheDay } from './tips.ts';
 
 export function createApi(ctx: MenuCtx): Menu {
   const { calm, camera, deps, events, fallback, globes, goldRibbon, home, inkRibbon, loaded, orrery, overlayGroup, pose, ribbonGroup, ribbons, root, scene, tip, walkable } = ctx;
@@ -46,7 +47,20 @@ export function createApi(ctx: MenuCtx): Menu {
       root.classList.add('departing');
       tip.classList.remove('on');
       const to = divePose(ctx, spawn.lat, spawn.lon);
-      const curtain = h('div', { class: 'atlas-curtain' });
+      const fill = h('i');
+      const curtain = h(
+        'div',
+        { class: 'atlas-curtain' },
+        h(
+          'div',
+          { class: 'ac-centre' },
+          h('div', { class: 'ac-kicker', text: spawn.name === '' ? 'Back to' : 'Arriving in' }),
+          h('div', { class: 'ac-title', text: spawn.name || 'where you left off' }),
+          spawn.region === '' ? null : h('div', { class: 'ac-sub', text: spawn.region }),
+          h('div', { class: 'ac-bar' }, fill),
+          h('div', { class: 'ac-tip', text: tipOfTheDay() }),
+        ),
+      );
       document.body.append(curtain);
       deps.sound?.stage(null);
       return new Promise<Curtain>((resolve) => {
@@ -63,6 +77,9 @@ export function createApi(ctx: MenuCtx): Menu {
         }
         setTimeout(() => {
           resolve({
+            progress(fraction) {
+              fill.style.transform = `scaleX(${Math.max(0.04, Math.min(1, fraction)).toFixed(3)})`;
+            },
             lift() {
               curtain.classList.add('lifting');
               curtain.classList.remove('on');

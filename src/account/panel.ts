@@ -121,7 +121,41 @@ function settingsPage(account: Account, into: HTMLElement): void {
     removeSay,
     h('p', { class: 'ac-text ac-fine' }, h('a', { href: '/privacy.html', target: '_blank', rel: 'noopener', text: 'Privacy' })),
   );
-  into.append(out, inside);
+  // Signed in or not: the passport and the rings back to empty, here and on the account.
+  const reset = h('button', { class: 'ui-btn quiet small ac-danger', type: 'button' }, 'Reset progress');
+  const resetSay = h('div', { class: 'ac-say', role: 'status' });
+  const progress = section(
+    'Progress',
+    h('p', { class: 'ac-text', text: 'Start again: every stamp, town, ring and best time goes. Your name and your look stay.' }),
+    reset,
+    resetSay,
+  );
+  into.append(out, inside, progress);
+  let resetting = false;
+  reset.addEventListener('click', () => {
+    if (!resetting) {
+      resetting = true;
+      reset.textContent = 'Yes, reset it';
+      resetSay.textContent = account.view.state === 'in' ? 'This empties the progress on this device and on your account, for good.' : 'This empties the progress on this device, for good.';
+      return;
+    }
+    reset.disabled = true;
+    resetSay.textContent = 'Resetting…';
+    void account.resetProgress().then((done) => {
+      // The world holds the old progress in memory: it starts again from what is stored.
+      if (done) location.reload();
+      reset.disabled = false;
+      resetting = false;
+      reset.textContent = 'Reset progress';
+      resetSay.textContent = account.view.message;
+    });
+  });
+  reset.addEventListener('blur', () => {
+    if (!resetting || reset.disabled) return;
+    resetting = false;
+    reset.textContent = 'Reset progress';
+    resetSay.textContent = '';
+  });
 
   let busy = false;
   async function rename(): Promise<void> {

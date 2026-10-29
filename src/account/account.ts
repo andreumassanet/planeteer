@@ -11,10 +11,12 @@
  */
 import { AuthError } from './auth.ts';
 import type { Auth, AccountUser, Session } from './auth.ts';
+import { PASSPORT_KEY, serialisePassport } from '../passport.ts';
 import type { PassportData } from '../passport.ts';
+import { RINGS_KEY, serialiseRecord } from '../rings/store.ts';
 import type { RingRecord } from '../rings/store.ts';
 import {
-  CHANGES_KEY, accountName, localSignature, mergeProfiles, profileFromRow, profileKey, progressOf,
+  CHANGES_KEY, accountName, emptyProfile, localSignature, mergeProfiles, profileFromRow, profileKey, progressOf,
   readLocalProfile, writeLocalProfile,
 } from './profile.ts';
 import type { Profile, ProfileStorage } from './profile.ts';
@@ -74,6 +76,12 @@ export interface Account {
    * out; what this device keeps stays. False when the server could not be reached.
    */
   deleteAccount(): Promise<boolean>;
+  /**
+   * Empties the passport and the rings, on this device and, signed in, on the
+   * account too. False when the account could not be reached; the device's
+   * copy is left as it was then.
+   */
+  resetProgress(): Promise<boolean>;
   rename(name: string): Promise<RenameResult>;
   /** The page came back from the auth server. */
   returned(back: { code: string } | { error: string }): Promise<void>;
@@ -297,6 +305,26 @@ export function createAccount(options: AccountOptions): Account {
       }
       await account.signOut();
       set({ message: 'Your account and everything kept with it are deleted.' });
+      return true;
+    },
+    async resetProgress() {
+      clearTimeout(sendTimer);
+      const empty = emptyProfile();
+      try {
+        const session = await auth.current();
+        if (session !== null) await rest.replaceProgress(session, progressOf(empty));
+      } catch {
+        set({ message: 'Could not reach the server. Nothing was reset; try again.' });
+        return false;
+      }
+      try {
+        storage?.setItem(PASSPORT_KEY, serialisePassport(empty.passport));
+        storage?.setItem(RINGS_KEY, serialiseRecord(empty.rings));
+      } catch {
+        return false;
+      }
+      if (remote !== null) remote = { ...remote, passport: empty.passport, rings: empty.rings };
+      signature = localSignature(storage);
       return true;
     },
     async rename(raw) {

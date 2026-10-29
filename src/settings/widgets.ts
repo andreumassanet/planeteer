@@ -34,10 +34,13 @@ export function createWidgets(signal: AbortSignal) {
   ): { value: HTMLElement; input: HTMLInputElement; refresh(): void } {
     const value = h('div', { class: 'atlas-settings-value' });
     const input = h('input', { class: 'ui-range', type: 'range', min: 0, max: 1000, step: 1, 'aria-label': label });
-    const span = Math.log(knob.max / knob.min);
-    // Clamped: a value under the knob's floor (a volume of 0) is a log of 0.
-    const toPosition = (v: number): number => (Math.log(Math.min(knob.max, Math.max(knob.min, v)) / knob.min) / span) * 1000;
-    const fromPosition = (p: number): number => knob.min * Math.exp((p / 1000) * span);
+    // A knob from zero (a level that is off at 0%) is straight; any other runs on a log, a step a ratio.
+    const linear = knob.min <= 0;
+    const span = linear ? knob.max - knob.min : Math.log(knob.max / knob.min);
+    const clamp = (v: number): number => Math.min(knob.max, Math.max(knob.min, v));
+    const toPosition = (v: number): number =>
+      (linear ? (clamp(v) - knob.min) / span : Math.log(clamp(v) / knob.min) / span) * 1000;
+    const fromPosition = (p: number): number => (linear ? knob.min + (p / 1000) * span : knob.min * Math.exp((p / 1000) * span));
     const show = (v: number): void => {
       const [main, small] = describe(v);
       value.replaceChildren(document.createTextNode(main), h('small', { text: small }));

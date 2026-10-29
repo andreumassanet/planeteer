@@ -31,8 +31,8 @@ export function updateOrrery(ctx: OrreryCtx, time: Date, camera: THREE.Perspecti
     ctx.held.pivot.quaternion.slerpQuaternions(holdFrom, heldTurn, k);
     ctx.held.mesh!.rotation.set(0, ctx.holdSpin * (1 - k), 0);
   }
-  // Pixels to world units per unit of range, for a ribbon two pixels wide
-  // and three when it is the one being pointed at.
+  // Pixels to world units per unit of range, for a ribbon a hairline wide,
+  // and two and a half pixels when it is the one being pointed at.
   const perRange = (2 * Math.tan((camera.fov * DEG) / 2)) / Math.max(1, screenHeight);
   // Near Earth the rings are in the way, so they go as the globe fills the frame, and every
   // body but the one the camera was sent to goes with them. A body held up for its globe
@@ -45,9 +45,9 @@ export function updateOrrery(ctx: OrreryCtx, time: Date, camera: THREE.Perspecti
   );
   for (const b of built) {
     const hot = b.entry.body.id === ctx.highlighted;
-    b.ringMaterial.uniforms.uWidth.value = perRange * (hot ? 1.6 : 1);
+    b.ringMaterial.uniforms.uWidth.value = perRange * (hot ? 1.25 : 0.6);
     b.ringMaterial.uniforms.uColor.value.copy(hot ? gold : cream);
-    b.ringMaterial.uniforms.uAlpha.value = (hot ? 0.95 : 0.26) * nearEarth;
+    b.ringMaterial.uniforms.uAlpha.value = (hot ? 0.9 : 0.16) * nearEarth;
     b.ring.visible = nearEarth > 0.01;
     if (b.material === null || b.pivot === null) continue;
     const opacity = b.entry.body.id === ctx.focused || b === ctx.held ? 1 : nearEarth;

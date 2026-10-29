@@ -125,10 +125,13 @@ export function backToRegions(ctx: MenuCtx): void {
   releasePins(ctx);
   ctx.sites = [];
   showRibbon(ctx, null);
-  fillRegionPanel(ctx);
+  // Nothing is lit, so the country still under the pointer lights again on the next frame.
+  ctx.hoverIndex = 0;
   want.dist = orbitDistance(ctx.body.radius);
   flyTo(ctx, globePose(ctx, view.lat, view.lon, want.dist, makePose()), () => {
     view.dist = want.dist;
+    // Filled on landing: the panel is away while the camera flies.
+    fillRegionPanel(ctx);
     refreshChrome(ctx);
   });
 }
@@ -278,10 +281,8 @@ export function touch(ctx: MenuCtx): void {
 }
 
 export function bindStages(ctx: MenuCtx): void {
-  const { backButton, continueButton, deps, fallback, home, leaveButton } = ctx;
-  leaveButton?.addEventListener('click', () => goBack(ctx));
-
-  backButton.addEventListener('click', () => goBack(ctx));
+  const { continueButton, deps, fallback, home, leaveButton } = ctx;
+  leaveButton.addEventListener('click', () => goBack(ctx));
   continueButton.addEventListener('click', () => {
     if (ctx.flight !== null) return;
     // A world the relay of this build cannot reach any more is Earth's fallback.

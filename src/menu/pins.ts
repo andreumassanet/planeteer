@@ -9,6 +9,10 @@ import { isEnter } from './poses.ts';
 import { pickTown, start } from './stages.ts';
 import type { MenuRegion } from './types.ts';
 
+/** People in a town for its name to be set a size larger, and larger again. */
+const MID_TOWN = 300_000;
+const BIG_TOWN = 1_000_000;
+
 export function loadSites(ctx: MenuCtx, next: MenuRegion): void {
   ctx.sites = ctx.sitesOf.get(next.key)?.slice() ?? [];
   // A country with no town in the gazetteer still has to be spawnable; its
@@ -122,16 +126,22 @@ export function layOutPins(ctx: MenuCtx): void {
     }
     const x = ctx.keptX[i]!;
     const y = ctx.keptY[i]!;
-    const width = 28 + site.name.length * 7.3;
-    const away = !space.fits(x - 8, y - 12, width, 25);
-    if (!away) space.claim(x - 8, y - 12, width, 25);
+    // The type by how many live there, so the map reads biggest first.
+    const size = site.capital === true || site.weight >= BIG_TOWN ? 'big' : site.weight >= MID_TOWN ? 'mid' : '';
+    const em = size === 'big' ? 17 : size === 'mid' ? 14.5 : 13;
+    // The name's box, centred over the dot, and the dot's own.
+    const width = site.name.length * em * 0.6 + 12;
+    const away = !space.fits(x - width / 2, y - 12 - em, width, em + 6);
+    if (!away) space.claim(x - width / 2, y - 12 - em, width, em + 6);
+    space.claim(x - 6, y - 6, 12, 12);
     const classes = ['m-pin'];
+    if (size !== '') classes.push(size);
     if (site.capital === true) classes.push('capital');
     if (away) classes.push('away');
     if (site === ctx.picked) classes.push('picked');
     if (site === ctx.hotSite) classes.push('hot');
     element.className = classes.join(' ');
-    element.style.transform = `translate(${(x - 10).toFixed(1)}px, ${(y - 14).toFixed(1)}px)`;
+    element.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
   }
 }
 

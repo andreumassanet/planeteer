@@ -206,7 +206,8 @@ const STYLE = `
   margin: 0;
   border: 2.5px solid var(--ui-ink);
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--ui-gold) 0 var(--fill, 50%), var(--ui-cream) var(--fill, 50%) 100%);
+  /* Laid from the border's outer edge and once, or the fill shows again past the end under the border. */
+  background: linear-gradient(90deg, var(--ui-gold) 0 var(--fill, 50%), var(--ui-cream) var(--fill, 50%) 100%) border-box no-repeat;
   cursor: pointer;
 }
 .ui-range::-webkit-slider-thumb {
@@ -251,6 +252,54 @@ const STYLE = `
 .ui-seg button[aria-pressed='true'] { background: var(--ui-ink); color: var(--ui-paper); }
 .ui-seg button:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
 
+/*
+ * The dark glass every full-screen card stands in (the settings, the
+ * traveller's creator), the HUD's own: the same pieces with the roles of the
+ * two colours swapped, cream on translucent ink, and no hard drop. The gold
+ * stays the one loud thing, with ink on it.
+ */
+.ui-glass {
+  --ui-ink: ${hex(PALETTE.white)};
+  --ui-paper: rgba(30, 6, 3, 0.7);
+  --ui-cream: rgba(255, 242, 232, 0.08);
+  --ui-muted: rgba(255, 242, 232, 0.6);
+  --ui-rule: rgba(255, 242, 232, 0.12);
+  --ui-hover: rgba(255, 242, 232, 0.08);
+  --ui-glass-edge: rgba(255, 242, 232, 0.16);
+  --ui-drop: 0 16px 48px rgba(4, 6, 14, 0.5);
+  color: var(--ui-ink);
+}
+.ui-glass .ui-card, .ui-card.ui-glass {
+  border: 1.5px solid var(--ui-glass-edge);
+  border-radius: 18px;
+  box-shadow: var(--ui-drop);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.ui-glass .ui-btn {
+  background: rgba(255, 242, 232, 0.08);
+  border: 1.5px solid var(--ui-glass-edge);
+  box-shadow: none;
+}
+.ui-glass .ui-btn:hover { transform: none; box-shadow: none; background: rgba(255, 242, 232, 0.16); border-color: rgba(255, 242, 232, 0.32); }
+.ui-glass .ui-btn:active { transform: translateY(1px); box-shadow: none; }
+.ui-glass .ui-btn.quiet { background: transparent; }
+.ui-glass .ui-btn.primary, .ui-glass .ui-btn.primary:hover { color: ${hex(PALETTE.ink)}; background: var(--ui-gold); border-color: var(--ui-gold); }
+.ui-glass .ui-btn:disabled, .ui-glass .ui-btn[disabled] { background: transparent; box-shadow: none; }
+.ui-glass .ui-kbd { background: rgba(255, 242, 232, 0.1); border: 1.5px solid rgba(255, 242, 232, 0.3); box-shadow: none; }
+.ui-glass .ui-flag { border-color: rgba(30, 6, 3, 0.9); }
+.ui-glass .ui-tag { background: rgba(255, 242, 232, 0.1); border-color: var(--ui-glass-edge); }
+.ui-glass .ui-tag.gold { color: ${hex(PALETTE.ink)}; background: var(--ui-gold); border-color: var(--ui-gold); }
+.ui-glass .ui-tag.ink { background: rgba(255, 242, 232, 0.9); color: ${hex(PALETTE.ink)}; }
+.ui-glass .ui-switch { background: rgba(255, 242, 232, 0.12); border: 1.5px solid var(--ui-glass-edge); box-shadow: none; }
+.ui-glass .ui-switch::after { top: 4px; left: 4px; background: rgba(255, 242, 232, 0.7); }
+.ui-glass .ui-switch[aria-checked='true'] { background: var(--ui-gold); border-color: var(--ui-gold); }
+.ui-glass .ui-switch[aria-checked='true']::after { background: ${hex(PALETTE.ink)}; box-shadow: none; }
+.ui-glass .ui-range { border: 1.5px solid var(--ui-glass-edge); background: linear-gradient(90deg, var(--ui-gold) 0 var(--fill, 50%), rgba(255, 242, 232, 0.12) var(--fill, 50%) 100%) border-box no-repeat; }
+.ui-glass .ui-range::-webkit-slider-thumb { background: ${hex(PALETTE.white)}; border: 3px solid var(--ui-gold); box-shadow: 0 2px 8px rgba(4, 6, 14, 0.5); }
+.ui-glass .ui-range::-moz-range-thumb { background: ${hex(PALETTE.white)}; border: 3px solid var(--ui-gold); box-shadow: 0 2px 8px rgba(4, 6, 14, 0.5); }
+.ui-glass .ui-seg { background: rgba(255, 242, 232, 0.06); border: 1.5px solid var(--ui-glass-edge); box-shadow: none; }
+.ui-glass .ui-seg button[aria-pressed='true'] { background: var(--ui-gold); color: ${hex(PALETTE.ink)}; }
 @keyframes ui-pop {
   from { opacity: 0; transform: translateY(10px) scale(0.96); }
   to { opacity: 1; transform: none; }
@@ -370,6 +419,7 @@ const ICONS: Record<string, string> = {
   map: '<path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z"/><path d="M9 4v13.5M15 6.5V20"/>',
   star: `<path d="${starPath(9.6, 4.1)}"/>`,
   back: '<path d="M19 12H5.5"/><path d="m11 5.5-6.5 6.5 6.5 6.5"/>',
+  exit: '<path d="M10 4.5H6a1.5 1.5 0 0 0-1.5 1.5v12A1.5 1.5 0 0 0 6 19.5h4"/><path d="M14 8l4 4-4 4"/><path d="M18 12H9.5"/>',
   next: '<path d="M5 12h13.5"/><path d="m13 5.5 6.5 6.5-6.5 6.5"/>',
   chevron: '<path d="m9.5 5.5 6.5 6.5-6.5 6.5"/>',
   search: '<circle cx="10.5" cy="10.5" r="6.3"/><path d="m15.3 15.3 5.2 5.2"/>',

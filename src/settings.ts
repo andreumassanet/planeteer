@@ -50,7 +50,7 @@ export function createSettings(options: SettingsOptions): Settings {
   const { signal } = events;
   const unregister: (() => void)[] = [];
 
-  const root = h('div', { class: 'atlas-settings', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Settings' });
+  const root = h('div', { class: 'atlas-settings ui-glass', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Settings' });
   const panel = h('div', { class: 'atlas-settings-panel ui-card' });
   root.append(panel);
 

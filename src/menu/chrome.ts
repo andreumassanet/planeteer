@@ -4,8 +4,7 @@ import type { MenuCtx } from './context.ts';
 import { flag } from './dom.ts';
 import { bodyById } from './flight.ts';
 import { closeResults } from './search.ts';
-import { backToRegions, bodyName } from './stages.ts';
-import { capital } from './text.ts';
+import { backToRegions, backToSystem, bodyName } from './stages.ts';
 
 function setOff(ctx: MenuCtx, element: HTMLElement, off: boolean): void {
   element.classList.toggle('m-off', off);
@@ -14,34 +13,41 @@ function setOff(ctx: MenuCtx, element: HTMLElement, off: boolean): void {
   if (off && element.contains(document.activeElement)) ctx.root.focus({ preventScroll: true });
 }
 
-function crumb(label: string | Node, action: (() => void) | null, flagKey?: string): HTMLElement {
-  const element = h('button', { class: action === null ? 'm-crumb here' : 'm-crumb' });
-  if (flagKey !== undefined) element.append(flag(flagKey, 22, 15));
-  element.append(label);
+function crumb(label: string, action: (() => void) | null): HTMLElement {
+  const element = h('button', { class: action === null ? 'm-crumb here' : 'm-crumb', text: label });
   if (action !== null) element.addEventListener('click', action);
   else element.setAttribute('aria-current', 'page');
   return element;
 }
 
+/** The path over the title, every step of it a way back, and the place itself as the title. */
 function refreshTrail(ctx: MenuCtx): void {
-  const { backButton, trail } = ctx;
-  // No *Solar system* at the head: every trail starts there, and the back button says the way.
-  const parts: HTMLElement[] = [];
+  const { backLabel, leaveButton, trail, titleFlag, titleText } = ctx;
+  // Over the system the title is the game's own name, with no path above it.
+  const parts: HTMLElement[] = ctx.stage === 'system' ? [] : [crumb('Solar system', () => backToSystem(ctx))];
+  let name = 'Planeteer';
+  let flagKey: string | null = null;
   if (ctx.stage === 'planet') {
-    parts.push(crumb(bodyById(ctx, ctx.focusId).body.name, null));
+    name = bodyById(ctx, ctx.focusId).body.name;
   } else if (ctx.stage === 'region' || ctx.stage === 'site') {
-    parts.push(crumb(ctx.body.name, ctx.stage === 'site' ? () => backToRegions(ctx) : null));
-    if (ctx.stage === 'site' && ctx.region !== null) parts.push(crumb(ctx.region.name, null, ctx.region.key));
+    name = ctx.body.name;
+    if (ctx.stage === 'site' && ctx.region !== null) {
+      parts.push(crumb(ctx.body.name, () => backToRegions(ctx)));
+      name = ctx.region.name;
+      flagKey = ctx.region.key;
+    }
   }
   trail.replaceChildren();
   parts.forEach((part, i) => {
     if (i > 0) trail.append(icon('chevron'));
     trail.append(part);
   });
-  // The arrow says where it goes, since nothing beside it does.
-  const to = ctx.stage === 'site' ? capital(ctx.words.regions) : 'Solar system';
-  backButton.title = `${to} (Esc)`;
-  backButton.setAttribute('aria-label', `Back to ${to.toLowerCase()}`);
+  if (titleText.textContent !== name) titleText.textContent = name;
+  titleFlag.replaceChildren(...(flagKey === null ? [] : [flag(flagKey, 42, 28)]));
+  // The way back says where it goes.
+  const to = ctx.stage === 'site' ? ctx.body.name : ctx.stage === 'system' ? 'Title screen' : 'Solar system';
+  if (backLabel.textContent !== to) backLabel.textContent = to;
+  leaveButton.title = ctx.stage === 'system' ? 'Your traveller, and online or offline' : `Back to ${to}`;
 }
 
 export function refreshContinue(ctx: MenuCtx): void {
@@ -64,7 +70,7 @@ export function refreshContinue(ctx: MenuCtx): void {
 }
 
 export function refreshChrome(ctx: MenuCtx): void {
-  const { brand, continueButton, crumbs, dock, info, leaveButton, panel, root, search, select } = ctx;
+  const { continueButton, crumbs, deps, dock, info, leaveButton, panel, root, search, select } = ctx;
   const flying = ctx.flight !== null;
   const open = ctx.chosen === null && !ctx.held;
   const settled = !flying && open;
@@ -72,17 +78,21 @@ export function refreshChrome(ctx: MenuCtx): void {
   root.classList.toggle('chosen', ctx.chosen !== null);
   root.classList.toggle('held', ctx.held);
   root.dataset.stage = ctx.stage;
-  setOff(ctx, brand, !(ctx.stage === 'system' && settled));
   setOff(ctx, dock, !(ctx.stage === 'system' && settled));
-  setOff(ctx, crumbs, !(ctx.stage !== 'system' && open));
+  // The title goes with the panel under it while the camera flies, and both come back on landing.
+  setOff(ctx, crumbs, !settled);
   setOff(ctx, panel, !((ctx.stage === 'region' || ctx.stage === 'site') && settled));
   setOff(ctx, info, !(ctx.stage === 'planet' && settled));
   setOff(ctx, search, !(open && ctx.stage !== 'planet'));
+  // The towns' list is a panel of its own; a world's prompt is words under its name.
+  // Changed only while it stands, so a panel fading out keeps the look it had.
+  if (settled) panel.classList.toggle('m-glass', ctx.stage === 'site');
   refreshContinue(ctx);
-  // The remembered place is offered on every stage but the one where a town is
-  // being chosen: *Start here* is that stage's one button.
-  setOff(ctx, continueButton, !open || ctx.stage === 'site');
-  if (leaveButton !== null) setOff(ctx, leaveButton, !(ctx.stage === 'system' && open));
+  // The remembered place is offered only before a world is chosen: past that
+  // the choice being made is the way in.
+  setOff(ctx, continueButton, !open || ctx.stage !== 'system');
+  // Every stage has a way back; the system's is to the title, where there is one.
+  setOff(ctx, leaveButton, !settled || (ctx.stage === 'system' && deps.onLeave === undefined));
   // The town picked, or once chosen the landing it is waiting for — never
   // under the title, which holds the menu with neither.
   const selecting = ctx.chosen !== null || (open && ctx.stage === 'site' && ctx.picked !== null && !flying);
@@ -90,5 +100,7 @@ export function refreshChrome(ctx: MenuCtx): void {
   root.classList.toggle('picking', selecting);
   // Not under the title, which says how far the world is in its own card.
   if (flying || !open) closeResults(ctx);
-  refreshTrail(ctx);
+  // Rewritten only while it stands: a title fading out keeps the name it had,
+  // and the next one is written as it comes back.
+  if (settled) refreshTrail(ctx);
 }

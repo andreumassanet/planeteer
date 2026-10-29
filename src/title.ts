@@ -14,13 +14,27 @@
  */
 import { holdFocus } from './controls.ts';
 import type { HeroStage } from './hero-stage.ts';
-import { ensureStyle, h, icon, installUi } from './ui.ts';
+import { ensureStyle, h, hex, icon, installUi } from './ui.ts';
+import { PALETTE } from './theme.ts';
+import { levelOf } from './explorer-level.ts';
+import { createFlagCanvas } from './flags.ts';
+import { NEWS } from './news.ts';
 import type { PlayMode } from './world-host.ts';
 
 export type { PlayMode };
 
 /** How often the title asks the relay how many are online, while it is up. */
 const COUNT_EVERY_MS = 30_000;
+/** The most players the title names. */
+const ONLINE_ROWS = 3;
+/**
+ * How long the name stays once the title goes, ms: through the bridge's flight
+ * out of its window (`LEAVE` and `LEAVE_FADE` in `hero-stage/shots.ts`), until
+ * the planet menu's own name stands under it.
+ */
+const BRAND_HOLD_MS = 2100;
+/** How long each piece of news stands before the next, ms. */
+const NEWS_TURN_MS = 7000;
 
 /** Where the last choice is kept. */
 export const PLAY_KEY = 'atlas.play.v1';
@@ -49,19 +63,34 @@ export interface TitleOptions {
   /** Whether there is a relay to play online on. Without one, the button says so and is off. */
   online: boolean;
   /** How many travellers are online now, on every world; null when the relay does not answer. */
-  players?(): Promise<number | null>;
+  players?(): Promise<OnlinePlayer[] | null>;
   /** Opens the creator, which asks this screen to step aside while it is up. */
   customise(): void;
   /** Opens the settings. Omit it and there is no button. */
   settings?(): void;
   /** Builds the account's chip beside the settings (`account.ts`). Omit it and there is none. */
   account?(into: HTMLElement): void;
+  /** What the passport holds, for the panel of how far the traveller has come; null or absent hides it. */
+  travels?(): { stamps: number; towns: number } | null;
+  /** The panel of travels was pressed: the passport opens. */
+  openTravels?(): void;
+  /** The screen is gone for good: whatever it opened goes with it. */
+  onDispose?(): void;
   /** Whether a card in front of this screen has the keyboard: its keys wait. */
   covered?(): boolean;
   /** A pointer over a control, and a choice made, for the menu's sound. */
   sound?: { hover(): void; select(): void };
   /** A mode was chosen: the menu behind can take over. */
   onChoose?(mode: PlayMode): void;
+}
+
+/** Somebody playing now, as the title lists them. */
+export interface OnlinePlayer {
+  name: string;
+  /** The country they stand in on Earth, for its flag; null at sea or on another world. */
+  iso: string | null;
+  /** `Earth`, or the world they are on. */
+  world: string;
 }
 
 export interface Title {
@@ -105,57 +134,168 @@ const STYLE = `
 .ti-left { display: flex; flex-direction: column; justify-content: center; gap: 32px; min-width: 0; pointer-events: auto; transition: opacity 0.35s ease, transform 0.45s var(--ui-ease); }
 .atlas-title.on .ti-left > * { animation: ti-rise 0.6s var(--ui-ease) both; }
 .atlas-title.on .ti-left > :nth-child(2) { animation-delay: 0.06s; }
-.ti-wordmark {
-  font-size: 96px;
-  font-weight: 800;
-  letter-spacing: -0.05em;
-  line-height: 0.85;
-  color: var(--ui-paper);
-  -webkit-text-stroke: 8px var(--ui-ink);
+/* The game's name, top left, set as the planet menu sets its own and at the same place, so the hand-over does not move it. */
+.ti-brand {
+  position: fixed;
+  left: 32px;
+  top: 56px;
+  z-index: 12;
+  padding: 0 4px 4px;
+  font-family: var(--ui-font);
+  font-size: clamp(34px, calc(2.4vw + 16px), 56px);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  color: ${hex(PALETTE.white)};
+  -webkit-text-stroke: 8px ${hex(PALETTE.ink)};
   paint-order: stroke fill;
-  text-shadow: 0 7px 0 var(--ui-ink);
-  overflow-wrap: break-word;
-  min-width: 0;
+  text-shadow: 0 5px 0 rgba(30, 6, 3, 0.6);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
 }
-.ti-tagline {
-  margin-top: 18px;
-  max-width: 24ch;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.35;
-  color: var(--ui-paper-dim);
-  text-shadow: var(--ui-space-shadow);
-  text-wrap: balance;
-}
-/* The choice: two ways to play, one of them the way you played last, and the settings under them. */
-.ti-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 360px; }
+.ti-brand.on { opacity: 1; visibility: visible; }
+/* The choice: two buttons of the same width, the way played last in gold, the other on glass. */
+.ti-menu { display: flex; flex-direction: column; gap: 10px; width: min(360px, 100%); }
 .ti-play {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
   width: 100%;
-  padding: 12px 18px 11px;
+  padding: 13px 20px 12px;
+  border-radius: 16px;
   text-align: left;
   white-space: normal;
 }
-.ti-play b { display: block; font-size: 19px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
-.ti-play small { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; color: var(--ui-muted); }
-.ti-play.primary small { color: var(--ui-ink); opacity: 0.7; }
-.ti-row { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 10px; width: 100%; margin-top: 2px; }
-.ti-row > :only-child { grid-column: 1 / -1; }
-.ti-row .ui-btn { width: 100%; height: 48px; justify-content: center; font-size: 15px; }
-.ti-row .ac-chip { display: flex; width: 100%; }
-.ti-row .ui-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ti-play b { display: block; font-size: 19px; font-weight: 900; letter-spacing: 0.01em; line-height: 1.1; }
+.ti-play small { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.3; opacity: 0.62; }
+.ti-play.primary small { opacity: 0.7; }
+/* Every button on the title that is not the gold one is glass, as the menus behind are. */
+.atlas-title .ui-btn:not(.primary) {
+  color: ${hex(PALETTE.white)};
+  background: rgba(30, 6, 3, 0.62);
+  border: 1.5px solid rgba(255, 242, 232, 0.16);
+  box-shadow: 0 10px 30px rgba(4, 6, 14, 0.35);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.atlas-title .ui-btn:not(.primary):hover { background: rgba(30, 6, 3, 0.78); border-color: rgba(255, 242, 232, 0.32); transform: none; }
+.atlas-title .ui-btn:not(.primary)[disabled] { opacity: 0.5; }
+.atlas-title .ui-btn.primary { border-color: var(--ui-gold); box-shadow: 0 10px 30px rgba(4, 6, 14, 0.35); }
+.atlas-title .ui-btn.primary:hover { transform: none; filter: brightness(1.06); }
+/* Settings and the account, on one line under the choice. */
+.ti-links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(360px, 100%); }
+.ti-links > :only-child { grid-column: 1 / -1; }
+.ti-links .ui-btn { width: 100%; height: 46px; justify-content: center; font-size: 14.5px; border-radius: 999px; }
+.ti-links .ac-chip { display: flex; width: 100%; }
+.ti-links .ui-btn > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Bottom left: who is out there, a line: a live dot, how many, the first few. */
+.ti-online {
+  position: absolute;
+  left: 56px;
+  bottom: 40px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  max-width: 420px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 242, 232, 0.8);
+  text-shadow: var(--ui-space-shadow);
+  pointer-events: auto;
+  transition: opacity 0.35s ease;
+}
+.ti-online[hidden] { display: none; }
+.atlas-title.aside .ti-online { opacity: 0; }
+.ti-online b { font-weight: 900; color: ${hex(PALETTE.white)}; }
+.ti-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: ${hex(PALETTE.green)}; box-shadow: 0 0 0 3px rgba(91, 168, 79, 0.25); animation: ti-live 1.8s ease-in-out infinite; }
+.ti-dot.off { background: rgba(255, 242, 232, 0.4); box-shadow: none; animation: none; }
+@keyframes ti-live { 50% { box-shadow: 0 0 0 6px rgba(91, 168, 79, 0); } }
+.ti-who { display: inline-flex; align-items: center; gap: 5px; }
+.ti-who canvas { border: 1.5px solid rgba(30, 6, 3, 0.9); border-radius: 3px; }
+.ti-who.more { opacity: 0.6; }
+/* Top right: how far you have come, a glass card that opens the passport. */
+.ti-travels {
+  position: absolute;
+  top: 48px;
+  right: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  box-sizing: border-box;
+  padding: 14px 16px 15px;
+  font: inherit;
+  color: ${hex(PALETTE.white)};
+  text-align: left;
+  background: rgba(30, 6, 3, 0.62);
+  border: 1.5px solid rgba(255, 242, 232, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(4, 6, 14, 0.35);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.35s ease;
+}
+.ti-travels[hidden] { display: none; }
+.ti-travels:hover { background: rgba(30, 6, 3, 0.8); border-color: rgba(255, 242, 232, 0.34); }
+.ti-travels:focus-visible { outline: var(--ui-ring); outline-offset: 3px; }
+.atlas-title.on .ti-travels { animation: ti-rise 0.6s 0.1s var(--ui-ease) backwards; }
+.atlas-title.aside .ti-travels { opacity: 0; pointer-events: none; }
+.ti-travels-kicker { font-size: 11px; font-weight: 900; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ui-gold); }
+.ti-travels-top { display: flex; align-items: center; gap: 10px; }
+.ti-travels-level { flex: none; padding: 3px 9px; border-radius: 999px; background: var(--ui-gold); color: ${hex(PALETTE.ink)}; font-size: 12px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.ti-travels-bar { position: relative; flex: 1; height: 8px; border-radius: 999px; background: rgba(255, 242, 232, 0.14); overflow: hidden; }
+.ti-travels-bar > i { position: absolute; inset: 0; transform-origin: 0 50%; background: var(--ui-gold); border-radius: inherit; }
+.ti-travels-stats { display: flex; gap: 16px; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ti-travels-stats span { display: inline-flex; align-items: center; gap: 6px; }
+.ti-travels-stats small { font-size: 12px; font-weight: 700; opacity: 0.6; }
+.ti-travels-stats svg { width: 15px; height: 15px; opacity: 0.75; }
+/* Bottom right: the news, a picture card. */
+.ti-aside {
+  position: absolute;
+  right: 56px;
+  bottom: 40px;
+  width: 340px;
+  pointer-events: auto;
+  transition: opacity 0.35s ease, transform 0.45s var(--ui-ease);
+}
+.atlas-title.on .ti-aside { animation: ti-rise 0.6s 0.1s var(--ui-ease) backwards; }
+.atlas-title.aside .ti-aside { opacity: 0; transform: translateX(40px); pointer-events: none; }
+.ti-block {
+  overflow: hidden;
+  color: ${hex(PALETTE.white)};
+  background: rgba(30, 6, 3, 0.62);
+  border: 1.5px solid rgba(255, 242, 232, 0.16);
+  border-radius: 18px;
+  box-shadow: 0 16px 48px rgba(4, 6, 14, 0.45);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.ti-feed-picture { position: relative; aspect-ratio: 16 / 9; background: rgba(4, 6, 14, 0.6); }
+.ti-feed-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ti-feed-picture::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(30, 6, 3, 0) 55%, rgba(30, 6, 3, 0.85)); }
+.ti-feed-tag { position: absolute; left: 14px; top: 12px; z-index: 1; padding: 4px 9px; border-radius: 999px; background: var(--ui-gold); color: ${hex(PALETTE.ink)}; font-size: 10.5px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
+.ti-feed-text { position: relative; z-index: 1; margin-top: -26px; padding: 2px 16px 0; }
+.ti-feed-text b { display: block; font-size: 19px; font-weight: 900; letter-spacing: 0.02em; text-transform: uppercase; -webkit-text-stroke: 4px ${hex(PALETTE.ink)}; paint-order: stroke fill; }
+.ti-feed-text p { margin: 6px 0 0; min-height: 2.9em; font-size: 13px; font-weight: 600; line-height: 1.45; opacity: 0.75; }
+.ti-feed-dots { display: flex; gap: 6px; padding: 12px 16px 14px; }
+.ti-feed-dot { width: 18px; height: 5px; padding: 0; border: 0; border-radius: 999px; background: rgba(255, 242, 232, 0.22); cursor: pointer; transition: background 0.2s ease, width 0.25s var(--ui-ease); }
+.ti-feed-dot.on { width: 30px; background: var(--ui-gold); }
+.ti-feed-dot:focus-visible { outline: var(--ui-ring); outline-offset: 2px; }
 .ti-right { position: relative; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
-.ti-custom { position: relative; pointer-events: auto; transition: opacity 0.3s ease, transform 0.4s var(--ui-ease); }
+.ti-custom { position: fixed; left: var(--hero-x, 50%); bottom: 40px; translate: -50% 0; border-radius: 999px; pointer-events: auto; transition: opacity 0.3s ease, transform 0.4s var(--ui-ease); }
 /* Backwards, not both: a fill kept after the rise would outrank the aside rule and leave the button under the creator. */
 .atlas-title.on .ti-custom { animation: ti-rise 0.6s 0.2s var(--ui-ease) backwards; }
 .atlas-title.aside { background: linear-gradient(90deg, rgba(4, 6, 14, 0.5) 0%, rgba(4, 6, 14, 0) 55%); }
 .atlas-title.aside .ti-left { opacity: 0; transform: translateX(-60px); pointer-events: none; }
 .atlas-title.aside .ti-custom { opacity: 0; transform: translateY(24px); pointer-events: none; }
 @keyframes ti-rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-/* Upright and narrow: the traveller on top, the choice under them. */
+/* Upright and narrow: the traveller on top, the choice under them, the corners' cards left out. */
 @media ${STACKED} {
   .atlas-title {
     grid-template-columns: 1fr;
@@ -166,15 +306,15 @@ const STYLE = `
   }
   .ti-left { order: 2; justify-content: flex-start; gap: 14px; }
   .ti-right { order: 1; min-height: 240px; }
-  .ti-wordmark { font-size: 60px; -webkit-text-stroke-width: 6px; text-shadow: 0 5px 0 var(--ui-ink); }
-  .ti-tagline { font-size: 15px; margin-top: 8px; }
-  .ti-card { padding: 12px; gap: 9px; max-width: none; }
+  .ti-menu, .ti-links { width: 100%; }
   .ti-play { padding: 10px 14px; }
   .ti-play b { font-size: 18px; }
+  .ti-aside, .ti-online, .ti-travels { display: none; }
+  .ti-custom { position: relative; left: auto; bottom: auto; translate: none; }
+  .ti-brand { left: 16px; top: max(16px, env(safe-area-inset-top)); font-size: 30px; -webkit-text-stroke-width: 6px; }
   .atlas-title { background: linear-gradient(0deg, rgba(4, 6, 14, 0.75) 0%, rgba(4, 6, 14, 0.4) 50%, rgba(4, 6, 14, 0) 70%); }
 }
 @media (max-height: 640px) {
-  .ti-wordmark { font-size: 80px; }
   .ti-left { gap: 16px; }
 }
 /* A phone on its side: two small columns, the choice on the left and the traveller on the right. */
@@ -184,16 +324,19 @@ const STYLE = `
     padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
     gap: 12px;
   }
-  .ti-left { gap: 10px; overflow-y: auto; }
-  .ti-wordmark { font-size: 46px; -webkit-text-stroke-width: 5px; text-shadow: 0 4px 0 var(--ui-ink); }
-  .ti-tagline { display: none; }
-  .ti-card { padding: 10px; gap: 7px; }
-  .ti-play { padding: 7px 12px; gap: 10px; }
-  .ti-play svg { width: 22px; height: 22px; }
+  .ti-left { gap: 10px; overflow-y: auto; padding-top: 52px; }
+  .ti-play { padding: 7px 12px; }
   .ti-play b { font-size: 16px; }
-  .ti-play small { font-size: 11.5px; margin-top: 1px; }
-  .ti-row .ui-btn { height: 40px; padding-top: 0; padding-bottom: 0; font-size: 14px; }
-  .ti-custom { transform: scale(0.85); transform-origin: 50% 100%; }
+  .ti-play small { font-size: 11.5px; }
+  .ti-links .ui-btn { height: 40px; font-size: 14px; }
+  .ti-aside, .ti-online, .ti-travels { display: none; }
+  .ti-custom { scale: 0.85; }
+  .ti-brand { left: max(20px, env(safe-area-inset-left)); top: max(12px, env(safe-area-inset-top)); font-size: 28px; -webkit-text-stroke-width: 6px; }
+}
+/* Short windows keep the news card and drop its picture. */
+@media (max-height: 640px) {
+  .ti-feed-picture { display: none; }
+  .ti-feed-text { margin-top: 0; padding-top: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .atlas-title.on .ti-left > *, .atlas-title.on .ti-custom { animation: none; }
@@ -214,7 +357,7 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
     });
     return button;
   }
-  const onlineNote = options.online ? 'The other travellers are on the same planet' : 'No server to meet anyone on in this version';
+  const onlineNote = options.online ? 'Travel with the others, on the same planet' : 'No server to meet anyone on in this version';
   const onlineButton = playButton('online', 'Play online', onlineNote);
   onlineButton.disabled = !options.online;
   const offlineButton = playButton('offline', 'Play offline', 'Nothing is sent anywhere');
@@ -230,22 +373,91 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
   customButton.addEventListener('click', () => options.customise());
   customButton.addEventListener('pointerenter', () => options.sound?.hover());
 
+  // The left: the choice.
+  const travels = h('button', { class: 'ti-travels', type: 'button', title: 'Open your passport' });
+  travels.hidden = true;
+  travels.addEventListener('click', () => options.openTravels?.());
+  travels.addEventListener('pointerenter', () => options.sound?.hover());
+  const online = h('div', { class: 'ti-online' });
+  online.hidden = !options.online;
   const left = h(
     'div',
     { class: 'ti-left' },
-    h('div', {}, h('h1', { class: 'ti-wordmark', text: 'planeteer' }), h('div', { class: 'ti-tagline', text: 'Explore the solar system on foot, by sea and by air.' })),
-    h(
-      'div',
-      { class: 'ti-card' },
-      onlineButton,
-      offlineButton,
-      settingsButton === null && accountSlot === null ? null : h('div', { class: 'ti-row' }, settingsButton, accountSlot),
-    ),
+    h('nav', { class: 'ti-menu', 'aria-label': 'Play' }, onlineButton, offlineButton),
+    settingsButton === null && accountSlot === null ? null : h('div', { class: 'ti-links' }, settingsButton, accountSlot),
   );
   const right = h('div', { class: 'ti-right' }, customButton);
-  const root = h('div', { class: 'atlas-title', role: 'dialog', 'aria-label': 'planeteer' }, left, right);
+  // Bottom right: what is new.
+  const feed = h('div', { class: 'ti-feed' });
+  const aside = h('div', { class: 'ti-aside' }, h('div', { class: 'ti-block' }, feed));
+  // Top right how far you have come, bottom left who is out there, bottom right what is new.
+  const root = h('div', { class: 'atlas-title', role: 'dialog', 'aria-label': 'planeteer' }, left, right, aside, travels, online);
 
-  return { onlineNote, onlineButton, offlineButton, customButton, left, right, root };
+  return { onlineNote, onlineButton, offlineButton, customButton, left, right, travels, feed, online, aside, root };
+}
+
+/** How far the traveller has come, top right: the level, its bar, and what the passport holds. */
+function fillTravels(travels: HTMLElement, passport: { stamps: number; towns: number } | null): void {
+  travels.hidden = passport === null;
+  if (passport === null) return;
+  const { level, progress } = levelOf(passport.stamps, passport.towns);
+  const fill = h('i');
+  fill.style.transform = `scaleX(${Math.max(0.03, Math.min(1, progress)).toFixed(3)})`;
+  const stat = (name: 'passport' | 'flag', count: number, one: string, many: string): HTMLElement =>
+    h('span', {}, icon(name, 15), h('b', { text: count.toLocaleString('en') }), h('small', { text: count === 1 ? one : many }));
+  travels.replaceChildren(
+    h('div', { class: 'ti-travels-kicker', text: 'Your travels' }),
+    h('div', { class: 'ti-travels-top' }, h('span', { class: 'ti-travels-level', text: `Lv ${level}` }), h('span', { class: 'ti-travels-bar' }, fill)),
+    h('div', { class: 'ti-travels-stats' }, stat('passport', passport.stamps, 'country', 'countries'), stat('flag', passport.towns, 'town', 'towns')),
+  );
+  travels.setAttribute('aria-label', `Level ${level}: ${passport.stamps} countries, ${passport.towns} towns. Open your passport`);
+}
+
+/** Who is playing now, as a line: a live dot, how many, and the first few by name and flag. */
+function fillOnline(element: HTMLElement, players: OnlinePlayer[] | null): void {
+  if (players === null) {
+    element.replaceChildren(h('i', { class: 'ti-dot off' }), h('span', { text: 'The server is not answering' }));
+    return;
+  }
+  const count = players.length;
+  const names = players.slice(0, ONLINE_ROWS).map((player) =>
+    h('span', { class: 'ti-who', title: player.world }, player.iso === null ? null : createFlagCanvas(player.iso, 18, 12), player.name),
+  );
+  element.replaceChildren(
+    h('i', { class: count === 0 ? 'ti-dot off' : 'ti-dot' }),
+    h('b', { text: count === 0 ? 'Nobody online right now' : `${count.toLocaleString('en')} online now` }),
+    ...names,
+    ...(count > ONLINE_ROWS ? [h('span', { class: 'ti-who more', text: `+${count - ONLINE_ROWS}` })] : []),
+  );
+}
+
+/** What is new, a card at a time, each with its picture; the dots under it turn, and so does the clock. */
+function fillNews(element: HTMLElement, signal: AbortSignal): void {
+  let at = 0;
+  const image = h('img', { class: 'ti-feed-image', alt: '' });
+  const title = h('b');
+  const text = h('p');
+  const dots = NEWS.map((_, i) => {
+    const dot = h('button', { class: 'ti-feed-dot', type: 'button', 'aria-label': `News ${i + 1}` });
+    dot.addEventListener('click', () => show(i), { signal });
+    return dot;
+  });
+  const show = (i: number): void => {
+    at = (i + NEWS.length) % NEWS.length;
+    const item = NEWS[at]!;
+    image.src = item.image;
+    title.textContent = item.title;
+    text.textContent = item.text;
+    dots.forEach((dot, k) => dot.classList.toggle('on', k === at));
+  };
+  element.replaceChildren(
+    h('div', { class: 'ti-feed-picture' }, image, h('span', { class: 'ti-feed-tag', text: 'What\u2019s new' })),
+    h('div', { class: 'ti-feed-text' }, title, text),
+    h('div', { class: 'ti-feed-dots' }, ...dots),
+  );
+  show(0);
+  const timer = window.setInterval(() => show(at + 1), NEWS_TURN_MS);
+  signal.addEventListener('abort', () => window.clearInterval(timer));
 }
 
 export function createTitle(options: TitleOptions): Title {
@@ -254,19 +466,31 @@ export function createTitle(options: TitleOptions): Title {
   const stage = options.stage;
 
   let chosen: PlayMode | null = storedPlayMode();
-  const { onlineNote, onlineButton, offlineButton, customButton, left, right, root } = titleLayout(options, (mode) => choose(mode));
+  const { onlineButton, offlineButton, customButton, left, right, travels, feed, online, aside, root } = titleLayout(options, (mode) => choose(mode));
+  const events = new AbortController();
+  fillNews(feed, events.signal);
+  // The game's name, where the planet menu sets its own and the same: it stays through the hand-over,
+  // and goes only once the menu's stands in its place.
+  const brand = h('div', { class: 'ti-brand', 'aria-hidden': 'true', text: 'Planeteer' });
+  let brandTimer = 0;
+  const showBrand = (on: boolean, after = 0): void => {
+    window.clearTimeout(brandTimer);
+    if (on) {
+      if (!brand.isConnected) document.body.append(brand);
+      brand.classList.add('on');
+    } else if (after > 0) {
+      brandTimer = window.setTimeout(() => brand.classList.remove('on'), after);
+    } else {
+      brand.classList.remove('on');
+    }
+  };
 
   // Who is out there, asked when the screen comes up and again while it stays.
-  const onlineSmall = onlineButton.querySelector('small')!;
   let counting = 0;
   function count(): void {
     window.clearTimeout(counting);
     if (!showing || !options.online || options.players === undefined) return;
-    void options.players().then((n) => {
-      if (n === null) onlineSmall.textContent = onlineNote;
-      else if (n === 0) onlineSmall.textContent = 'Nobody online right now: be the first';
-      else onlineSmall.textContent = `${n.toLocaleString('en')} ${n === 1 ? 'traveller' : 'travellers'} online now`;
-    });
+    void options.players().then((players) => fillOnline(online, players));
     counting = window.setTimeout(count, COUNT_EVERY_MS);
   }
   function markLast(): void {
@@ -283,7 +507,11 @@ export function createTitle(options: TitleOptions): Title {
       const below = Math.max(0, height - (right.offsetTop + right.offsetHeight)) + customButton.offsetHeight + 24;
       stage.insets({ left: 0, right: 0, top: 70, bottom: below });
     } else {
-      stage.insets({ left: left.offsetLeft + left.offsetWidth + 24, right: 24, top: 80, bottom: customButton.offsetHeight + 64 });
+      // The traveller stands between the column on the left and the one on the right, and *Customise* under their feet.
+      const insetLeft = left.offsetLeft + left.offsetWidth + 24;
+      const insetRight = aside.offsetWidth + 72;
+      stage.insets({ left: insetLeft, right: insetRight, top: 80, bottom: customButton.offsetHeight + 64 });
+      root.style.setProperty('--hero-x', `${Math.round((insetLeft + innerWidth - insetRight) / 2)}px`);
     }
   }
   addEventListener('resize', measure);
@@ -333,8 +561,10 @@ export function createTitle(options: TitleOptions): Title {
     stepped = false;
     root.classList.remove('aside');
     markLast();
+    fillTravels(travels, options.travels?.() ?? null);
     if (!root.isConnected) document.body.append(root);
     root.classList.add('on');
+    showBrand(true);
     // Framed before the stage comes up, so a stage made now starts where it should be.
     takeStage(!stage.open);
     stage.show('bridge');
@@ -351,6 +581,7 @@ export function createTitle(options: TitleOptions): Title {
     window.clearTimeout(counting);
     stepped = false;
     root.classList.remove('on', 'aside');
+    showBrand(false, BRAND_HOLD_MS);
     (document.activeElement as HTMLElement | null)?.blur?.();
     if (out) stage.leave();
     else stage.hide();
@@ -370,6 +601,8 @@ export function createTitle(options: TitleOptions): Title {
       if (!showing || stepped === on) return;
       stepped = on;
       root.classList.toggle('aside', on);
+      // The creator has the top left for its own title.
+      showBrand(!on);
       if (!on) {
         takeStage(false);
         defaultButton().focus({ preventScroll: true });
@@ -378,6 +611,10 @@ export function createTitle(options: TitleOptions): Title {
     dispose() {
       hide();
       root.remove();
+      brand.remove();
+      window.clearTimeout(brandTimer);
+      events.abort();
+      options.onDispose?.();
     },
   };
 }
