@@ -73,6 +73,7 @@ export function createSheet(world: World, options: WorldMapOptions): MapSheet {
     peerHits: [],
     keptPins: [],
     courseSpots: null,
+    courseStarts: new Map(),
     courseSpotsFor: null,
     keptCourses: [],
     lastCourseRing: null,

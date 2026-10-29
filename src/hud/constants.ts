@@ -15,10 +15,6 @@ export const SETTLE_PLACE = 0.8;
 export const SETTLE_FLIGHT = 0.2;
 /** How far offshore a town still names the sea you are on, in real km ("Off Palma" from the bay, "Open water" past it). */
 export const OFFSHORE_KM = 40;
-/** Seconds the landmark card stays. */
-export const FOUND_HOLD = 8;
-/** Extra seconds when the card carries a note (about 140 characters). */
-export const NOTE_HOLD = 4;
 /** The badge's little jolt, seconds, when the place under it changes. */
 export const BUMP = 0.22;
 /** Seconds "Arrived" holds before the destination panel goes. */

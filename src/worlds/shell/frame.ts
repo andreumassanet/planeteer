@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import type { Hud } from '../../hud.ts';
-import type { Minimap } from '../../minimap.ts';
+import type { CompassReading, Minimap } from '../../minimap.ts';
 import type { WorldMap } from '../../map.ts';
 import type { Navigation } from '../../navigation.ts';
 import type { CountryNames } from '../../names.ts';
@@ -19,9 +19,10 @@ import type { Geography } from '../../system/geography.ts';
 import { bearingTo } from '../../cartography.ts';
 import { latLonOf } from '../../sphere.ts';
 import { unitFor } from '../../app/speed-units.ts';
+import { layerFades, type LayerFades } from '../../map-layer.ts';
 import { createEar } from './ear.ts';
 import { createInteraction } from './interact.ts';
-import { MODE_OF, smoothstep } from './tables.ts';
+import { MODE_OF } from './tables.ts';
 import type { Clock } from './clock.ts';
 import type { Gear } from './gear.ts';
 import type { Overlay } from './overlay.ts';
@@ -31,9 +32,6 @@ import { WELCOME_KEY, readSetting, writeSetting } from './storage.ts';
 import { clockText } from './text.ts';
 import type { ShellWorld } from './types.ts';
 
-/** The map layer comes in between these heights over the ground, as on Earth (`OVERLAY_LOW`, `OVERLAY_HIGH`). */
-const OVERLAY_LOW = 500;
-const OVERLAY_HIGH = 2500;
 /** How much of a nation's colour the ground takes at a full fade: enough to read as a map, never enough to hide the hills. */
 const POLITICAL_CEILING = 0.72;
 /** How long the frame counter averages over, ms. */
@@ -87,14 +85,16 @@ export function createShellFrame(deps: FrameDeps): ShellFrame {
   let worst = 0;
 
   /** The map layer, on one number: the nations' colour over the ground and the frontiers widening to the map's line. */
+  const fades: LayerFades = { colour: 0, frontier: 0, country: 0, town: 0 };
+  const compass: CompassReading = { heading: 0, marks: [] };
   function mapLayer(standingIn: number): void {
-    const fade = overlay.on ? smoothstep(OVERLAY_LOW, OVERLAY_HIGH, rig.altitude) : 0;
-    ground.political = fade * POLITICAL_CEILING;
+    layerFades(rig.altitude, overlay.on, fades);
+    ground.political = fades.colour * POLITICAL_CEILING;
     const pixel = (2 * Math.tan((rig.camera.fov * Math.PI) / 360) * Math.max(1, rig.altitude)) / Math.max(1, innerHeight);
     const fog = world.scene.fog as THREE.Fog | null;
     frontiers.enabled = overlay.on;
-    frontiers.update(rig.camera.position, fade, pixel, fog?.near ?? 1e9, fog?.far ?? 2e9, 3);
-    names.update(fade, rig.camera, standingIn);
+    frontiers.update(rig.camera.position, fades.frontier, pixel, fog?.near ?? 1e9, fog?.far ?? 2e9, 3);
+    names.update(fades, rig.camera, standingIn, fog?.far);
   }
 
   /** The dial while in a craft, as on Earth: its speed against its top, and the gear or the altitude. */
@@ -140,6 +140,8 @@ export function createShellFrame(deps: FrameDeps): ShellFrame {
     mapLayer(standingIn);
 
     const here = latLonOf(player.position);
+    hud.setCompass(minimap.compass(compass));
+    hud.setCoordinates(here.lat, here.lon);
     const nearest = nearby.place;
     hud.update(standingIn, nearby, clockText(sky.state.hour), dt, bearingTo(player.position, player.facing, nearest.lat, nearest.lon));
 

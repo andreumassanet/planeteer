@@ -153,13 +153,15 @@ export const SUB_FRAMED_UNDER = 3;
 export const RIDE_BACK = 1.6;
 export const RIDE_UP = 0.45;
 /**
- * Flight framing as an orbit and an angle: a close chase low down, and the
- * camera swinging overhead as the plane climbs, which is what makes the climb
- * reveal the map. Measured over the ground under the craft, not the sea: a
- * plateau or a ring course is still flown from just behind.
+ * Flight framing as an orbit and an angle: a close chase low down, and on the
+ * climb the camera drawing back and rising to halfway overhead, so at the
+ * ceiling the view holds both the land under the wings and the horizon and
+ * the curve of the planet ahead. Measured over the
+ * ground under the craft, not the sea: a plateau or a ring course is still
+ * flown from just behind.
  */
 export const FLIGHT_LOW = { orbit: 24, elevation: 12 * DEG };
-export const FLIGHT_HIGH = { orbit: 340, elevation: 88 * DEG };
+export const FLIGHT_HIGH = { orbit: 190, elevation: 42 * DEG };
 /** Over the ground, units, the chase stays close and low up to here; the swing overhead starts past it. */
 export const FLIGHT_CHASE_UNTIL = 400;
 /** How fast the framing follows a change of vehicle. */

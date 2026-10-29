@@ -20,7 +20,7 @@ function onScreen(s: MapSheet, x: number, y: number): boolean {
 
 /** Every frame: follows the player, tops up the paper, and redraws what changed. */
 export function updateSheet(s: MapSheet, position: THREE.Vector3, forward: THREE.Vector3): void {
-  const { options, marker, mapTiles, unmark, me } = s;
+  const { options, marker, mapTiles, me } = s;
   // Where you are is tracked while the sheet is closed too, so it opens on you.
   latLonOf(position, meLatLon);
   me.lat = meLatLon.lat;
@@ -59,7 +59,6 @@ export function updateSheet(s: MapSheet, position: THREE.Vector3, forward: THREE
   const markKey = mark === null ? '' : `${mark.lat},${mark.lon}`;
   if (markKey !== s.lastMarker) {
     s.lastMarker = markKey;
-    unmark.hidden = mark === null;
     s.dirty = true;
   }
 

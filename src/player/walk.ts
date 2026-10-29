@@ -36,16 +36,6 @@ const GAZE_TURN = Math.PI / 3;
 /** `along` (the way's cosine off the gaze) under which a walk becomes a backing, and over which it ends. */
 const BACK_ENTER = -0.2;
 const BACK_LEAVE = 0.05;
-/**
- * In third person a push back backs the body up facing the camera's way for
- * this long, seconds, and then it turns round and walks the way it is pushed;
- * a push lighter than `BACK_SLOW_PUSH` (a stick barely tilted) backs for as
- * long as it lasts. Running turns round at once.
- */
-const BACK_TURN_AFTER = 0.8;
-const BACK_SLOW_PUSH = 0.5;
-/** A body backing up in third person goes at this share of its pace. */
-const BACK_PACE = 0.6;
 import { approach, clamp } from './math.ts';
 import type { PlayerInput } from './types.ts';
 import type { PlayerCore } from './core.ts';
@@ -78,8 +68,6 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
   const gazeFacing = new THREE.Vector3();
   /** Backing rather than walking, held between two thresholds so a sidestep cannot flicker. */
   let backing = false;
-  /** How long the push has been backwards, seconds; 0 while it is not. */
-  let backHeld = 0;
   const surface = PLANET_RADIUS + WATERLINE;
 
   /** How deep the water stands over the sea floor at a point, 0 on the land or with no floor to ask. */
@@ -114,16 +102,11 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
     const amount = Math.min(1, wish.length());
     if (amount > 1e-4) wish.divideScalar(wish.length());
     else wish.set(0, 0, 0);
-    // In third person a short or light push back is a step back facing the
-    // view; held, the body turns round and walks towards the camera.
-    const pushedBack = amount > 1e-4 && wish.dot(heading) < BACK_ENTER;
-    backHeld = pushedBack ? backHeld + dt : 0;
-    const stepsBack = !s.eyeInHead && !swimming && !input.run && pushedBack && (backHeld < BACK_TURN_AFTER || amount < BACK_SLOW_PUSH);
 
     // Wading, the water holds the legs back the deeper it is.
     const wading = swimming ? 0 : waterDepth(position, standingRadius(position));
     const slowed = 1 - (1 - WADE_SLOW) * clamp(wading / SWIM_DEPTH, 0, 1);
-    const top = swimming ? (input.run ? SWIM_SPRINT : SWIM_SPEED) : (input.run ? RUN_SPEED : WALK_SPEED) * slowed * (stepsBack ? BACK_PACE : 1);
+    const top = swimming ? (input.run ? SWIM_SPRINT : SWIM_SPEED) : (input.run ? RUN_SPEED : WALK_SPEED) * slowed;
     target.copy(wish).multiplyScalar(top * amount);
     motion.projectOnPlane(up);
     const time = swimming ? SWIM_ACCELERATION_TIME : ACCELERATION_TIME;
@@ -156,7 +139,7 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
     moved.copy(motion).multiplyScalar(dt);
     let walled = false;
     if (walls !== null) {
-      walled = throughWalls(dt, walls, BODY_RADIUS);
+      walled = throughWalls(dt, walls, BODY_RADIUS, true);
       s.velocity = motion.length();
     }
     const distance = travel();
@@ -172,9 +155,9 @@ export function createWalk(core: PlayerCore, frame: Frame, wallSet: WallChecks, 
     let facing = s.velocity > 1e-3 ? direction : walled ? wish : gaze ? heading : null;
     // With the eye in the head the body keeps to the gaze while it goes: it
     // leans into a sidestep, no further than `GAZE_TURN`, and backs away
-    // rather than turning its back on the view. In third person it does so
-    // only while it steps back.
-    if ((s.eyeInHead || stepsBack) && !swimming && facing !== null && facing !== heading) {
+    // rather than turning its back on the view. In third person it turns
+    // round and walks the way it is pushed, towards the camera too.
+    if (s.eyeInHead && !swimming && facing !== null && facing !== heading) {
       const along = facing.dot(heading);
       backing = backing ? along < BACK_LEAVE : along < BACK_ENTER;
       gazeFacing.copy(facing);

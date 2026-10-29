@@ -3,7 +3,7 @@ import { MAX_RELIEF } from '../terrain.ts';
 
 /** Tuning for the minimap's framing, marks and redraw budget. */
 
-export const DEFAULT_SIZE = 180;
+export const DEFAULT_SIZE = 230;
 /** Ink rim width, px. */
 export const RIM_WIDTH = 3;
 /** Redraws a second. */

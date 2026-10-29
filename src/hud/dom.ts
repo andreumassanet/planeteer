@@ -1,9 +1,14 @@
 /** The HUD's elements: the bar, the place badge, the cards, the pause and welcome screens and the sheet. */
 import { h, icon, kbd } from '../ui.ts';
+import { createCompass } from './compass.ts';
 import { createSpeedometer } from './speedometer.ts';
 import type { HudOptions } from './types.ts';
 
-/** The bar: the gear, the map and the passport, the clock and the place badge. */
+/**
+ * The corners: the traveller top left, where you are top right, and beside
+ * the minimap (bottom left) the gear, the map and the passport with the
+ * coordinates over them; the compass is `compass.ts`.
+ */
 function buildBar(options: HudOptions, signal: AbortSignal) {
   const settingsCap = kbd('');
   const mapCap = kbd('');
@@ -19,60 +24,77 @@ function buildBar(options: HudOptions, signal: AbortSignal) {
   settingsButton.addEventListener('click', () => options.onSettings?.(), { signal });
   mapButton.addEventListener('click', () => options.onMap?.(), { signal });
   passportButton.addEventListener('click', () => options.onPassport?.(), { signal });
-  // Off this world and out to the planets: the menu's solar system.
+  // Out of the game, to the title screen.
   const leaveButton =
     options.leave === undefined
       ? null
-      : h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button', title: options.leave.label, 'aria-label': options.leave.label }, icon('orbit'));
+      : h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button', title: options.leave.label, 'aria-label': options.leave.label }, icon('exit'));
   leaveButton?.addEventListener('click', () => options.leave?.run(), { signal });
 
-  const placeFlag = h('span');
+  const placeFlag = h('span', { class: 'atlas-place-flag' });
   // The smallest true thing about where you are, large; under it the country, how far the town is and which way.
   const placeName = h('span', { class: 'atlas-place-name' });
-  const placeCountry = h('span');
-  const placeSep = h('span', { text: '·' });
   // How far: its own clock, rewritten as you walk.
   const placeRangeText = h('span');
   const placeArrow = h('span', { class: 'atlas-place-arrow', text: '↑', 'aria-hidden': 'true' });
   placeArrow.hidden = true;
-  const placeSub = h('span', { class: 'atlas-place-sub' }, placeCountry, placeSep, placeRangeText, placeArrow);
+  const placeSub = h('span', { class: 'atlas-place-sub' }, placeRangeText, placeArrow);
   placeSub.hidden = true;
-  const place = h(
-    'div',
-    { class: 'atlas-place ui-card' },
-    placeFlag,
-    h('span', { class: 'atlas-place-text' }, placeName, placeSub),
-  );
   // The clock is not debounced: it has no boundary to flap across.
   const clockIcon = h('span');
   const clockText = h('span');
-  const clock = h('div', { class: 'atlas-clock ui-card' }, clockIcon, clockText);
-  const bar = h(
+  const clock = h('div', { class: 'atlas-clock' }, clockIcon, clockText);
+  const place = h(
     'div',
-    { class: 'atlas-hud-bar' },
+    { class: 'atlas-place' },
+    h('span', { class: 'atlas-place-head' }, placeName, placeFlag, clock),
+    placeSub,
+  );
+
+  // The traveller: how they are going, their name, and how much of the world they have seen.
+  const playerMode = h('span', { class: 'atlas-player-mode' }, icon('walk'));
+  const playerName = h('span', { class: 'atlas-player-name' });
+  const playerFill = h('span', { class: 'atlas-player-fill' });
+  const playerLevel = h('span', { class: 'atlas-player-level' });
+  const playerStats = h('span', { class: 'atlas-player-stats' });
+  const player = h(
+    'div',
+    { class: 'atlas-player' },
+    playerMode,
+    h(
+      'span',
+      { class: 'atlas-player-text' },
+      h('span', { class: 'atlas-player-top' }, playerName, playerLevel),
+      h('span', { class: 'atlas-player-bar' }, playerFill),
+      playerStats,
+    ),
+  );
+
+  const coords = h('div', { class: 'atlas-coords' });
+  const dock = h(
+    'div',
+    { class: 'atlas-dock' },
     moreButton,
-    settingsButton,
     mapButton,
     options.onPassport === undefined ? null : passportButton,
+    settingsButton,
     leaveButton,
-    clock,
-    place,
   );
-  return { settingsCap, mapCap, passportCap, settingsButton, mapButton, passportButton, moreButton, leaveButton, placeFlag, placeName, placeCountry, placeSep, placeRangeText, placeArrow, placeSub, place, clockIcon, clockText, clock, bar };
+  const bar = h('div', { class: 'atlas-hud-bar' }, player, place, dock, coords);
+  return { settingsCap, mapCap, passportCap, settingsButton, mapButton, passportButton, moreButton, leaveButton, placeFlag, placeName, placeRangeText, placeArrow, placeSub, place, clockIcon, clockText, clock, bar, player, playerMode, playerName, playerFill, playerLevel, playerStats, coords, dock };
 }
 
-/** The landmark card, the marker panel and the waypoint. */
+/** The banner under the compass: a country or a landmark arrived at, one at a time. */
+function buildSplash() {
+  const splashKicker = h('div', { class: 'atlas-splash-kicker' });
+  const splashName = h('div', { class: 'atlas-splash-name' });
+  const splashSub = h('div', { class: 'atlas-splash-sub' });
+  const splash = h('div', { class: 'atlas-splash', 'aria-live': 'polite' }, splashKicker, splashName, splashSub);
+  return { splash, splashKicker, splashName, splashSub };
+}
+
+/** The marker panel and the waypoint. */
 function buildCards() {
-  const foundName = h('div', { class: 'atlas-found-name' });
-  const foundFact = h('div', { class: 'atlas-found-fact' });
-  const foundFlag = h('span');
-  const foundNote = h('div', { class: 'atlas-found-note' });
-  const found = h(
-    'div',
-    { class: 'atlas-found ui-card' },
-    h('div', { class: 'atlas-found-text' }, foundName, foundFact, foundNote),
-    foundFlag,
-  );
 
   const destinationFlag = h('span');
   const destinationName = h('div', { class: 'atlas-destination-name' });
@@ -89,7 +111,7 @@ function buildCards() {
   const waypointPin = h('div', { class: 'atlas-waypoint-pin' });
   const waypointLabel = h('div', { class: 'atlas-waypoint-label ui-card' });
   const waypoint = h('div', { class: 'atlas-waypoint' }, waypointPin, waypointLabel);
-  return { foundName, foundFact, foundFlag, foundNote, found, destinationFlag, destinationName, destinationPlace, destinationRange, destinationSub, destination, waypointPin, waypointLabel, waypoint };
+  return { destinationFlag, destinationName, destinationPlace, destinationRange, destinationSub, destination, waypointPin, waypointLabel, waypoint };
 }
 
 /** The keys of the moment, the toast, the prompt, the pause card and the frame counter. */
@@ -158,17 +180,21 @@ function buildSheet() {
 }
 
 export function buildDom(options: HudOptions, signal: AbortSignal) {
-  const root = h('div', { class: 'atlas-hud' });
+  const root = h('div', { class: 'atlas-hud ui-glass' });
   const bar = buildBar(options, signal);
   const cards = buildCards();
   const status = buildStatus();
   const welcome = buildWelcome();
   const sheet = buildSheet();
   const speedometer = createSpeedometer();
-  root.append(bar.bar, h('div', { class: 'atlas-side' }, cards.destination, cards.found), cards.waypoint, status.hintsCard, status.toast, status.prompt, status.pause, status.perf, speedometer.element, welcome.welcomeRoot, sheet.sheet);
+  const compass = createCompass(signal);
+  const splash = buildSplash();
+  root.append(bar.bar, compass.element, splash.splash, h('div', { class: 'atlas-side' }, cards.destination), cards.waypoint, status.hintsCard, status.toast, status.prompt, status.pause, status.perf, speedometer.element, welcome.welcomeRoot, sheet.sheet);
   return {
     root,
     speedometer,
+    compass,
+    ...splash,
     ...bar,
     ...cards,
     ...status,

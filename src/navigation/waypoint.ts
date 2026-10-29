@@ -6,6 +6,8 @@ import type { Hud } from '../hud.ts';
  * for the pin and a short label (the HUD slides a longer one along).
  */
 const MARKER_MARGIN = 84;
+/** And from the top, where the label over the pin has to clear the HUD's compass. */
+const MARKER_TOP = 160;
 
 /**
  * Puts the marker on screen. If the destination is on the near side of the
@@ -84,14 +86,14 @@ scratch: THREE.Vector3,
   // the ground when the landmark is in sight.
   const inside = !behind
     && x >= MARKER_MARGIN && x <= width - MARKER_MARGIN
-    && y >= MARKER_MARGIN && y <= height - MARKER_MARGIN;
+    && y >= MARKER_TOP && y <= height - MARKER_MARGIN;
   if (inside) {
     hud.trackDestination(km, x, y, Math.PI / 2);
     return;
   }
 
   const midX = width / 2;
-  const midY = height / 2;
+  const midY = (MARKER_TOP + height - MARKER_MARGIN) / 2;
   let dx = x - midX;
   let dy = y - midY;
   if (Math.abs(dx) < 1e-4 && Math.abs(dy) < 1e-4) {
@@ -99,7 +101,7 @@ scratch: THREE.Vector3,
     dy = 1;
   }
   const halfW = Math.max(1, midX - MARKER_MARGIN);
-  const halfH = Math.max(1, midY - MARKER_MARGIN);
+  const halfH = Math.max(1, midY - MARKER_TOP);
   const reach = Math.min(halfW / Math.max(Math.abs(dx), 1e-6), halfH / Math.max(Math.abs(dy), 1e-6));
   hud.trackDestination(km, midX + dx * reach, midY + dy * reach, Math.atan2(dy, dx));
 }

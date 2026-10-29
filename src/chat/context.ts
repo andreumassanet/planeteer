@@ -79,6 +79,6 @@ export function createChatDom(): ChatDom {
   const ghost = h('div', { class: 'atlas-chat-ghost', 'aria-hidden': 'true' }, typedGhost, moreGhost);
   const form = h('form', { class: 'atlas-chat-form ui-card' }, h('div', { class: 'atlas-chat-field' }, ghost, field), kbd('Enter', true));
   const list = h('ul', { class: 'atlas-chat-suggest', id: 'atlas-chat-suggest', role: 'listbox', 'aria-label': 'Suggestions' });
-  const root = h('div', { class: 'atlas-chat' }, head, log, h('div', { class: 'atlas-chat-entry' }, list, form));
+  const root = h('div', { class: 'atlas-chat ui-glass' }, head, log, h('div', { class: 'atlas-chat-entry' }, list, form));
   return { root, log, count, field, typedGhost, moreGhost, list, form };
 }

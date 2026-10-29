@@ -58,8 +58,8 @@ export interface ShellWorld {
   jumpTo(lat: number, lon: number): void;
   /** Where this visit began. */
   home: { lat: number; lon: number; name: string };
-  /** The world's own teardown, which ends in `host.exit`: back to the solar system. */
-  leave(): void;
+  /** The world's own teardown, which ends in `host.exit`: back to the solar system, or on to the title. */
+  leave(to?: 'system' | 'title'): void;
   /** The parked rocket near enough to get into, or null (`rocket.ts`). */
   rocketInReach(): Rocket | null;
   /** The rocket the traveller is in, or null. */

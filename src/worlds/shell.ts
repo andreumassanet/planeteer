@@ -83,8 +83,8 @@ export function createShell(world: ShellWorld): Shell {
   const hud = createHud(political, {
     touch: createTouchPad(input.touchSink, lockTarget),
     surface,
-    // Back to the planets, from the bar: the solar system, as a rocket goes.
-    leave: { label: 'Solar system', run: () => world.leave() },
+    // Out of the game, from the bar: the title screen, as on Earth.
+    leave: { label: 'Main menu', run: () => world.leave('title') },
     // These craft have no horn.
     hints: (_mode, airborne) => (player.craft === null ? undefined : craftHints(player.craft.kind, airborne)),
     onSettings: () => gear.settings.toggle(),
@@ -96,12 +96,14 @@ export function createShell(world: ShellWorld): Shell {
     },
     onPassport: () => book.card.toggle(),
     onStart: () => input.lock(),
+    profile: () => ({ name: travellerName(), stamps: book.passport.data.stamps.length, towns: book.passport.data.towns.length }),
   });
   document.body.appendChild(hud.root);
 
   // The nations' names over the land from the air, on the map layer's fade.
   // First in the body, behind every card the HUD owns.
-  const names = createCountryNames(political, { radius: R, heightAt: (unit) => world.terrain.heightAt(unit.x, unit.y, unit.z) });
+  const groundAt = (unit: THREE.Vector3): number => world.terrain.heightAt(unit.x, unit.y, unit.z);
+  const names = createCountryNames(political, { radius: R, heightAt: groundAt, towns: { all: geography.places, groundAt } });
   document.body.insertBefore(names.root, document.body.firstChild);
 
   const paper = createMapPaper(world, { spec, geography, surface, settlements: world.settlements, political, radius: R });

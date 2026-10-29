@@ -84,6 +84,8 @@ export interface MapSheet extends MapDom {
   readonly keptPins: { index: number; x: number; y: number }[];
   /** The course sites on the sheet, projected once the list is known, and the ones kept this draw. */
   courseSpots: { u: number; v: number; dx: number }[] | null;
+  /** Where each course's first ring stands on the sheet, by its key, once asked (`courseStart`); null where it has none. */
+  courseStarts: Map<string, { u: number; v: number } | null>;
   courseSpotsFor: readonly unknown[] | null;
   readonly keptCourses: { index: number; x: number; y: number }[];
   /** The ring the shown course waited for at the last marks, to redraw them when it moves on. */

@@ -144,7 +144,7 @@ export function click(s: MapSheet, hit: Hit | null, x: number, y: number): void 
 
 /** The wheel, the double click and the overlay's buttons. */
 export function attachControls(s: MapSheet): void {
-  const { onUnmark, canvas, unmark, zoomIn, zoomOut, locate, closeButton, signal } = s;
+  const { canvas, zoomIn, zoomOut, locate, closeButton, signal } = s;
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
     // Lines and pages are a mouse; pixels are a trackpad and come in many small steps.
@@ -164,13 +164,8 @@ export function attachControls(s: MapSheet): void {
   // A click on a button leaves the focus where it was: a focused button on
   // this dialog would hold every key the plane under the map is flown by
   // (`inputBlocked`), and `Tab` with it.
-  for (const button of [zoomIn, zoomOut, locate, unmark, closeButton]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
+  for (const button of [zoomIn, zoomOut, locate, closeButton]) button.addEventListener('mousedown', (event) => event.preventDefault(), { signal });
   closeButton.addEventListener('click', () => hide(s), { signal });
-  unmark.addEventListener('click', () => {
-    onUnmark();
-    s.marksDirty = true;
-    s.dirty = true;
-  }, { signal });
   zoomIn.addEventListener('click', () => zoomAt(s, 2, s.width / 2, s.height / 2), { signal });
   zoomOut.addEventListener('click', () => zoomAt(s, 0.5, s.width / 2, s.height / 2), { signal });
   locate.addEventListener('click', () => centreOnMe(s), { signal });

@@ -6,6 +6,7 @@ import { TAU } from '../cartography.ts';
 import { latLonOf, unitAt } from '../sphere.ts';
 import { MAX_DISC_TILES, MAX_PIECES, PIECE_DEGREES } from './constants.ts';
 import type { MinimapState } from './state.ts';
+import { SQUARE_REACH } from './shape.ts';
 
 const tileSource: TileSource = { image: null as unknown as CanvasImageSource, sx: 0, sy: 0, size: TILE, up: 0 };
 const tileHere = { lat: 0, lon: 0 };
@@ -28,7 +29,7 @@ export function drawTiles(m: MinimapState): boolean {
   // Pixels a sheet unit east-west at the disc's middle: a sheet unit is
   // the whole turn of longitude.
   let z = Math.min(MAX_LEVEL, levelFor(scale * TAU * cosLat * m.ratio));
-  const reach = Math.min(89, ((view * 180) / Math.PI) * 1.08);
+  const reach = Math.min(89, ((view * 180) / Math.PI) * SQUARE_REACH * 1.08);
   const latTop = Math.min(89.99, tileHere.lat + reach);
   const latBottom = Math.max(-89.99, tileHere.lat - reach);
   const widest = Math.max(Math.abs(latTop), Math.abs(latBottom));

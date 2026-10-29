@@ -92,7 +92,7 @@ export async function createWorldPlayerList(app: App): Promise<PlayerList> {
 /** The names fade in with the flags and frontiers (`names.ts`). */
 export async function createWorldNames(app: App): Promise<CountryNames> {
   const { createCountryNames } = await app.deferred.names;
-  const names = createCountryNames(app.world);
+  const names = createCountryNames(app.world, { towns: { all: app.places.all, groundAt: (unit) => app.world.elevationAt(unit) } });
   // First in the body, so the names paint behind every HUD card.
   document.body.insertBefore(names.root, document.body.firstChild);
   return names;

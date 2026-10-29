@@ -8,12 +8,12 @@
  * crowd figure to keep step with the player.
  *
  * A person is 3.77 units tall. The walk is 6.5 units a second, 1.7 body heights
- * a second: a brisk walk with a game's exaggeration. The run is 20, 5.3 heights
- * a second and three times the walk; a lap of the planet at a run is about 84
- * minutes, which is what the plane is for.
+ * a second: a brisk walk with a game's exaggeration. The run is 14, 3.7 heights
+ * a second and a little over twice the walk: a run, not a sprint. A lap of the
+ * planet at a run is about four hours, which is what the plane is for.
  */
 export const WALK_SPEED = 6.5;
-export const RUN_SPEED = 20;
+export const RUN_SPEED = 14;
 
 /**
  * Distance covered by one full stride cycle, walking and running.
@@ -26,8 +26,8 @@ export const WALK_STRIDE = WALK_SPEED / 1.1;
 /**
  * Stride cycles a second at a full run; the run's stride is derived from it.
  * It must stay above the walk's 1.1, or a body that speeds up when Shift goes
- * down while its legs slow down reads as bounding on the moon. At 20 units a
- * second it gives a stride of 12.5 units, 3.3 heights.
+ * down while its legs slow down reads as bounding on the moon. At 14 units a
+ * second it gives a stride of 8.75 units, 2.3 heights.
  */
 export const RUN_CADENCE = 1.6;
 export const RUN_STRIDE = RUN_SPEED / RUN_CADENCE;

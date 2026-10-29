@@ -22,11 +22,16 @@ export async function createWorldHud(app: App): Promise<Hud> {
       if (country !== undefined) app.passport.arrived(country.iso, country.name);
     },
     onPassport: () => app.passportCard.toggle(),
-    // Earth's game is built once behind the menu, so back to the planets is a reload.
-    leave: { label: 'Solar system', run: () => app.toSolarSystem() },
+    // Earth's game is built once behind the menu, so back to the title is a reload.
+    leave: { label: 'Main menu', run: () => app.toTitle() },
     // Inside the welcome card's click, so the pointer lock is still a user gesture.
     onStart: () => app.input.lock(),
     weather: () => app.weather.here().kind,
+    profile: () => ({
+      name: app.peersLink?.name ?? app.peersModule.storedName(),
+      stamps: app.passport.data.stamps.length,
+      towns: app.passport.data.towns.length,
+    }),
   });
   document.body.appendChild(hud.root);
   return hud;

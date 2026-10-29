@@ -48,7 +48,6 @@ export interface HudCtx extends HudDom {
   heldFor: number;
   bumpFor: number;
   arrivedFor: number;
-  foundFor: number;
   toastFor: number;
   /** Set by `jump`, cleared by the next `update`: settle whatever arrives. */
   jumped: boolean;
@@ -84,6 +83,15 @@ export interface HudCtx extends HudDom {
   dragLook: boolean;
   welcoming: boolean;
   finishWelcome: (() => void) | null;
+  /** Seconds until the profile is asked again, and what it last said. */
+  profileFor: number;
+  shownProfile: string;
+  /** How much longer the banner stands, and what waits to follow it. */
+  splashFor: number;
+  splashQueue: { kicker: string; name: string; sub: string }[];
+  /** The country the last banner was for, so it is not announced twice in a row. */
+  splashCountry: number;
+  shownCoords: string;
 }
 
 export function createHudCtx(world: World, options: HudOptions): HudCtx {
@@ -115,7 +123,6 @@ export function createHudCtx(world: World, options: HudOptions): HudCtx {
     heldFor: 0,
     bumpFor: 0,
     arrivedFor: 0,
-    foundFor: 0,
     toastFor: 0,
     jumped: false,
     shownKm: NaN,
@@ -140,5 +147,12 @@ export function createHudCtx(world: World, options: HudOptions): HudCtx {
     dragLook: false,
     welcoming: false,
     finishWelcome: null,
+    profileFor: 0,
+    shownProfile: '',
+    // Idle: past the gap, so the first banner shows at once.
+    splashFor: -1,
+    splashQueue: [],
+    splashCountry: -1,
+    shownCoords: '',
   };
 }

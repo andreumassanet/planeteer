@@ -4,6 +4,8 @@ import { icon, type IconName } from '../ui.ts';
 import { updateBadge } from './badge.ts';
 import { WEATHER_EVERY, WEATHER_ICON } from './constants.ts';
 import type { HudCtx } from './ctx.ts';
+import { updatePlayer } from './player.ts';
+import { tickSplash } from './splash.ts';
 
 function updateClock(ctx: HudCtx, clockNow: string, dt: number): void {
   const { clock, clockIcon, clockText, options } = ctx;
@@ -43,14 +45,10 @@ function tickArrived(ctx: HudCtx, dt: number): void {
 }
 
 function tickTimers(ctx: HudCtx, dt: number): void {
-  const { found, hintsCard, place, toast } = ctx;
+  const { hintsCard, place, toast } = ctx;
   if (ctx.bumpFor > 0) {
     ctx.bumpFor -= dt;
     if (ctx.bumpFor <= 0) place.classList.remove('bump');
-  }
-  if (ctx.foundFor > 0) {
-    ctx.foundFor -= dt;
-    if (ctx.foundFor <= 0) found.classList.remove('in');
   }
   if (ctx.toastFor > 0) {
     ctx.toastFor -= dt;
@@ -71,5 +69,7 @@ export function updateHud(ctx: HudCtx, countryId: number, nearby: Nearby | null,
   updateClock(ctx, clockNow, dt);
   tickArrived(ctx, dt);
   updateBadge(ctx, countryId, nearby, dt, bearing);
+  updatePlayer(ctx, dt);
+  tickSplash(ctx, dt);
   tickTimers(ctx, dt);
 }

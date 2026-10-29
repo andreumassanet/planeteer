@@ -9,16 +9,16 @@ import { updateHud } from './frame.ts';
 import { applyHidden, renderPause, showHints } from './hints.ts';
 import type { Hud } from './types.ts';
 import { renderWelcome } from './welcome.ts';
+import { showMode } from './player.ts';
 
 export function createHudApi(ctx: HudCtx): Hud {
-  const { events, found, options, pause, perf, prompt, promptIcon, promptKey, promptText, root, toast, toastIcon, toastText, unregister, welcomeGo, welcomeRoot } = ctx;
+  const { events, options, pause, perf, prompt, promptIcon, promptKey, promptText, root, toast, toastIcon, toastText, unregister, welcomeGo, welcomeRoot } = ctx;
   return {
     root,
     jump() {
       ctx.jumped = true;
-      // The card belongs to the place you left.
-      ctx.foundFor = 0;
-      found.classList.remove('in');
+      // The banners belong to the place you left.
+      ctx.splashQueue.length = 0;
     },
     setDestination: (entry) => setDestination(ctx, entry),
     trackDestination: (distanceKm, x, y, angle) => trackDestination(ctx, distanceKm, x, y, angle),
@@ -31,6 +31,7 @@ export function createHudApi(ctx: HudCtx): Hud {
       if (next === ctx.mode && aloft === ctx.flying && view === ctx.firstPerson && alone === ctx.stranded) return;
       // A new way of travelling, a take-off or landing, or being left alone aloft changes what the keys do; looking through your own eyes does not.
       const changed = next !== ctx.mode || aloft !== ctx.flying || alone !== ctx.stranded;
+      if (next !== ctx.mode) showMode(ctx, next);
       ctx.mode = next;
       ctx.flying = aloft;
       ctx.firstPerson = view;
@@ -51,6 +52,15 @@ export function createHudApi(ctx: HudCtx): Hud {
       if (!floating) return;
       prompt.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, calc(-100% - 10px))`;
       prompt.style.setProperty('--cue-fade', fade.toFixed(2));
+    },
+    setCompass(reading) {
+      ctx.compass.update(reading);
+    },
+    setCoordinates(lat, lon) {
+      const text = `${Math.abs(lat).toFixed(3)}° ${lat >= 0 ? 'N' : 'S'}  ${Math.abs(lon).toFixed(3)}° ${lon >= 0 ? 'E' : 'W'}`;
+      if (text === ctx.shownCoords) return;
+      ctx.shownCoords = text;
+      ctx.coords.textContent = text;
     },
     setSpeed(reading, unit, dt) {
       ctx.speedometer.update(reading, unit, dt);

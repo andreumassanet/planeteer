@@ -1,13 +1,15 @@
-import { TAU } from '../cartography.ts';
 import { BASE_GAP, BASE_GAP_MAX } from './constants.ts';
 import { drawBase } from './base.ts';
 import { drawCourseRing, drawFrameMarks } from './marks.ts';
 import { cream, ink, pink } from './palette.ts';
 import type { MinimapState } from './state.ts';
+import { edgeAt, insideFrame, traceFrame } from './shape.ts';
+
+const edge = { x: 0, y: 0 };
 
 /** One overlay redraw: the paper (rebuilt when stale, else carried along), the rim marks, a course's ring, the other players and the arrow. */
 export function draw(m: MinimapState): void {
-  const { size, canvas, ctx, base, centre, discRadius, uiScale, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
+  const { size, canvas, ctx, base, centre, uiScale, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
   const dpr = Math.min(devicePixelRatio || 1, 3);
   if (dpr !== m.ratio) {
     m.ratio = dpr;
@@ -38,8 +40,7 @@ export function draw(m: MinimapState): void {
   const f = centre - scale * (m.baseUx * fx + m.baseUy * fy + m.baseUz * fz) - (b + d) * centre;
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.beginPath();
-  ctx.arc(centre, centre, discRadius, 0, TAU);
+  traceFrame(ctx, m);
   ctx.fillStyle = m.paper;
   ctx.fill();
   ctx.clip();
@@ -55,20 +56,15 @@ export function draw(m: MinimapState): void {
   drawFrameMarks(m);
   drawCourseRing(m);
 
-  const rim = discRadius - 5 * uiScale;
+  const rim = 5 * uiScale;
   for (const mark of m.peerMarks) {
-    let x = mark.x * rx + mark.y * ry + mark.z * rz;
-    let y = -(mark.x * fx + mark.y * fy + mark.z * fz);
-    let reach = Math.hypot(x, y) * scale;
-    // Behind the horizon it is still somewhere round the rim.
-    if (mark.x * ux + mark.y * uy + mark.z * uz <= 0) reach = Infinity;
-    if (reach > rim) {
-      const length = Math.hypot(x, y) || 1;
-      x = (x / length) * rim;
-      y = (y / length) * rim;
-    } else {
-      x *= scale;
-      y *= scale;
+    let x = (mark.x * rx + mark.y * ry + mark.z * rz) * scale;
+    let y = -(mark.x * fx + mark.y * fy + mark.z * fz) * scale;
+    // Off the square, or behind the horizon, it is still somewhere round the edge.
+    if (mark.x * ux + mark.y * uy + mark.z * uz <= 0 || !insideFrame(m, centre + x, centre + y, rim)) {
+      edgeAt(m, Math.atan2(x, -y), rim, edge);
+      x = edge.x;
+      y = edge.y;
     }
     ctx.beginPath();
     ctx.arc(centre + x, centre + y, 3.5 * uiScale, 0, Math.PI * 2);

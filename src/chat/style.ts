@@ -15,21 +15,16 @@ export const WHO_LIST = 12;
 export const STYLE = `
 .atlas-chat {
   position: fixed;
-  left: var(--hud-left, 24px);
-  bottom: var(--hud-bottom, 24px);
+  right: var(--hud-right, 24px);
+  bottom: calc(var(--hud-bottom, 24px) + var(--hud-speedo, 160px) + 28px);
   z-index: 6;
-  width: min(380px, calc(100vw - 2 * var(--hud-left, 24px)));
+  width: min(360px, calc(100vw - 2 * var(--hud-right, 24px)));
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-family: var(--ui-font);
   color: var(--ui-ink);
   pointer-events: none;
-}
-/* Over the prompt and a vehicle's keys, which are centred along the bottom,
-   once the window is too narrow for the two to stand side by side. */
-@media (max-width: 1180px) {
-  .atlas-chat { bottom: calc(var(--hud-bottom, 24px) + 116px); }
 }
 /*
  * A finger's chat. Shut, a few short lines over the stick. Open, it goes to
@@ -81,22 +76,23 @@ html.touch-ui body:has(.atlas-chat.open) #minimap { opacity: 0; visibility: hidd
   line-height: 1.3;
   overflow-wrap: anywhere;
   background: var(--ui-paper);
-  border: 2px solid var(--ui-ink);
+  border: 1px solid var(--ui-glass-edge);
   border-radius: 10px;
-  box-shadow: 0 3px 0 var(--ui-ink);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   transition: opacity ${FADE_MS}ms ease;
   animation: ui-pop 0.25s var(--ui-spring) both;
 }
 .atlas-chat-line .who { flex: none; font-weight: 800; white-space: nowrap; }
-.atlas-chat-line .flag { flex: none; align-self: center; display: block; width: 18px; height: 12px; border: 1.5px solid var(--ui-ink); border-radius: 3px; }
+.atlas-chat-line .flag { flex: none; align-self: center; display: block; width: 18px; height: 12px; border: 1.5px solid rgba(30, 6, 3, 0.9); border-radius: 3px; }
 .atlas-chat-line .flag.sea { background: var(--ui-sky); }
 .atlas-chat-line .world-disc { align-self: center; margin: 0 3px; }
 .atlas-chat-line .where { flex: none; align-self: center; font-size: 10.5px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.6; }
-.atlas-chat-line.self .who { color: var(--ui-violet); }
+.atlas-chat-line.self .who { color: var(--ui-gold); }
 .atlas-chat-line.me .text { font-style: italic; }
 .atlas-chat-line.system { background: var(--ui-cream); font-weight: 700; color: var(--ui-muted); }
 .atlas-chat-line.system svg { flex: none; align-self: center; width: 14px; height: 14px; }
-.atlas-chat-line.error { background: var(--ui-apricot); color: var(--ui-ink); }
+.atlas-chat-line.error { background: var(--ui-apricot); color: #1e0603; }
 .atlas-chat-line.fading { opacity: 0; }
 .atlas-chat:not(.open) .atlas-chat-line.gone { display: none; }
 .atlas-chat.open { pointer-events: auto; }
@@ -105,13 +101,15 @@ html.touch-ui body:has(.atlas-chat.open) #minimap { opacity: 0; visibility: hidd
   overflow-y: auto;
   padding: 8px;
   background: var(--ui-paper);
-  border: 3px solid var(--ui-ink);
+  border: 1.5px solid var(--ui-glass-edge);
   border-radius: var(--ui-radius);
   box-shadow: var(--ui-drop);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 .atlas-chat.open .atlas-chat-line { opacity: 1; border-color: transparent; box-shadow: none; padding: 2px 4px; background: transparent; animation: none; }
 .atlas-chat.open .atlas-chat-line.system { color: var(--ui-muted); }
-.atlas-chat.open .atlas-chat-line.error { background: var(--ui-apricot); border-radius: 8px; padding: 2px 6px; }
+.atlas-chat.open .atlas-chat-line.error { background: var(--ui-apricot); color: #1e0603; border-radius: 8px; padding: 2px 6px; }
 .atlas-chat-form {
   display: none;
   align-items: center;
@@ -129,7 +127,7 @@ html.touch-ui body:has(.atlas-chat.open) #minimap { opacity: 0; visibility: hidd
   color: var(--ui-ink);
   outline: none;
 }
-.atlas-chat-form input::placeholder { color: rgba(30, 6, 3, 0.45); }
+.atlas-chat-form input::placeholder { color: rgba(255, 242, 232, 0.45); }
 .atlas-chat-form:focus-within { outline: var(--ui-ring); outline-offset: 3px; }
 .atlas-chat-head { display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 0 4px; }
 .atlas-chat.open .atlas-chat-head { display: flex; }
@@ -161,9 +159,11 @@ html.touch-ui body:has(.atlas-chat.open) #minimap { opacity: 0; visibility: hidd
   padding: 5px;
   list-style: none;
   background: var(--ui-paper);
-  border: 3px solid var(--ui-ink);
+  border: 1.5px solid var(--ui-glass-edge);
   border-radius: var(--ui-radius);
   box-shadow: var(--ui-drop);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
   scrollbar-width: thin;
 }
 .atlas-chat.open .atlas-chat-suggest.shown { display: block; }

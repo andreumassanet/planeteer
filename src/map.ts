@@ -70,7 +70,6 @@ export function createWorldMap(world: World, options: WorldMapOptions): WorldMap
     update: (position: THREE.Vector3, forward: THREE.Vector3) => updateSheet(s, position, forward),
     dispose() {
       s.events.abort();
-      s.unlabel();
       if (s.ownTiles) s.mapTiles.dispose();
       else s.mapTiles.want('map', []);
       s.root.remove();

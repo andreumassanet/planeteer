@@ -5,11 +5,12 @@ import { hex } from '../ui.ts';
 export const STYLE = `
 /*
  * The HUD's frame: one margin from every edge, grown with the window and kept
- * clear of a notch, and the sizes the corners hold. The minimap (top right,
- * \`index.html\`) and the chat (bottom left) stand on the same lines. The
- * corners: the bar top left, the disc top right with the cards under it, the
- * chat bottom left, the speedometer bottom right; the centre line holds the
- * toast at the top and the prompt and a vehicle's keys at the bottom.
+ * clear of a notch, and the sizes the corners hold. The corners: the
+ * traveller top left, where you are top right with the cards under it, the
+ * square minimap bottom left (\`index.html\`) with the gear, the map and the
+ * passport beside it, the speedometer bottom right and the chat over it; the
+ * centre line holds the compass, the arrival title and the toast at the top
+ * and the prompt and a vehicle's keys at the bottom.
  */
 :root {
   --hud-edge: clamp(14px, calc(0.9vw + 8px), 28px);
@@ -19,8 +20,13 @@ export const STYLE = `
   --hud-bottom: max(var(--hud-edge), env(safe-area-inset-bottom));
   --hud-gap: 12px;
   /* The minimap's edge, its default \`size\` in \`minimap/constants.ts\`. */
-  --hud-map: 180px;
+  --hud-map: 230px;
   --hud-speedo: clamp(138px, 10.5vw, 184px);
+  /* Type laid straight on the world: cream with an ink stroke behind it and a drop under it. */
+  --hud-glyph: ${hex(PALETTE.white)};
+  --hud-stroke: ${hex(PALETTE.ink)};
+  --hud-shade: 0 3px 0 rgba(30, 6, 3, 0.55), 0 4px 14px rgba(30, 6, 3, 0.35);
+  --hud-glass: rgba(30, 6, 3, 0.62);
 }
 .atlas-hud {
   position: fixed;
@@ -36,25 +42,387 @@ export const STYLE = `
   border-radius: 4px;
 }
 .atlas-hud .ui-btn { pointer-events: auto; }
+/* The bar holds the corners' pieces; each stands on its own. */
+.atlas-hud-bar { display: contents; }
 
-/* --- the bar, top left: two buttons and where you are ----------------------- */
-/*
- * Never wider than the gap it has: the minimap stands \`--hud-right\` in from
- * the right and is \`--hud-map\` across, so "Democratic Republic of the Congo" gives way with an
- * ellipsis before it runs under the disc. The flag and the clock never do.
- */
-.atlas-hud-bar {
+/* --- top left: the traveller --------------------------------------------------- */
+.atlas-player {
   position: absolute;
   top: var(--hud-top);
   left: var(--hud-left);
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: calc(100vw - var(--hud-left) - var(--hud-right) - var(--hud-map) - 2 * var(--hud-gap));
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.4s ease;
 }
-.atlas-hud-bar > .ui-btn { position: relative; flex: none; }
+.atlas-player.on { opacity: 1; }
+.atlas-player-mode {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  color: ${hex(PALETTE.white)};
+  background: rgba(30, 6, 3, 0.72);
+  border: 3px solid var(--ui-gold);
+  box-shadow: 0 10px 30px rgba(4, 6, 14, 0.45);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.atlas-player-mode svg { width: 28px; height: 28px; }
+.atlas-player-text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 190px;
+  margin-left: -14px;
+  padding: 8px 14px 9px 24px;
+  background: var(--ui-paper);
+  border: 1.5px solid var(--ui-glass-edge);
+  border-left: 0;
+  border-radius: 0 var(--ui-radius) var(--ui-radius) 0;
+  box-shadow: var(--ui-drop);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.atlas-player-top { display: flex; align-items: baseline; gap: 8px; }
+.atlas-player-name {
+  flex: 1;
+  max-width: 180px;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.atlas-player-level {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ui-gold);
+  color: ${hex(PALETTE.ink)};
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-player-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 242, 232, 0.14);
+  overflow: hidden;
+}
+.atlas-player-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  border-radius: inherit;
+  background: var(--ui-gold);
+  transition: transform 0.8s var(--ui-ease);
+}
+.atlas-player-stats { display: flex; gap: 12px; font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.atlas-player-stat { display: inline-flex; align-items: center; gap: 4px; }
+.atlas-player-stat svg { width: 14px; height: 14px; opacity: 0.75; }
+
+/* --- top centre: the compass ----------------------------------------------------- */
+.atlas-compass {
+  position: absolute;
+  top: var(--hud-top);
+  left: 50%;
+  width: min(560px, 40vw);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.atlas-compass-strip {
+  position: relative;
+  width: 100%;
+  height: 44px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(30, 6, 3, 0.58), rgba(30, 6, 3, 0.4));
+  border-top: 2px solid rgba(255, 242, 232, 0.35);
+  border-bottom: 2px solid rgba(255, 242, 232, 0.35);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent);
+}
+.atlas-compass-tape { position: absolute; left: 0; top: 0; bottom: 0; will-change: transform; }
+.atlas-compass-tick {
+  position: absolute;
+  bottom: 0;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  background: rgba(255, 242, 232, 0.5);
+}
+.atlas-compass-tick.major { height: 11px; background: rgba(255, 242, 232, 0.85); }
+.atlas-compass-label {
+  position: absolute;
+  top: 13px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  color: rgba(255, 242, 232, 0.72);
+  font-variant-numeric: tabular-nums;
+}
+.atlas-compass-label.point { top: 12px; font-size: 13px; font-weight: 900; color: var(--hud-glyph); }
+.atlas-compass-label.cardinal { top: 10px; font-size: 18px; }
+.atlas-compass-label.north { color: var(--ui-gold); }
+.atlas-compass-caret {
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  width: 0;
+  height: 0;
+  margin-left: -8px;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 9px solid var(--ui-gold);
+  filter: drop-shadow(0 2px 0 var(--ui-ink));
+}
+.atlas-compass-marks { position: absolute; inset: 0; }
+.atlas-compass-mark {
+  position: absolute;
+  left: 0;
+  top: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 0;
+  will-change: transform;
+}
+.atlas-compass-mark[hidden] { display: none; }
+.atlas-compass-pip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--ui-ink);
+  background: var(--ui-cream);
+}
+.atlas-compass-pip svg { width: 12px; height: 12px; }
+.atlas-compass-mark.marker .atlas-compass-pip { background: var(--ui-violet); color: var(--hud-glyph); }
+.atlas-compass-mark.course .atlas-compass-pip { background: var(--ui-green); }
+.atlas-compass-mark.peer { top: 13px; }
+.atlas-compass-mark.peer .atlas-compass-pip { width: 12px; height: 12px; background: ${hex(PALETTE.pink)}; }
+.atlas-compass-mark.left .atlas-compass-pip, .atlas-compass-mark.right .atlas-compass-pip { opacity: 0.85; }
+.atlas-compass-mark.left .atlas-compass-pip::before, .atlas-compass-mark.right .atlas-compass-pip::before {
+  content: '';
+  position: absolute;
+  margin-top: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.atlas-compass-mark.left .atlas-compass-pip::before { margin-left: -30px; border-right: 6px solid var(--hud-glyph); }
+.atlas-compass-mark.right .atlas-compass-pip::before { margin-left: 30px; border-left: 6px solid var(--hud-glyph); }
+.atlas-compass-km {
+  margin-top: 1px;
+  font-size: 9.5px;
+  font-weight: 900;
+  color: var(--hud-glyph);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  -webkit-text-stroke: 2.5px var(--hud-stroke);
+  paint-order: stroke fill;
+}
+.atlas-compass-km:empty { display: none; }
+.atlas-compass-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 5px;
+  padding: 3px 11px 4px;
+  border-radius: 999px;
+  background: var(--hud-glass);
+  color: var(--hud-glyph);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-compass-readout b { font-size: 13px; font-weight: 900; color: var(--ui-gold); }
+
+/* --- top right: where you are ---------------------------------------------------- */
+/*
+ * Type on the world, not a card: the place large, a gold rule, then the country,
+ * how far the town is and which way, and the clock. Never wider than half the
+ * screen; a long name gives way with an ellipsis before the flag does.
+ */
+.atlas-place {
+  position: absolute;
+  top: var(--hud-top);
+  right: var(--hud-right);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  max-width: min(46vw, 520px);
+  opacity: 0;
+  transform-origin: 100% 0;
+  transition: opacity 0.35s ease, transform 0.3s var(--ui-spring);
+}
+.atlas-place.on { opacity: 1; }
+.atlas-place.bump { transform: scale(1.04); }
+.atlas-place-head { display: flex; align-items: center; gap: 12px; max-width: 100%; }
+.atlas-place-flag { flex: none; display: flex; }
+.atlas-place-flag canvas { border: 2px solid var(--hud-stroke); border-radius: 4px; box-shadow: 0 2px 8px rgba(4, 6, 14, 0.45); }
+.atlas-place-name {
+  min-width: 0;
+  font-size: clamp(22px, calc(1.1vw + 14px), 34px);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  line-height: 1.12;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 2px 4px 4px;
+  color: var(--hud-glyph);
+  -webkit-text-stroke: 6px var(--hud-stroke);
+  paint-order: stroke fill;
+  text-shadow: var(--hud-shade);
+}
+.atlas-place-head .atlas-clock { margin-left: 2px; }
+/* Tabular figures: the distance is rewritten every step. */
+.atlas-place-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 18px;
+  color: var(--hud-glyph);
+  -webkit-text-stroke: 4px var(--hud-stroke);
+  paint-order: stroke fill;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.atlas-place-sub[hidden], .atlas-place-sub > [hidden] { display: none; }
+.atlas-place-sub > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+/* The glyph points up the screen at rest, so the transform *is* the bearing. */
+.atlas-place-arrow { display: inline-block; font-size: 14px; line-height: 1; color: var(--ui-gold); transition: transform 0.12s ease; }
+
+/* The clock: the hour where you stand and the sky over it. */
+.atlas-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border-radius: 999px;
+  background: var(--hud-glass);
+  color: var(--hud-glyph);
+  font-size: 13.5px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.atlas-clock.on { opacity: 1; }
+.atlas-clock svg { width: 16px; height: 16px; }
+
+/* --- the arrival title, under the compass --------------------------------------- */
+.atlas-splash {
+  position: absolute;
+  top: calc(var(--hud-top) + 132px);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 2 * var(--hud-left));
+  transform: translateX(-50%);
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.8s ease, visibility 0s 0.8s;
+}
+.atlas-splash.on { opacity: 1; visibility: visible; transition: opacity 0.35s ease; }
+/* A soft shade behind the title, so the names on the map under it step back. */
+.atlas-splash::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -22px -140px -18px;
+  background: radial-gradient(closest-side, rgba(30, 6, 3, 0.5), rgba(30, 6, 3, 0.28) 55%, rgba(30, 6, 3, 0));
+}
+.atlas-splash-kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--ui-gold);
+  -webkit-text-stroke: 4px var(--hud-stroke);
+  paint-order: stroke fill;
+}
+.atlas-splash-kicker::before, .atlas-splash-kicker::after {
+  content: '';
+  width: 54px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ui-gold);
+  box-shadow: 0 0 0 1.5px var(--ui-ink);
+}
+.atlas-splash-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px 6px;
+  font-size: clamp(32px, calc(2.2vw + 14px), 56px);
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  color: var(--hud-glyph);
+  -webkit-text-stroke: 9px var(--hud-stroke);
+  paint-order: stroke fill;
+  text-shadow: 0 5px 0 rgba(30, 6, 3, 0.55), 0 8px 26px rgba(30, 6, 3, 0.4);
+}
+.atlas-splash.on .atlas-splash-name { animation: atlas-splash-in 0.9s var(--ui-ease) both; }
+.atlas-splash.on .atlas-splash-kicker { animation: atlas-splash-in 0.9s var(--ui-ease) 0.08s both; }
+.atlas-splash.on .atlas-splash-sub { animation: atlas-splash-in 0.9s var(--ui-ease) 0.16s both; }
+@keyframes atlas-splash-in {
+  from { opacity: 0; transform: translateY(-10px); letter-spacing: 0.22em; }
+}
+.atlas-splash-sub {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--hud-glyph);
+  -webkit-text-stroke: 4px var(--hud-stroke);
+  paint-order: stroke fill;
+}
+.atlas-splash-sub[hidden] { display: none; }
+
+/* --- bottom left: the dock beside the minimap, and the coordinates over it ------ */
+.atlas-dock {
+  position: absolute;
+  left: calc(var(--hud-left) + var(--hud-map) + 12px);
+  bottom: var(--hud-bottom);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 12px;
+}
+.atlas-dock > .ui-btn { position: relative; flex: none; }
+.atlas-dock > .ui-btn { border-radius: 50%; }
 /* The key a button answers to, on its corner, where a controller game puts it. */
-.atlas-hud-bar .atlas-hud-cap {
+.atlas-dock .atlas-hud-cap {
   position: absolute;
   right: -8px;
   bottom: -9px;
@@ -62,70 +430,27 @@ export const STYLE = `
   min-width: 18px;
   padding: 0 4px;
   font-size: 10px;
-  box-shadow: 0 2px 0 var(--ui-ink);
+  color: ${hex(PALETTE.ink)};
+  background: ${hex(PALETTE.white)};
+  border-color: ${hex(PALETTE.white)};
 }
-.atlas-place {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 44px;
-  box-sizing: border-box;
-  padding: 5px 14px 5px 9px;
-  opacity: 0;
-  transform-origin: 0 50%;
-  transition: opacity 0.35s ease, transform 0.3s var(--ui-spring);
-}
-.atlas-place.on { opacity: 1; }
-.atlas-place.bump { transform: scale(1.03); }
-.atlas-place > * { flex: none; }
-.atlas-place-text { flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.atlas-place-name {
-  font-size: 16px;
+.atlas-coords {
+  position: absolute;
+  left: var(--hud-left);
+  bottom: calc(var(--hud-bottom) + var(--hud-map) + 14px);
+  padding: 3px 10px 4px;
+  border-radius: 999px;
+  background: var(--hud-glass);
+  color: var(--hud-glyph);
+  font-size: 11.5px;
   font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Tabular figures: the distance is rewritten every step. */
-.atlas-place-sub {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12.5px;
-  font-weight: 700;
-  line-height: 15px;
-  color: var(--ui-muted);
-  white-space: nowrap;
+  letter-spacing: 0.03em;
+  white-space: pre;
   font-variant-numeric: tabular-nums;
 }
-.atlas-place-sub[hidden], .atlas-place-sub > [hidden] { display: none; }
-.atlas-place-sub > span:first-child { overflow: hidden; text-overflow: ellipsis; }
-/* The glyph points up the screen at rest, so the transform *is* the bearing. */
-.atlas-place-arrow { display: inline-block; font-size: 12px; line-height: 1; color: var(--ui-ink); transition: transform 0.12s ease; }
+.atlas-coords:empty { display: none; }
 
-/* The clock: the hour where you stand and the sky over it, a chip of its own. */
-.atlas-clock {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  height: 44px;
-  box-sizing: border-box;
-  padding: 0 13px 0 11px;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  font-variant-numeric: tabular-nums;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-}
-.atlas-clock.on { opacity: 1; }
-.atlas-clock svg { width: 17px; height: 17px; }
-
-/* --- the column under the minimap: the marker, a landmark ------------------ */
+/* --- the column under where you are: the marker, a landmark ----------------- */
 /*
  * One width, one side, one way in. A card that is not up takes no room, so
  * the landmark's card sits right under the disc when there is no marker; a
@@ -133,9 +458,9 @@ export const STYLE = `
  */
 .atlas-side {
   position: absolute;
-  top: calc(var(--hud-top) + var(--hud-map) + 18px);
+  top: calc(var(--hud-top) + 92px);
   right: var(--hud-right);
-  width: 248px;
+  width: 268px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -153,37 +478,6 @@ export const STYLE = `
 @starting-style {
   .atlas-side > .ui-card.on, .atlas-side > .ui-card.in { opacity: 0; transform: translateX(16px); }
 }
-.atlas-found-name {
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: -0.015em;
-  line-height: 1.12;
-}
-.atlas-found-fact {
-  margin-top: 3px;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.35;
-  opacity: 0.68;
-}
-/* The landmark card: the flag, then what it is, in the column's width. */
-.atlas-found {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px 11px;
-}
-.atlas-found > :last-child { order: -1; flex: none; margin-top: 2px; }
-.atlas-found-text { min-width: 0; }
-.atlas-found-note {
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.4;
-  opacity: 0.8;
-  text-wrap: pretty;
-}
-.atlas-found-note:empty { display: none; }
 
 /* --- the destination, under the minimap -------------------------------------- */
 .atlas-destination { padding: 9px 12px 10px; }
@@ -281,7 +575,7 @@ export const STYLE = `
 .atlas-toast {
   position: absolute;
   left: 50%;
-  top: calc(var(--hud-top) + 62px);
+  top: calc(var(--hud-top) + 76px);
   display: flex;
   align-items: center;
   gap: 9px;
@@ -349,6 +643,8 @@ export const STYLE = `
   transition: opacity 0.25s ease, transform 0.35s var(--ui-spring);
 }
 .atlas-speedo.on { opacity: 1; transform: none; }
+/* Round whatever the card language rounds a card to. */
+.atlas-hud .atlas-speedo { border-radius: 50%; }
 .atlas-speedo svg { display: block; width: 100%; height: 100%; }
 .atlas-speedo text { font-family: var(--ui-font); fill: var(--ui-ink); }
 .atlas-speedo .sp-num { font-size: 13px; font-weight: 800; text-anchor: middle; dominant-baseline: central; }
@@ -369,6 +665,7 @@ export const STYLE = `
  * you do.
  */
 .atlas-hud.hidden > :not(.atlas-pause):not(.atlas-welcome):not(.atlas-toast),
+.atlas-hud.hidden > .atlas-hud-bar > *,
 body.atlas-hud-hidden #minimap,
 body.atlas-hud-hidden .atlas-bubble,
 body.atlas-hud-hidden .atlas-stamp-drop,
@@ -462,22 +759,39 @@ body.atlas-hud-hidden .atlas-chat:not(.open) {
  */
 .atlas-hud-more { display: none; }
 html.touch-ui .atlas-hud-more { display: grid; }
-html.touch-ui .atlas-hud-bar > .atlas-hud-desk,
+html.touch-ui .atlas-dock > .atlas-hud-desk,
 html.touch-ui .atlas-hud-cap,
 html.touch-ui .atlas-hints,
-html.touch-ui .atlas-prompt { display: none; }
-html.touch-ui .atlas-hud-bar {
+html.touch-ui .atlas-prompt,
+html.touch-ui .atlas-player,
+html.touch-ui .atlas-coords { display: none; }
+/* A finger's corners: the menu button top left with where you are beside it, the minimap top right. */
+html.touch-ui .atlas-dock {
   top: max(10px, env(safe-area-inset-top));
   left: max(10px, env(safe-area-inset-left));
-  gap: 8px;
-  max-width: calc(100vw - 150px - env(safe-area-inset-left));
+  bottom: auto;
 }
-html.touch-ui .atlas-place { min-height: 44px; padding: 4px 12px 4px 8px; }
-html.touch-ui .atlas-place-name { font-size: 15px; }
+html.touch-ui .atlas-place {
+  top: max(10px, env(safe-area-inset-top));
+  left: calc(max(10px, env(safe-area-inset-left)) + 54px);
+  right: auto;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: calc(100vw - 180px - env(safe-area-inset-left));
+  transform-origin: 0 0;
+}
+html.touch-ui .atlas-place-name { font-size: 19px; -webkit-text-stroke-width: 5px; }
+html.touch-ui .atlas-compass { top: calc(max(10px, env(safe-area-inset-top)) + 66px); width: min(300px, 60vw); }
+html.touch-ui .atlas-compass-strip { height: 32px; }
+html.touch-ui .atlas-compass-readout { display: none; }
+html.touch-ui .atlas-splash { top: calc(max(10px, env(safe-area-inset-top)) + 112px); }
+html.touch-ui .atlas-splash-name { font-size: 30px; -webkit-text-stroke-width: 7px; }
 html.touch-ui #minimap {
   top: max(10px, env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
-  transform: scale(0.6);
+  bottom: auto;
+  left: auto;
+  transform: scale(0.5);
   transform-origin: 100% 0;
   pointer-events: auto;
 }
@@ -488,12 +802,6 @@ html.touch-ui .atlas-side {
   width: auto;
   max-width: 380px;
   margin: 0 auto;
-}
-html.touch-ui .atlas-found-note {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
 }
 html.touch-ui .atlas-toast { top: calc(max(10px, env(safe-area-inset-top)) + 136px); font-size: 14px; }
 /* A finger's dial: small, under the bar, clear of both thumbs. */
@@ -508,6 +816,8 @@ html.touch-ui .atlas-speedo .sp-num { font-size: 15px; }
 html.touch-ui .atlas-waypoint-label { max-width: 160px; }
 html.touch-ui .atlas-chat:not(.open) {
   left: max(12px, env(safe-area-inset-left));
+  right: auto;
+  top: auto;
   bottom: calc(env(safe-area-inset-bottom) + 176px);
   width: min(300px, calc(100vw - 24px));
 }
@@ -517,13 +827,14 @@ html.touch-ui .atlas-welcome-card { padding: 18px 18px 16px; max-height: calc(10
 html.touch-ui .atlas-welcome-row > span:first-child { min-width: 0; }
 /* Wide enough for the clock beside the badge only on its side. */
 @media (orientation: portrait) {
-  html.touch-ui .atlas-hud-bar > .atlas-clock { display: none; }
+  html.touch-ui .atlas-clock { display: none; }
   html.touch-ui .atlas-hud:has(.atlas-speedo.on) .atlas-side { top: calc(max(10px, env(safe-area-inset-top)) + 172px); }
 }
 /* A phone on its side: the cards between the badge and the disc, at the top. */
 @media (orientation: landscape) and (max-height: 520px) {
-  html.touch-ui #minimap { transform: scale(0.5); }
-  html.touch-ui .atlas-hud-bar { max-width: calc(100vw - 130px - 330px); }
+  html.touch-ui #minimap { transform: scale(0.42); }
+  html.touch-ui .atlas-place { max-width: calc(100vw - 130px - 330px); }
+  html.touch-ui .atlas-compass { display: none; }
   html.touch-ui .atlas-side {
     top: max(10px, env(safe-area-inset-top));
     left: auto;
@@ -531,7 +842,6 @@ html.touch-ui .atlas-welcome-row > span:first-child { min-width: 0; }
     width: 300px;
     margin: 0;
   }
-  html.touch-ui .atlas-found-note { -webkit-line-clamp: 2; }
   html.touch-ui .atlas-toast { top: calc(max(10px, env(safe-area-inset-top)) + 54px); }
   html.touch-ui .atlas-chat:not(.open) { bottom: calc(env(safe-area-inset-bottom) + 150px); }
   html.touch-ui .atlas-welcome-card { width: min(640px, 100%); padding: 14px 16px 12px; }
@@ -607,5 +917,6 @@ body:has(.atlas-sheet.on) .atlas-chat:not(.open) { opacity: 0; visibility: hidde
   .atlas-place, .atlas-place.bump { transform: none; transition: opacity 0.2s ease; }
   .atlas-welcome.on .atlas-welcome-card { animation: none; }
   .atlas-place-arrow { transition: none; }
+  .atlas-splash.on .atlas-splash-name, .atlas-splash.on .atlas-splash-kicker, .atlas-splash.on .atlas-splash-sub { animation: none; }
 }
 `;

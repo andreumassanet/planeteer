@@ -6,6 +6,7 @@
 import { toLatLon } from '../../geo.ts';
 import { clockAt } from '../../timezone.ts';
 import type { App } from '../context.ts';
+import type { CompassReading } from '../../minimap.ts';
 import type { Tick } from './tick.ts';
 
 /** Fills `tick.standingIn` and `tick.nearbyPlace`, and updates the maps and the player list. */
@@ -37,11 +38,16 @@ export function createMapsPhase(app: App): (tick: Tick) => void {
  * at sea. Guarded: `Intl` throws on a date it cannot format.
  */
 export function createBadgePhase(app: App): (tick: Tick) => void {
-  const { guard, world, player, sky, hud, passport, passportMoment, bearingTo } = app;
+  const { guard, world, player, sky, hud, minimap, passport, passportMoment, bearingTo } = app;
+  const compass: CompassReading = { heading: 0, marks: [] };
   return (tick) => {
     const { standingIn, nearbyPlace } = tick;
     const here = toLatLon(player.position);
     tick.here = here;
+    guard('compass', () => {
+      hud.setCompass(minimap.compass(compass));
+      hud.setCoordinates(here.lat, here.lon);
+    });
     guard('hud', () => hud.update(
       standingIn,
       nearbyPlace,

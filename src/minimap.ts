@@ -34,7 +34,10 @@ import type * as THREE from 'three';
 import type { World } from './geo.ts';
 import { createState } from './minimap/state.ts';
 import { updateMinimap } from './minimap/update.ts';
-import type { Minimap, MinimapOptions } from './minimap/types.ts';
+import type { CompassMark, Minimap, MinimapOptions } from './minimap/types.ts';
+
+/** The compass names this many other players at most, the nearest. */
+const COMPASS_PEERS = 6;
 
 export type {
   Minimap,
@@ -43,6 +46,8 @@ export type {
   MinimapOptions,
   MinimapPad,
   MinimapStats,
+  CompassMark,
+  CompassReading,
 } from './minimap/types.ts';
 
 /**
@@ -50,7 +55,42 @@ export type {
  */
 export function createMinimap(world: World, options: MinimapOptions | number = {}): Minimap {
   const m = createState(world, options);
+  const marks: CompassMark[] = [];
+  const pool: CompassMark[] = [];
+  const mark = (kind: CompassMark['kind'], p: { x: number; y: number; z: number }): CompassMark | null => {
+    const length = Math.hypot(p.x, p.y, p.z) || 1;
+    const x = p.x / length;
+    const y = p.y / length;
+    const z = p.z / length;
+    const across = x * m.rx + y * m.ry + z * m.rz;
+    const ahead = x * m.fx + y * m.fy + z * m.fz;
+    if (Math.abs(across) + Math.abs(ahead) < 1e-9) return null;
+    const slot = pool[marks.length] ?? (pool[marks.length] = { kind, bearing: 0, km: 0 });
+    slot.kind = kind;
+    slot.bearing = Math.atan2(across, ahead);
+    slot.km = Math.acos(Math.max(-1, Math.min(1, x * m.ux + y * m.uy + z * m.uz))) * m.RADIUS_KM;
+    marks.push(slot);
+    return slot;
+  };
   return {
+    compass(out) {
+      out.heading = (((-m.northAngle) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      marks.length = 0;
+      if (m.marked) mark('marker', m.markerPoint);
+      if (m.coursed) mark('course', m.coursePoint);
+      const peersFrom = marks.length;
+      for (const peer of m.peerMarks) mark('peer', peer);
+      // The nearest few: a full server would fill the strip with dots.
+      if (marks.length - peersFrom > COMPASS_PEERS) {
+        const peers = marks.splice(peersFrom).sort((a, b) => a.km - b.km);
+        marks.push(...peers.slice(0, COMPASS_PEERS));
+        // `pool` must stay one slot per position for the next frame.
+        for (let i = 0; i < marks.length; i++) pool[i] = marks[i]!;
+        for (let i = marks.length; i < marks.length + peers.length - COMPASS_PEERS; i++) pool[i] = peers[COMPASS_PEERS + i - marks.length]!;
+      }
+      out.marks = marks;
+      return out;
+    },
     canvas: m.canvas,
     update: (position: THREE.Vector3, forward: THREE.Vector3, here, look) => updateMinimap(m, position, forward, here, look),
     setMarker(direction) {

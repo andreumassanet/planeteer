@@ -1,8 +1,8 @@
-/** The marker's panel and waypoint, and a landmark's card. */
-import { createFlagCanvas } from '../flags.ts';
+/** The marker's panel and waypoint, and a landmark's banner. */
 import { markFlag } from './badge.ts';
-import { ARRIVED_HOLD, FOUND_HOLD, LABEL_MARGIN, NOTE_HOLD, R2D } from './constants.ts';
+import { ARRIVED_HOLD, LABEL_MARGIN, R2D } from './constants.ts';
 import type { HudCtx } from './ctx.ts';
+import { splash } from './splash.ts';
 import { km, yearText } from './format.ts';
 import type { DestinationEntry, LandmarkArrival } from './types.ts';
 
@@ -58,17 +58,11 @@ export function trackDestination(ctx: HudCtx, distanceKm: number | null, x: numb
 }
 
 export function showLandmark(ctx: HudCtx, landmark: LandmarkArrival): void {
-  const { found, foundFact, foundFlag, foundName, foundNote } = ctx;
-  foundName.textContent = landmark.name;
-  // Country first: the one fact every landmark has.
-  const lines = [landmark.country];
-  if (landmark.height !== undefined && landmark.height > 0) lines.push(`${landmark.height.toLocaleString('en')} m`);
-  if (landmark.year !== undefined) lines.push(yearText(landmark.year));
-  foundFact.textContent = lines.join(', ');
-  foundNote.textContent = landmark.note ?? '';
-  foundFlag.replaceChildren(createFlagCanvas(landmark.iso, 36, 24));
-  found.classList.add('in');
-  ctx.foundFor = FOUND_HOLD + (landmark.note ? NOTE_HOLD : 0);
+  // What the place under you does not already say: how tall, how old.
+  const facts: string[] = [];
+  if (landmark.height !== undefined && landmark.height > 0) facts.push(`${landmark.height.toLocaleString('en')} m`);
+  if (landmark.year !== undefined) facts.push(yearText(landmark.year));
+  splash(ctx, 'Landmark discovered', landmark.name, facts.join(' · '));
 }
 
 export function arriveAt(ctx: HudCtx, name: string, iso: string | null): void {

@@ -458,7 +458,7 @@ export const PLANE_CRUISE_LOW = 140;
  * The cruise at the ceiling on the nominal planet. The other worlds keep it;
  * Earth's is `WORLD_SCALE` times it, because its oceans are that much wider.
  */
-export const PLANE_CRUISE_NOMINAL = 1500;
+export const PLANE_CRUISE_NOMINAL = 950;
 export const PLANE_CRUISE_HIGH = PLANE_CRUISE_NOMINAL * WORLD_SCALE;
 /**
  * The cruise at a height over the sea: low, from the floor to about a third of

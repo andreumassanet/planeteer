@@ -87,6 +87,19 @@ export interface MinimapStats {
   baseMs: number;
 }
 
+/** One thing the compass points at: its bearing clockwise from where the camera looks, radians, and how far, real km. */
+export interface CompassMark {
+  kind: 'marker' | 'course' | 'peer';
+  bearing: number;
+  km: number;
+}
+
+/** What the HUD's compass reads off the minimap's frame: the camera's heading clockwise from north, and the marks. */
+export interface CompassReading {
+  heading: number;
+  marks: CompassMark[];
+}
+
 export interface Minimap {
   /** Not attached to the DOM. The caller mounts it. */
   canvas: HTMLCanvasElement;
@@ -115,6 +128,8 @@ export interface Minimap {
    * one past the rim sits on it, pointing the way to them.
    */
   setPeers(marks: readonly { x: number; y: number; z: number }[]): void;
+  /** The heading and the marks on this frame's paper, into `out`'s arrays, which are reused. */
+  compass(out: CompassReading): CompassReading;
   /** What the disc is showing and what it costs. `atlas.minimap.stats`. */
   readonly stats: MinimapStats;
   /** Takes the canvas off the page; the disc holds no listener of its own. */

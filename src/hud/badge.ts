@@ -11,6 +11,7 @@ import { h, icon } from '../ui.ts';
 import { ARROW_STEP, BUMP, OFFSHORE_KM, R2D, SETTLE_FLIGHT, SETTLE_LAND, SETTLE_OCEAN, SETTLE_PLACE, sizeWord } from './constants.ts';
 import type { HudCtx } from './ctx.ts';
 import { oceanPlate } from './format.ts';
+import { splash } from './splash.ts';
 
 /**
  * Which place the badge names, as a string that changes exactly when the badge's
@@ -36,7 +37,7 @@ const kmText = (value: number): string => `${value < 10 ? value.toFixed(1) : Mat
 
 /** Writes the badge from whatever has settled: on a change, never per frame. */
 function renderPlace(ctx: HudCtx): void {
-  const { dryBody, emptyLabel, options, place, placeCountry, placeFlag, placeName, world } = ctx;
+  const { dryBody, emptyLabel, options, place, placeFlag, placeName, world } = ctx;
   // Nothing until the ground has said what it is.
   if (ctx.settled < 0) return;
   const country = ctx.settled > 0 ? world.countries[ctx.settled - 1]! : null;
@@ -50,21 +51,27 @@ function renderPlace(ctx: HudCtx): void {
     near === null
       ? country ? country.name : emptyLabel
       : ctx.placeMode === 'in' ? near.place.name : ctx.placeMode === 'near' ? `Near ${near.place.name}` : `Off ${near.place.name}`;
-  // The country you stand in, which is not always the town's.
-  placeCountry.textContent = near !== null && country !== null ? country.name : '';
   // The town's size, for whoever asks.
-  place.title = [placeName.textContent, near === null ? '' : sizeWord(options.surface === undefined ? nominalRadiusOf(near.place) : near.radius), placeCountry.textContent].filter((part) => part !== '').join(' · ');
+  place.title = [placeName.textContent, near === null ? '' : sizeWord(options.surface === undefined ? nominalRadiusOf(near.place) : near.radius), near !== null && country !== null ? country.name : ''].filter((part) => part !== '').join(' · ');
   // Ground that belongs to nobody on a body with no sea has no plate at all.
   placeFlag.replaceChildren(...(country ? [createFlagCanvas(country.iso, 26, 17)] : options.surface?.sea === false ? [] : [oceanPlate(26, 17)]));
   // Rewritten by the next `renderRange`, which is in the same frame.
   ctx.rangeStale = true;
   place.classList.add('on', 'bump');
   ctx.bumpFor = BUMP;
+  announceArrival(ctx, country);
+}
+
+/** The banner under the compass for a new country; a town has the corner's name, which is enough. */
+function announceArrival(ctx: HudCtx, country: { iso: string; name: string } | null): void {
+  const newCountry = ctx.settled !== ctx.splashCountry;
+  ctx.splashCountry = ctx.settled;
+  if (newCountry && country !== null) splash(ctx, 'Entering', country.name);
 }
 
 /** How far the town is, rewritten on its own clock; inside it, nothing. */
 function renderRange(ctx: HudCtx, bearing: number | null): void {
-  const { placeArrow, placeCountry, placeRangeText, placeSep, placeSub } = ctx;
+  const { placeArrow, placeRangeText, placeSub } = ctx;
   const near = ctx.placeMode === null ? null : ctx.settledPlace;
   const text = near !== null && ctx.placeMode !== 'in' ? kmText(near.km) : '';
   if (text !== ctx.shownRange || ctx.rangeStale) {
@@ -72,9 +79,7 @@ function renderRange(ctx: HudCtx, bearing: number | null): void {
     ctx.shownRange = text;
     placeRangeText.textContent = text;
     placeRangeText.hidden = text === '';
-    placeSep.hidden = text === '' || placeCountry.textContent === '';
-    placeCountry.hidden = placeCountry.textContent === '';
-    placeSub.hidden = text === '' && placeCountry.textContent === '';
+    placeSub.hidden = text === '';
   }
   const arrow = near !== null && ctx.placeMode !== 'in' && bearing !== null;
   placeArrow.hidden = !arrow;

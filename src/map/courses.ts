@@ -11,6 +11,8 @@ import type { MapCourse, MapCourseSite } from './types.ts';
 import { screenX, screenY } from './view.ts';
 
 const latLon = { lat: 0, lon: 0 };
+/** Courses whose first ring is laid out in one redraw: laying one runs the course's own layout. */
+const STARTS_A_REDRAW = 6;
 const unit = new THREE.Vector3();
 const NO_SITES: readonly MapCourseSite[] = [];
 
@@ -49,10 +51,18 @@ export function keepCourses(s: MapSheet, space: LabelSpace): void {
   if (sites.length === 0) return;
   const spots = spotsOf(s, sites);
   const room = COURSE_BADGE * 2 + 1;
+  const budget = { left: STARTS_A_REDRAW };
   for (let index = 0; index < spots.length; index++) {
     const spot = spots[index]!;
-    const x = screenX(s, spot.u) + spot.dx;
-    const y = screenY(s, spot.v);
+    // Near the screen by its town or port, the badge stands on the course's first ring, once that is known.
+    const rough = screenX(s, spot.u);
+    const roughY = screenY(s, spot.v);
+    if (rough < -200 || rough > s.width + 200 || roughY < -200 || roughY > s.height + 200) continue;
+    const start = startOf(s, sites[index]!.key, budget);
+    // The rest are laid out on the next redraw.
+    if (start === undefined) s.dirty = true;
+    const x = start ? screenX(s, start.u) : rough + spot.dx;
+    const y = start ? screenY(s, start.v) : roughY;
     if (x < -20 || x > s.width + 20 || y < -20 || y > s.height + 20) continue;
     let crowded = false;
     for (const kept of keptCourses) {
@@ -69,6 +79,23 @@ export function keepCourses(s: MapSheet, space: LabelSpace): void {
     keptCourses.push({ index, x, y });
     space.claim(x - COURSE_BADGE - 2, y - COURSE_BADGE - 2, COURSE_BADGE * 2 + 4, COURSE_BADGE * 2 + 4);
   }
+}
+
+/**
+ * Where a course's first ring stands on the sheet: from the cache, or laid out
+ * now while the redraw's `budget` lasts; `undefined` when it is still to come,
+ * null where there is no start to ask for.
+ */
+function startOf(s: MapSheet, key: string, budget: { left: number }): { u: number; v: number } | null | undefined {
+  const known = s.courseStarts.get(key);
+  if (known !== undefined) return known;
+  if (s.options.courseStart === undefined) return null;
+  if (budget.left <= 0) return undefined;
+  budget.left--;
+  const point = s.options.courseStart(key);
+  const spot = point === null ? null : (latLonOf(unit.set(point.x, point.y, point.z).normalize(), latLon), { u: uOf(latLon.lon), v: vOf(latLon.lat) });
+  s.courseStarts.set(key, spot);
+  return spot;
 }
 
 /** Where a point in the world falls on the screen, on the copy of the sheet nearest the middle. */

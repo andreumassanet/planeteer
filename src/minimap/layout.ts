@@ -3,6 +3,7 @@ import { BIGGEST_SETTLEMENT, SMALLEST_SETTLEMENT, isShown, prominenceVersion, ra
 import { sortByDepth, thinMarks, toUnit } from '../cartography.ts';
 import { MAX_PAD_MARKS, MAX_PLACE_MARKS, PAD_SPACING, PAD_VIEW } from './constants.ts';
 import type { MinimapState } from './state.ts';
+import { SQUARE_REACH, insideFrame } from './shape.ts';
 import type { MinimapPad } from './types.ts';
 
 const padFound: MinimapPad[] = [];
@@ -42,7 +43,7 @@ export function layOutTowns(m: MinimapState): number {
   const { centre, townUnit, townSlot, townX, townY, townOrder, townKept, townKeptX, townKeptY, placeSpacing, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale, view } = m;
   refreshTowns(m);
   if (m.townCount === 0) return 0;
-  const inside = Math.cos(Math.min(Math.PI / 2, view * 1.02));
+  const inside = Math.cos(Math.min(Math.PI / 2, view * SQUARE_REACH * 1.02));
   let count = 0;
   for (let k = 0; k < m.townCount; k++) {
     const at = k * 3;
@@ -67,12 +68,11 @@ export function layOutTowns(m: MinimapState): number {
 /**
  * Projects the monuments, thins them, and returns how many survived. Pins
  * on the hidden half are culled (they would project back mirrored), and pins
- * outside the disc are dropped.
+ * outside the square are dropped.
  */
 export function layOutPins(m: MinimapState): number {
-  const { centre, discRadius, pinCount, pinPoint, pinScreenX, pinScreenY, pinDepth, pinOrder, keptX, keptY, keptPin, pinRise, pinSpacing, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
+  const { centre, pinCount, pinPoint, pinScreenX, pinScreenY, pinDepth, pinOrder, keptX, keptY, keptPin, pinRise, pinSpacing, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
   if (pinCount === 0) return 0;
-  const reach = discRadius + pinRise;
   let visible = 0;
   for (let i = 0; i < pinCount; i++) {
     const k = i * 3;
@@ -83,7 +83,7 @@ export function layOutPins(m: MinimapState): number {
     if (height <= 0) continue;
     const x = centre + (mx * rx + my * ry + mz * rz) * scale;
     const y = centre - (mx * fx + my * fy + mz * fz) * scale;
-    if ((x - centre) ** 2 + (y - centre) ** 2 > reach * reach) continue;
+    if (!insideFrame(m, x, y, -pinRise)) continue;
     pinScreenX[i] = x;
     pinScreenY[i] = y;
     pinDepth[i] = height;
@@ -104,7 +104,7 @@ export function layOutPins(m: MinimapState): number {
  * them; two that meet on the disc are one mark. Returns how many stand.
  */
 export function layOutPads(m: MinimapState): number {
-  const { settings, RADIUS, centre, discRadius, uiScale, padKeptX, padKeptY, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale, view } = m;
+  const { settings, RADIUS, centre, uiScale, padKeptX, padKeptY, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale, view } = m;
   m.padsWaiting = false;
   if (settings.pads === undefined || view * RADIUS > PAD_VIEW) return 0;
   padFound.length = 0;
@@ -116,7 +116,7 @@ export function layOutPads(m: MinimapState): number {
     if (mx * ux + my * uy + mz * uz <= 0) continue;
     const x = centre + (mx * rx + my * ry + mz * rz) * scale;
     const y = centre - (mx * fx + my * fy + mz * fz) * scale;
-    if ((x - centre) ** 2 + (y - centre) ** 2 > discRadius * discRadius) continue;
+    if (!insideFrame(m, x, y)) continue;
     let crowded = false;
     for (let n = 0; n < count && !crowded; n++) crowded = Math.abs(padKeptX[n]! - x) < spacing && Math.abs(padKeptY[n]! - y) < spacing;
     if (crowded) continue;

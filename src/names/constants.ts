@@ -38,3 +38,43 @@ export const MIN_COUNTRY_PIXELS = 45;
 
 /** Below this fade nothing is drawn. */
 export const MIN_FADE = 0.01;
+
+/** The share of the haze's distance past which a town's name starts to fade, to nothing at the haze. */
+export const REACH_FADE = 0.7;
+
+/** How many town names are drawn at once. */
+export const MAX_TOWNS = 18;
+
+/** How wide a town's square has to be on the screen, px, to be named. */
+export const MIN_TOWN_PIXELS = 7;
+
+/** Town type size, px: a village at the edge of being named, and a city filling the view. */
+export const TOWN_FONT_MIN = 12;
+export const TOWN_FONT_MAX = 21;
+
+/** How high a name floats over its town's ground: a share of its radius, and at least this many units. */
+export const TOWN_HOVER = 0.32;
+export const TOWN_HOVER_MIN = 16;
+
+/**
+ * Inside a town, as multiples of its radius along the ground from under the
+ * eye: no name until `TOWN_NEAR_IN`, the whole name from `TOWN_NEAR_OUT`.
+ */
+export const TOWN_NEAR_IN = 0.75;
+export const TOWN_NEAR_OUT = 1.3;
+
+/** The eye's height over sea level, units, between which the town under it is named after all. */
+export const TOWN_ALOFT_LOW = 220;
+export const TOWN_ALOFT_HIGH = 420;
+
+/**
+ * Whether a hill hides a name: the line from the eye to it is sampled at
+ * `SIGHT_SAMPLES` points over its first `SIGHT_REACH` (the last stretch is the
+ * town's own ground), at most `SIGHT_TESTS` names a frame, each again after
+ * `SIGHT_EVERY_MS`; a name eases in and out over `1 / SIGHT_EASE` seconds.
+ */
+export const SIGHT_SAMPLES = 14;
+export const SIGHT_REACH = 0.9;
+export const SIGHT_TESTS = 10;
+export const SIGHT_EVERY_MS = 350;
+export const SIGHT_EASE = 4;

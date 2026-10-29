@@ -7,6 +7,7 @@ import { layOutPads, layOutPins, layOutTowns } from './layout.ts';
 import { cream, gold, ink, red } from './palette.ts';
 import { traceRing } from './ring.ts';
 import type { MinimapState } from './state.ts';
+import { edgeAt, insideFrame, traceFrame } from './shape.ts';
 import { drawTiles } from './tiles.ts';
 
 /** The outlines, the paper's tiles under them and the roads; true when the tiles carried the land. */
@@ -50,7 +51,7 @@ function paintLand(m: MinimapState): boolean {
 
 /** Claims the places no name may be written on: the arrow, the scale bar, north and every mark. */
 function claimSpace(m: MinimapState, towns: number, pins: number, pads: number): LabelSpace {
-  const { centre, discRadius, uiScale, keptX, keptY, padKeptX, padKeptY, townKeptX, townKeptY, pinRise, pinHead } = m;
+  const { centre, uiScale, keptX, keptY, padKeptX, padKeptY, townKeptX, townKeptY, pinRise, pinHead } = m;
 
   // The names come last but their space is claimed first, and getting that
   // order wrong is visible rather than theoretical: the marks are painted over
@@ -66,8 +67,8 @@ function claimSpace(m: MinimapState, towns: number, pins: number, pads: number):
   const bar = scaleBar(m);
   space.claim(bar.x0 - 4, bar.y - 16 * uiScale, bar.x1 - bar.x0 + 8, 22 * uiScale);
   {
-    const northAt = discRadius - RIM_WIDTH - 5 * uiScale;
-    space.claim(centre + Math.sin(m.northAngle) * northAt - 7 * uiScale, centre - Math.cos(m.northAngle) * northAt - 7 * uiScale, 14 * uiScale, 14 * uiScale);
+    const north = edgeAt(m, m.northAngle, RIM_WIDTH + 7 * uiScale, { x: 0, y: 0 });
+    space.claim(centre + north.x - 7 * uiScale, centre + north.y - 7 * uiScale, 14 * uiScale, 14 * uiScale);
   }
   for (let n = 0; n < pins; n++) {
     space.claim(
@@ -90,7 +91,7 @@ function claimSpace(m: MinimapState, towns: number, pins: number, pads: number):
 
 /** Writes the names that fit; returns the slot of the town the chip is naming, or -1. */
 function writeNames(m: MinimapState, space: LabelSpace, towns: number, pins: number): number {
-  const { monuments, gazetteer, baseCtx, centre, discRadius, uiScale, keptX, keptY, keptPin, townRow, townSlot, townKept, townKeptX, townKeptY, pinRise, pinHead } = m;
+  const { monuments, gazetteer, baseCtx, uiScale, keptX, keptY, keptPin, townRow, townSlot, townKept, townKeptX, townKeptY, pinRise, pinHead } = m;
   let labels = 0;
   baseCtx.textAlign = 'left';
   baseCtx.textBaseline = 'middle';
@@ -111,8 +112,7 @@ function writeNames(m: MinimapState, space: LabelSpace, towns: number, pins: num
       [x - clear - 2 - width, y - height / 2],
     ];
     for (const [left, top] of places) {
-      if (Math.hypot(left - centre, top - centre) > discRadius - 3) continue;
-      if (Math.hypot(left + width - centre, top + height - centre) > discRadius - 3) continue;
+      if (!insideFrame(m, left, top, 3) || !insideFrame(m, left + width, top + height, 3)) continue;
       if (!space.fits(left, top, width, height)) continue;
       space.claim(left, top, width, height);
       inkedText(baseCtx, text, left, top + height / 2, cream, ink, 3);
@@ -182,7 +182,7 @@ function paintMarks(m: MinimapState, tiled: boolean, towns: number, pins: number
 
 /** The land, the towns, the pins, the names, the rim and its mark. */
 export function drawBase(m: MinimapState): void {
-  const { size, surface, canvas, base, baseCtx, centre, discRadius, dryBody, paperColour, paperAt, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
+  const { size, surface, canvas, base, baseCtx, dryBody, paperColour, paperAt, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
   const began = performance.now();
   if (base.width !== canvas.width || base.height !== canvas.height) {
     base.width = canvas.width;
@@ -194,8 +194,7 @@ export function drawBase(m: MinimapState): void {
   if (dryBody && surface !== undefined && ux * ux + uy * uy + uz * uz > 0) {
     m.paper = `#${surface.colorAt(paperAt.set(ux, uy, uz).normalize(), paperColour).getHexString()}`;
   }
-  baseCtx.beginPath();
-  baseCtx.arc(centre, centre, discRadius, 0, TAU);
+  traceFrame(baseCtx, m);
   baseCtx.fillStyle = m.paper;
   baseCtx.fill();
 

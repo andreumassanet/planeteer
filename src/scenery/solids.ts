@@ -609,6 +609,9 @@ export const MAX_STEPS = 32;
 
 const push = { x: 0, z: 0 };
 const spot = { x: 0, z: 0 };
+/** The sine of a walker's way off a wall's normal under which it stops at the wall, and over which it slides along it in full. */
+const GLANCE_STOP = 0.45;
+const GLANCE_SLIDE = 0.8;
 
 /**
  * Moves a body by its velocity for `dt`, sliding along every wall it meets.
@@ -618,10 +621,15 @@ const spot = { x: 0, z: 0 };
  * removed in place. If anything was hit, `freeSpot` places a body the pushes
  * could not clear.
  *
+ * With `square`, a body walking into a wall nearly head-on stops rather than
+ * being turned along it: what is left along the wall is kept in full only
+ * past `GLANCE_SLIDE` of the way's sine off the wall's normal, and none of it
+ * under `GLANCE_STOP`, which is how a walker meets a wall in most games.
+ *
  * Returns `'clear'` if nothing was touched, `'slid'` if a wall took some of the
  * move, and `'freed'` if the body had to be put somewhere else.
  */
-export function slide(body: Body, dt: number, radius: number, walls: Walls): 'clear' | 'slid' | 'freed' {
+export function slide(body: Body, dt: number, radius: number, walls: Walls, square = false): 'clear' | 'slid' | 'freed' {
   const travel = Math.hypot(body.vx, body.vz) * dt;
   const stride = Math.max(radius * STEP_FRACTION, 1e-6);
   const steps = Math.min(MAX_STEPS, Math.max(1, Math.ceil(travel / stride)));
@@ -640,8 +648,15 @@ export function slide(body: Body, dt: number, radius: number, walls: Walls): 'cl
     const nz = push.z / length;
     const into = body.vx * nx + body.vz * nz;
     if (into < 0) {
+      const speed = Math.hypot(body.vx, body.vz);
       body.vx -= into * nx;
       body.vz -= into * nz;
+      if (square && speed > 1e-9) {
+        const t = Math.min(1, Math.max(0, (Math.hypot(body.vx, body.vz) / speed - GLANCE_STOP) / (GLANCE_SLIDE - GLANCE_STOP)));
+        const keep = t * t * (3 - 2 * t);
+        body.vx *= keep;
+        body.vz *= keep;
+      }
     }
   }
   if (!hit) return 'clear';

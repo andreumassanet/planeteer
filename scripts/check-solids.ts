@@ -491,7 +491,9 @@ console.log('\ndiscs  (a trunk, a boulder)');
   const row = solidField(Array.from({ length: 12 }, (_, i) => disc(i * 3, 0, 0.45, 0)));
   const body: Body = { x: -3, z: -(0.45 + R) + 0.05, vx: 0, vz: 0 };
   let deepest = 0;
-  for (let frame = 0; frame < 120; frame++) {
+  // Long enough at a run to clear the row's 33 units from its start.
+  const frames = Math.ceil((40 / RUN_SPEED) * 60);
+  for (let frame = 0; frame < frames; frame++) {
     body.vx = RUN_SPEED;
     body.vz = 2;
     slide(body, 1 / 60, R, wallsOf(row));

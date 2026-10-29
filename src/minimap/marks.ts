@@ -1,24 +1,30 @@
-import { TAU, inkedText, tracePin } from '../cartography.ts';
+import { inkedText, tracePin } from '../cartography.ts';
 import { COURSE_GREEN, traceRingMark } from '../course-marks.ts';
 import { FONT } from '../ui.ts';
 import { COURSE_RING, RIM_WIDTH, TARGET_PIN_SCALE, TARGET_REACH, TARGET_WIDTH } from './constants.ts';
 import { niceKm } from './format.ts';
 import { cream, ink, violet } from './palette.ts';
 import type { MinimapState } from './state.ts';
+import { edgeAt, insideFrame, traceFrame } from './shape.ts';
 
-/** A wedge on the rim pointing out at the marker, at its screen azimuth. */
+const edge = { x: 0, y: 0 };
+
+/** A wedge on the edge pointing out at the marker, at its screen azimuth. */
 export function traceBearing(m: MinimapState, angle: number, reach: number, width: number, fill: string): void {
-  const { ctx, centre, discRadius, uiScale } = m;
+  const { ctx, centre, uiScale } = m;
   const dx = Math.sin(angle);
   const dy = -Math.cos(angle);
-  const apex = discRadius - RIM_WIDTH;
-  const from = apex - reach * uiScale;
+  edgeAt(m, angle, RIM_WIDTH, edge);
+  const ax = centre + edge.x;
+  const ay = centre + edge.y;
+  const fromX = ax - dx * reach * uiScale;
+  const fromY = ay - dy * reach * uiScale;
   const wide = width * uiScale;
 
   ctx.beginPath();
-  ctx.moveTo(centre + dx * apex, centre + dy * apex);
-  ctx.lineTo(centre + dx * from - dy * wide, centre + dy * from + dx * wide);
-  ctx.lineTo(centre + dx * from + dy * wide, centre + dy * from - dx * wide);
+  ctx.moveTo(ax, ay);
+  ctx.lineTo(fromX - dy * wide, fromY + dx * wide);
+  ctx.lineTo(fromX + dy * wide, fromY - dx * wide);
   ctx.closePath();
   ctx.fillStyle = fill;
   ctx.fill();
@@ -40,14 +46,14 @@ export function drawBearing(m: MinimapState): void {
  * way. Drawn over the paper every redraw, so a ring passed moves at once.
  */
 export function drawCourseRing(m: MinimapState): void {
-  const { ctx, centre, discRadius, uiScale, coursePoint, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
+  const { ctx, centre, uiScale, coursePoint, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
   if (!m.coursed) return;
   const { x: px, y: py, z: pz } = coursePoint;
   const across = px * rx + py * ry + pz * rz;
   const ahead = px * fx + py * fy + pz * fz;
   const ring = COURSE_RING * uiScale;
-  const inside = discRadius - RIM_WIDTH - ring - 2 * uiScale;
-  if (px * ux + py * uy + pz * uz > 0 && Math.hypot(across, ahead) * scale <= inside) {
+  const inset = RIM_WIDTH + ring + 2 * uiScale;
+  if (px * ux + py * uy + pz * uz > 0 && insideFrame(m, centre + across * scale, centre - ahead * scale, inset)) {
     traceRingMark(ctx, centre + across * scale, centre - ahead * scale, ring, m.courseFinish);
     return;
   }
@@ -56,13 +62,13 @@ export function drawCourseRing(m: MinimapState): void {
 
 /** The marker's pin, when it stands on the disc. */
 export function drawMarkerPin(m: MinimapState): void {
-  const { baseCtx, centre, discRadius, pinRise, pinHead, markerPoint, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
+  const { baseCtx, centre, pinRise, pinHead, markerPoint, ux, uy, uz, fx, fy, fz, rx, ry, rz, scale } = m;
   if (!m.marked) return;
   const { x: mx, y: my, z: mz } = markerPoint;
   if (mx * ux + my * uy + mz * uz <= 0) return;
   const x = centre + (mx * rx + my * ry + mz * rz) * scale;
   const y = centre - (mx * fx + my * fy + mz * fz) * scale;
-  if ((x - centre) ** 2 + (y - centre) ** 2 > discRadius * discRadius) return;
+  if (!insideFrame(m, x, y)) return;
   tracePin(baseCtx, x, y, pinRise, pinHead, violet, TARGET_PIN_SCALE);
 }
 
@@ -102,9 +108,8 @@ export function drawScale(m: MinimapState, bar: { x0: number; x1: number; y: num
  * every redraw because the paper between its redraws is moved.
  */
 export function drawFrameMarks(m: MinimapState): void {
-  const { ctx, centre, discRadius, uiScale } = m;
-  ctx.beginPath();
-  ctx.arc(centre, centre, discRadius, 0, TAU);
+  const { ctx, centre, uiScale } = m;
+  traceFrame(ctx, m);
   ctx.lineWidth = RIM_WIDTH;
   ctx.strokeStyle = ink;
   ctx.stroke();
@@ -113,8 +118,8 @@ export function drawFrameMarks(m: MinimapState): void {
   ctx.font = `800 ${(9 * uiScale).toFixed(1)}px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  const northAt = discRadius - RIM_WIDTH - 5 * uiScale;
-  inkedText(ctx, 'N', centre + Math.sin(m.northAngle) * northAt, centre - Math.cos(m.northAngle) * northAt, cream, ink, 2.5);
+  edgeAt(m, m.northAngle, RIM_WIDTH + 7 * uiScale, edge);
+  inkedText(ctx, 'N', centre + edge.x, centre + edge.y, cream, ink, 2.5);
 
   drawScale(m, scaleBar(m));
   drawBearing(m);

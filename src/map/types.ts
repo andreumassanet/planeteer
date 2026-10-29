@@ -16,7 +16,7 @@ export interface WorldMapOptions {
    * a landmark, with its name. The map decides nothing; `navigation.ts` does.
    */
   onMark(lat: number, lon: number, name: string | null, landmark: boolean): void;
-  /** A click on the marker, or *Clear marker*: put it away. */
+  /** A click on the marker: put it away. */
   onUnmark(): void;
   /**
    * Every place, the array `roads.bin` indexes into. The sheet draws the ones

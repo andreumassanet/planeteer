@@ -11,6 +11,7 @@ import {
 } from './constants.ts';
 import { fade } from './format.ts';
 import { faintInk, ink, ocean } from './palette.ts';
+import { CORNER } from './shape.ts';
 import type { MinimapMonument, MinimapOptions } from './types.ts';
 
 /** The outlines at one resolution, and each ring's faded fill for the countries you are not in. */
@@ -219,8 +220,8 @@ export function createState(world: World, options: MinimapOptions | number): Min
   canvas.style.display = 'block';
   canvas.style.width = `${size}px`;
   canvas.style.height = `${size}px`;
-  // The card language of the HUD, bent round: the disc is the card.
-  canvas.style.borderRadius = '50%';
+  // The card language of the HUD: the square is the card.
+  canvas.style.borderRadius = `${CORNER * (size / DEFAULT_SIZE)}px`;
   canvas.style.boxShadow = `0 5px 0 ${ink}`;
 
   return {

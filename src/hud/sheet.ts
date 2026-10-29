@@ -17,7 +17,7 @@ export function bindSheet(ctx: HudCtx): void {
     { glyph: 'flag', label: 'Borders', run: () => tap('flags') },
     { glyph: 'hand', label: 'Wave', run: () => tap('wave') },
     { glyph: 'sparkle', label: 'Dance', run: () => tap('dance') },
-    ...(options.leave === undefined ? [] : [{ glyph: 'orbit', label: options.leave.label, run: () => options.leave?.run() }]),
+    ...(options.leave === undefined ? [] : [{ glyph: 'exit', label: options.leave.label, run: () => options.leave?.run() }]),
     { glyph: 'gear', label: 'Settings', run: () => options.onSettings?.() },
   ];
   sheetGrid.replaceChildren(

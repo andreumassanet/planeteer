@@ -162,7 +162,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
       settle();
     },
     home: spawn.home,
-    leave: () => leave('system'),
+    leave: (to = 'system') => leave(to),
     rocketInReach: rocketPads.inReach,
     riding: () => rocketPads.riding,
     boardRocket: rocketPads.board,
@@ -202,7 +202,7 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     leave: (to) => leave(to),
   });
 
-  function leave(to?: 'system'): void {
+  function leave(to?: 'system' | 'title'): void {
     if (!loop.running) return;
     loop.running = false;
     teardown({ parts, player, avatar, crafts, rocketPads, shell, input, curtain, passing, passingBus });

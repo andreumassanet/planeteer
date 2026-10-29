@@ -81,8 +81,8 @@ export function createWalls(core: PlayerCore) {
     },
   };
 
-  /** The frame's move through whatever is standing: `moved` becomes the displacement and `motion` what the walls left of it. True if a wall was touched. */
-  function throughWalls(dt: number, walls: Walls, radius: number): boolean {
+  /** The frame's move through whatever is standing: `moved` becomes the displacement and `motion` what the walls left of it; `square` stops a walker meeting a wall head-on (`slide`). True if a wall was touched. */
+  function throughWalls(dt: number, walls: Walls, radius: number, square = false): boolean {
     origin.copy(position);
     flatX.copy(forward);
     flatZ.crossVectors(up, flatX).normalize();
@@ -90,7 +90,7 @@ export function createWalls(core: PlayerCore) {
     body.z = 0;
     body.vx = motion.dot(flatX);
     body.vz = motion.dot(flatZ);
-    const outcome = slide(body, dt, radius, walls);
+    const outcome = slide(body, dt, radius, walls, square);
     moved.copy(flatX).multiplyScalar(body.x).addScaledVector(flatZ, body.z);
     motion.copy(flatX).multiplyScalar(body.vx).addScaledVector(flatZ, body.vz);
     return outcome !== 'clear';

@@ -5,6 +5,7 @@ import type { Nearby } from '../places.ts';
 import type { PlanetSurface } from '../planet.ts';
 import type { TouchPad } from '../touch.ts';
 import type { IconName } from '../ui.ts';
+import type { CompassReading } from '../minimap.ts';
 
 /** The marker panel's line. `navigation.ts` fills it in. */
 export interface DestinationEntry {
@@ -30,12 +31,23 @@ export interface HudOptions {
   weather?(): string | null;
   /** The body the HUD stands on; Earth when omitted. Where it has no sea, ground that belongs to nobody is named by its `emptyLabel`. */
   surface?: PlanetSurface;
-  /** A way off this body, on the bar beside the map: back to the solar system. */
+  /** The way out of the game, beside the map: the title screen. */
   leave?: { label: string; run(): void };
   /** The keys shown on taking a vehicle where a world's craft are not Earth's (a rover has no horn); `undefined` is Earth's own (`boardingHints`). */
   hints?(mode: TravelMode, airborne: boolean): HintSet | null | undefined;
   /** The touch controls (`touch.ts`), told the travel mode and what `use` does, and put away with the HUD. */
   touch?: TouchPad;
+  /** The traveller in the corner: their name and what the passport holds. Asked once a second; null hides the frame. */
+  profile?(): HudProfile | null;
+}
+
+/** What the traveller's frame shows. */
+export interface HudProfile {
+  name: string;
+  /** Countries stamped in the passport. */
+  stamps: number;
+  /** Towns walked into. */
+  towns: number;
 }
 
 /** What the frame counter shows: `main.ts`'s rolling `stats`. */
@@ -102,6 +114,10 @@ export interface Hud {
   toggleHidden(): boolean;
   /** The clock the place badge is showing, `HH:MM`, local to where you stand. */
   readonly clock: string;
+  /** The compass along the top: the camera's heading and the marks, off `Minimap.compass`. Every frame. */
+  setCompass(reading: CompassReading): void;
+  /** Where you stand, for the line over the minimap. Every frame; written when it changes. */
+  setCoordinates(lat: number, lon: number): void;
   /** A short line under the bar, for a setting a key just changed. */
   toast(text: string, iconName?: IconName): void;
   /** The mouse is free and nothing else holds the screen. `drag` is where the lock is refused and a held button looks instead. Cheap to call every frame. */
@@ -127,6 +143,4 @@ export interface LandmarkArrival {
   height?: number;
   /** Year completed, negative before Christ; absent for anything older than a date. */
   year?: number;
-  /** A sentence about it, when the source has one. */
-  note?: string;
 }

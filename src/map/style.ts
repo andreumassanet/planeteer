@@ -10,7 +10,9 @@ export const STYLE = `
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  background: var(--ui-paper);
+  background: rgba(4, 6, 14, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   transition: opacity 0.16s ease, visibility 0.16s;
   font-family: var(--ui-font);
   color: var(--ui-ink);
@@ -20,10 +22,10 @@ export const STYLE = `
 .atlas-map-sheet {
   position: absolute;
   inset: 14px;
-  border: 3px solid var(--ui-ink);
+  border: 1.5px solid var(--ui-glass-edge);
   border-radius: 20px;
   overflow: hidden;
-  box-shadow: 0 5px 0 var(--ui-ink);
+  box-shadow: var(--ui-drop);
   background: ${hex(OCEAN_COLOR)};
   cursor: grab;
   touch-action: none;
@@ -39,18 +41,18 @@ export const STYLE = `
   padding: 10px 16px 12px;
   pointer-events: none;
 }
-.atlas-map-head .ui-btn { pointer-events: auto; margin-top: 10px; }
-.atlas-map-head .ui-btn[hidden] { display: none; }
 .atlas-map-title {
-  font-size: 19px;
-  font-weight: 800;
-  letter-spacing: -0.015em;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
   line-height: 1.1;
+  text-transform: uppercase;
+  color: var(--ui-gold);
 }
 .atlas-map-legend {
   margin-top: 9px;
   padding-top: 8px;
-  border-top: 2px solid var(--ui-rule);
+  border-top: 1.5px solid var(--ui-rule);
   display: grid;
   grid-template-columns: auto auto;
   gap: 2px 14px;
@@ -66,7 +68,7 @@ export const STYLE = `
   display: grid;
   gap: 10px;
 }
-.atlas-map-zoom .ui-btn { font-size: 22px; font-weight: 800; }
+.atlas-map-zoom .ui-btn { font-size: 22px; font-weight: 800; border-radius: 50%; }
 .atlas-map-scale {
   left: 30px;
   bottom: 30px;
@@ -79,24 +81,9 @@ export const STYLE = `
   display: block;
   height: 6px;
   margin-top: 4px;
-  border: 2px solid var(--ui-ink);
+  border: 1.5px solid var(--ui-ink);
   border-top: 0;
 }
-.atlas-map-foot {
-  bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 8px 16px;
-  white-space: nowrap;
-  font-size: 12.5px;
-  font-weight: 600;
-  pointer-events: none;
-}
-.atlas-map-foot span { display: inline-flex; align-items: center; gap: 6px; }
-.atlas-map-foot .quiet { opacity: 0.6; }
 .atlas-map-tip {
   display: none;
   align-items: center;
@@ -125,9 +112,6 @@ export const STYLE = `
   white-space: nowrap;
 }
 .atlas-map-tip-sub b { font-weight: 800; opacity: 0.85; }
-@media (max-width: 720px) {
-  .atlas-map-foot { display: none; }
-}
 /* A finger has no M to close the map with, and less room for the frame. */
 .atlas-map-close { display: none; top: 30px; right: 30px; }
 html.touch-ui .atlas-map-close { display: grid; position: absolute; }
@@ -138,7 +122,6 @@ html.touch-ui .atlas-map-head { top: 14px; left: 14px; padding: 8px 12px 9px; }
 html.touch-ui .atlas-map-close { top: 14px; right: 14px; }
 html.touch-ui .atlas-map-zoom { right: 14px; bottom: 14px; gap: 8px; }
 html.touch-ui .atlas-map-scale { left: 14px; bottom: 14px; }
-html.touch-ui .atlas-map-foot { display: none; }
 @media (orientation: portrait) {
   html.touch-ui .atlas-map-legend { display: none; }
 }
