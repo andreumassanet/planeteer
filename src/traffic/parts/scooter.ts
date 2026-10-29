@@ -38,6 +38,8 @@ export const scooter: Vehicle = {
       footrest: [0.2, 0.42, 0.24],
       // A forearm over the seat on a raked column: ridden sitting up, hands at the chest.
       grip: [0, 1.45, 0.38],
+      // The left rubber, out of the headset and swept a little back.
+      bars: { at: [0.305, 1.45, 0.38], axis: [0.11, 0, -0.04] },
     },
   ],
 

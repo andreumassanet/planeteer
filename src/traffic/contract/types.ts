@@ -45,6 +45,8 @@ export interface Mount {
   footrest?: readonly [number, number, number];
   /** Where the hands go (bars, wheel, oar), in the vehicle's frame. Sets a rider's lean. */
   grip?: readonly [number, number, number];
+  /** Astride: the left hand's handlebar grip, its middle and the way it runs, in the vehicle's frame; the right mirrored. */
+  bars?: { at: readonly [number, number, number]; axis: readonly [number, number, number] };
 }
 
 export interface TrafficContext extends SceneryContext {

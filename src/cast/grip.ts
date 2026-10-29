@@ -17,7 +17,12 @@ export interface Knuckle {
  * reins, radians: the knuckle, the middle joint and the last. The rig's first
  * finger bone is the palm's own and stays.
  */
-const FINGER_CLOSE = [0.95, 1.25, 0.7] as const;
+const FINGER_CLOSE = [0.85, 1.15, 0.65] as const;
+/**
+ * How much of that each finger closes: the shorter ones less, so all four
+ * leave the same hollow round what the hand holds.
+ */
+const FINGER_SHARE = { Index: 1, Middle: 1, Ring: 0.92, Pinky: 0.8 } as const;
 /** The thumb's two outer joints, across the palm and over the closed fingers. */
 const THUMB_CLOSE = [0.4, 0.6] as const;
 const FINGERS = ['Index', 'Middle', 'Ring', 'Pinky'] as const;
@@ -44,7 +49,7 @@ function handOf(find: (name: string) => THREE.Bone | undefined, side: 'L' | 'R')
   for (const finger of FINGERS) {
     // Turning a finger about `finger x palm` swings it towards the palm.
     const axis = at(`${finger}3`).sub(at(`${finger}2`)).normalize().cross(palm).normalize();
-    FINGER_CLOSE.forEach((angle, k) => out.push(knuckle(bone(`${finger}${k + 2}`)!, axis, angle)));
+    FINGER_CLOSE.forEach((angle, k) => out.push(knuckle(bone(`${finger}${k + 2}`)!, axis, angle * FINGER_SHARE[finger])));
   }
   // The thumb swings towards the middle finger's knuckle, across the palm.
   const thumb = at('Thumb3').sub(at('Thumb2')).normalize();

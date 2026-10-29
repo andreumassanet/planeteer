@@ -58,6 +58,10 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
     {
       const { wheelHand } = await import('../../src/cast.ts');
       const { WHEEL_LOCK } = await import('../../src/craft/cabin.ts');
+      const { WHEEL_HOLD } = await import('../../src/cast.ts');
+      const { BAR_TUBE: RIM_TUBE } = await import('../../src/cast/hold.ts');
+      // How far a wrist may bend off its forearm's line, holding a rim.
+      const WRIST_LIMIT = (24 * Math.PI) / 180;
       const wristOf = (side: 'L' | 'R'): THREE.Vector3 => {
         let bone: THREE.Object3D | undefined;
         hero.group.traverse((o) => {
@@ -92,18 +96,87 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
         const moved = inHand(side, 'Middle4').sub(openTip[i]!);
         return moved.dot(palmOf[i]!) / openTip[i]!.length();
       });
+      // Where a closed hand holds: between its middle knuckle and its middle
+      // finger's last joint, which is the curl's middle.
+      const heldBy = (side: 'L' | 'R'): THREE.Vector3 => {
+        hero.group.updateMatrixWorld(true);
+        const at = (name: string): THREE.Vector3 => hero.group.worldToLocal(boneNamed(`${name}.${side}`).getWorldPosition(new THREE.Vector3()));
+        return at('Middle2').add(at('Middle4')).multiplyScalar(0.5);
+      };
+      const jointOf = (name: string): THREE.Vector3 => hero.group.worldToLocal(boneNamed(name).getWorldPosition(new THREE.Vector3()));
+      // A forearm's half-thickness, and how far round the rim's section a hand closes.
+      const FOREARM = AVATAR_HEIGHT * 0.022;
       for (const model of craft.values()) {
         const seat = model.seats[0]!;
         if (seat.wheel === undefined) continue;
+        const wheel = seat.wheel;
         let worst = 0;
-        for (const turn of [-WHEEL_LOCK, 0, WHEEL_LOCK]) {
+        let through = Infinity;
+        let bent = 0;
+        let nearest = Infinity;
+        let nearestAt = '';
+        for (const turn of [-WHEEL_LOCK, -WHEEL_HOLD, 0, WHEEL_HOLD, WHEEL_LOCK]) {
           for (let i = 0; i < 20; i++) hero.sit(0.05, seat, turn);
           hero.group.updateMatrixWorld(true);
           const hipAt = new THREE.Vector3(0, hip, 0);
+          const middle = new THREE.Vector3(...wheel.centre).add(hipAt);
+          const axle = new THREE.Vector3(0, -Math.sin(wheel.tilt), Math.cos(wheel.tilt));
           for (const [side, name] of [[1, 'L'], [-1, 'R']] as const) {
-            worst = Math.max(worst, wristOf(name).distanceTo(wheelHand(hipAt, seat.wheel, turn, side, new THREE.Vector3())));
+            if (wheel.rest?.side === side) continue;
+            worst = Math.max(worst, heldBy(name).distanceTo(wheelHand(hipAt, wheel, turn, side, new THREE.Vector3())));
+            // The forearm from the elbow to the wrist, kept out of the
+            // wheel's disc: behind it by its own half-thickness, or outside the rim.
+            const elbow = jointOf(`LowerArm.${name}`);
+            const wrist = jointOf(`Wrist.${name}`);
+            for (let k = 0; k <= 10; k++) {
+              const point = elbow.clone().lerp(wrist, k / 10).sub(middle);
+              const depth = point.dot(axle);
+              const round = point.addScaledVector(axle, -depth).length();
+              if (round < wheel.radius) through = Math.min(through, -depth - FOREARM);
+            }
+            // The wrist straight: the hand on in the forearm's line, within `WRIST_LIMIT`.
+            const knuckle = jointOf(`Middle2.${name}`);
+            const bend = wrist.clone().sub(elbow).normalize().angleTo(knuckle.clone().sub(wrist).normalize());
+            bent = Math.max(bent, bend);
+            // The fingers closed round the rim: no finger joint past the knuckle inside its section,
+            // and the middle finger's last two over its far face.
+            for (const finger of ['Index', 'Middle', 'Ring', 'Pinky']) {
+              for (const n of [3, 4]) {
+                const point = jointOf(`${finger}${n}.${name}`).sub(middle);
+                const depth = point.dot(axle);
+                const round = point.addScaledVector(axle, -depth).length();
+                const clear = Math.hypot(depth, round - wheel.radius);
+                if (clear < nearest) {
+                  nearest = clear;
+                  nearestAt = `${name}.${finger}${n} at ${f(turn)}`;
+                }
+                if (finger === 'Middle' && depth < 0) fail(`${model.id}: the ${name === 'L' ? 'left' : 'right'} middle finger is not round the rim's far face at a turn of ${f(turn)}`);
+              }
+            }
+            // The elbow outside the chest: outboard of its own shoulder joint
+            // wherever it is not ahead of the trunk (`envelopeOf`'s front).
+            const shoulder = jointOf(`UpperArm.${name}`);
+            if (Math.abs(elbow.x) < Math.abs(shoulder.x) && elbow.z < 0.1 * AVATAR_HEIGHT && elbow.z > -HERO.back) {
+              fail(`${model.id}: the ${name === 'L' ? 'left' : 'right'} elbow is inside the trunk at a turn of ${f(turn)}`);
+            }
           }
         }
+        // Held at full lock as the idle breathes under it, a hand keeps its grip rather than flicking between two.
+        let flick = 0;
+        for (const turn of [WHEEL_LOCK, -WHEEL_LOCK]) {
+          let before: THREE.Vector3[] | null = null;
+          for (let i = 0; i < 120; i++) {
+            hero.sit(0.017, seat, turn);
+            hero.group.updateMatrixWorld(true);
+            const now = (['L', 'R'] as const).map((name) => jointOf(`Middle2.${name}`).sub(jointOf(`Wrist.${name}`)).normalize());
+            if (before !== null && i > 20) now.forEach((v, k) => (flick = Math.max(flick, v.angleTo(before![k]!))));
+            before = now;
+          }
+        }
+        if (flick > (4 * Math.PI) / 180) fail(`${model.id}: a hand held at full lock turns ${f((flick * 180) / Math.PI, 0)} degrees in one frame`);
+        if (through < 0) fail(`${model.id}: a forearm passes ${f(-through)} into the wheel`);
+        if (bent > WRIST_LIMIT) fail(`${model.id}: a wrist is bent ${f((bent * 180) / Math.PI, 0)} degrees off its forearm`);
+        if (nearest < RIM_TUBE * 0.8) fail(`${model.id}: a finger joint (${nearestAt}) is ${f(nearest)} from the rim's centreline, inside its section (${f(RIM_TUBE)})`);
         const closed = closing();
         const resting = seat.wheel.rest?.side;
         const holding = closed.filter((_, i) => resting !== (i === 0 ? 1 : -1));
@@ -113,9 +186,28 @@ console.log('\nthe hero the seats are built round, re-measured off the cast:');
         const opened = closing();
         if (opened.some((share) => Math.abs(share) > 0.02)) fail(`${model.id}: getting out kept the hands closed (${opened.map((c) => f(c)).join(', ')})`);
         const left = Math.max(wristOf('L').distanceTo(rest[0]!), wristOf('R').distanceTo(rest[1]!));
-        console.log(`  at the wheel ${model.id.padEnd(9)} the wrists at most ${f(worst)} from their holds, the hands ${closed.map((c) => f(c)).join(' and ')} closed; off it, ${f(left)} from standing`);
-        if (worst > AVATAR_HEIGHT * 0.06) fail(`${model.id}: the hands are ${f(worst)} off the wheel`);
+        console.log(`  at the wheel ${model.id.padEnd(9)} at full lock a hand turns at most ${f((flick * 180) / Math.PI, 1)} degrees a frame; the hands at most ${f(worst)} from their holds on the rim, the forearms ${Number.isFinite(through) ? f(through) : 'never'} behind it, the wrists bent at most ${f((bent * 180) / Math.PI, 0)} degrees, the fingers ${f(nearest)} clear of the rim's centreline, the hands ${closed.map((c) => f(c)).join(' and ')} closed; off it, ${f(left)} from standing`);
+        if (worst > AVATAR_HEIGHT * 0.02) fail(`${model.id}: the hands are ${f(worst)} off the wheel's rim`);
         if (left > AVATAR_HEIGHT * 0.02) fail(`${model.id}: getting out kept the hands on the wheel (${f(left)} from standing)`);
+      }
+      // Astride: each closed hand on its handlebar grip, the bars straight.
+      for (const model of craft.values()) {
+        const seat = model.seats[0]!;
+        if (seat.pose !== 'ride' || seat.bars === undefined) continue;
+        for (let i = 0; i < 20; i++) hero.ride(0.05, seat, 0);
+        const hipAt = new THREE.Vector3(0, hip, 0);
+        let off = 0;
+        let bent = 0;
+        for (const [side, name] of [[1, 'L'], [-1, 'R']] as const) {
+          const bar = new THREE.Vector3(side * seat.bars.at[0], seat.bars.at[1], seat.bars.at[2]).add(hipAt);
+          off = Math.max(off, heldBy(name).distanceTo(bar));
+          const elbow = jointOf(`LowerArm.${name}`);
+          const wrist = jointOf(`Wrist.${name}`);
+          bent = Math.max(bent, wrist.clone().sub(elbow).normalize().angleTo(jointOf(`Middle2.${name}`).sub(wrist).normalize()));
+        }
+        console.log(`  on the bars ${model.id.padEnd(10)} the hands at most ${f(off)} from their grips, the wrists bent at most ${f((bent * 180) / Math.PI, 0)} degrees`);
+        if (bent > WRIST_LIMIT) fail(`${model.id}: a wrist is bent ${f((bent * 180) / Math.PI, 0)} degrees off its forearm on the bars`);
+        if (off > AVATAR_HEIGHT * 0.02) fail(`${model.id}: the hands are ${f(off)} off the bars' grips`);
       }
     }
 

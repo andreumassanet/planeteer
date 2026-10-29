@@ -1,10 +1,14 @@
 import * as THREE from 'three';
-import { closeHand } from './grip.ts';
-import { aimBone, foldTip, reachArms, type Limbs } from './limbs.ts';
+import { gripBar, type Bar } from './hold.ts';
+import { aimBone, foldTip, type Limbs } from './limbs.ts';
 
 /** What a body astride is put to: `Seat`'s grip, footrests and crank (`craft/contract.ts`). */
 export interface AstrideSeat {
   grip?: readonly [number, number, number];
+  /** The left hand's grip on the bars about the hip, and the way the grip runs; the right mirrored (`Seat.bars`). */
+  bars?: { at: readonly [number, number, number]; axis: readonly [number, number, number] };
+  /** The fork the bars turn on, about the hip, its axis and its turn (`Seat.fork`). */
+  fork?: { at: readonly [number, number, number]; axis: readonly [number, number, number]; angle: number };
   feet?: readonly [number, number, number];
   crank?: number;
 }
@@ -122,7 +126,48 @@ export function poseAstride(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vect
       spine.updateMatrixWorld(true);
     }
   }
-  reachArms(limbs, frame, gripAt);
-  // The fingers round the bars or the reins.
-  for (const hand of limbs.hands) closeHand(hand);
+  gripBars(limbs, frame, hip, seat);
+}
+
+const barBar: Bar = { at: new THREE.Vector3(), pinky: new THREE.Vector3(), facing: new THREE.Vector3() };
+const barAxis = new THREE.Vector3();
+const barPole = new THREE.Vector3();
+const forkPivot = new THREE.Vector3();
+const forkTurn = new THREE.Vector3();
+const shoulderAt = new THREE.Vector3();
+
+/**
+ * Both hands closed round the bars (`gripBar`): each on its grip
+ * (`AstrideSeat.bars`, the right mirrored), or without them a shoulder's
+ * width apart across `grip`; carried round the fork as it turns; the little
+ * fingers the way each grip runs, and the elbows bent down and out.
+ */
+function gripBars(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vector3, seat: AstrideSeat): void {
+  const grip = seat.grip!;
+  limbs.arms.forEach((arm, i) => {
+    const side = i === 0 ? 1 : -1;
+    if (seat.bars !== undefined) {
+      const { at, axis } = seat.bars;
+      barBar.at.set(hip.x + side * at[0], hip.y + at[1], hip.z + at[2]);
+      barAxis.set(side * axis[0], axis[1], axis[2]).normalize();
+      // The hold is the grip's own place: carried round the fork from it as it stands unturned.
+      if (seat.fork !== undefined) {
+        const fork = seat.fork;
+        forkPivot.set(hip.x + fork.at[0], hip.y + fork.at[1], hip.z + fork.at[2]);
+        forkTurn.set(fork.axis[0], fork.axis[1], fork.axis[2]).normalize();
+        barBar.at.sub(forkPivot).applyAxisAngle(forkTurn, fork.angle).add(forkPivot);
+        barAxis.applyAxisAngle(forkTurn, fork.angle);
+      }
+    } else {
+      frame.worldToLocal(arm.upper.getWorldPosition(shoulderAt));
+      barBar.at.set(hip.x + grip[0] + Math.abs(shoulderAt.x - hip.x) * side, hip.y + grip[1], hip.z + grip[2]);
+      barAxis.set(side, 0, 0);
+    }
+    barBar.pinky.copy(barAxis);
+    // The palm over the grip, facing down and on, the fingers round under it.
+    barBar.facing.set(0, -1, 0.5).addScaledVector(barAxis, -barAxis.z * 0.5 + barAxis.y).normalize();
+    // The elbows down and a little out to their own side and back.
+    barPole.set(side * 0.45, -1, -0.25);
+    gripBar(arm, limbs.palms[i] ?? null, limbs.hands[i], frame, barBar, barPole);
+  });
 }

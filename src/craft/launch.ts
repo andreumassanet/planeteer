@@ -108,7 +108,7 @@ const PAINTS: readonly [number, number][] = [
  * the hero's arms reach (`HERO.reach`), its axle tipped forward a quarter of
  * the way from level.
  */
-const HELM: WheelGrip = { centre: [0, 0.26 * H, 0.2 * H], tilt: 0.42, radius: 0.07 * H, spread: 1.0 };
+const HELM: WheelGrip = { centre: [0, 0.21 * H, 0.21 * H], tilt: 0.42, radius: 0.07 * H, spread: 1.0 };
 
 const SEATS: readonly Seat[] = [
   // The helm is to starboard, which facing +Z is -X.

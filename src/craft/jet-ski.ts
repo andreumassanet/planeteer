@@ -34,6 +34,9 @@ const FRONT = 0.05 * M;
 const BACK = -0.62 * M;
 /** The bars. */
 const BARS = { y: 1.02 * M, z: 0.62 * M };
+/** How far out either side the bar ends are, and how long the rubber on each is. */
+const BAR_HALF = 0.34 * M;
+const RUBBER = 0.1 * M;
 const STERN = -1.5 * M;
 const BOW = 1.55 * M;
 
@@ -157,10 +160,10 @@ function buildJetSki(variant: number): THREE.Group {
   const column0 = new V(0, 0.88 * M, 0.6 * M);
   const riser = new V(0, BARS.y - 0.04 * M, BARS.z + 0.02 * M);
   bars.add(strut(column0, riser, 0.06 * M, PALETTE.steel));
-  const barHalf = 0.34 * M;
+  const barHalf = BAR_HALF;
   for (const side of [-1, 1]) {
     bars.add(strut(riser, new V(side * barHalf, BARS.y, BARS.z), 0.04 * M, PALETTE.steel));
-    bars.add(strut(new V(side * barHalf, BARS.y, BARS.z), new V(side * (barHalf + 0.1 * M), BARS.y, BARS.z - 0.02 * M), 0.055 * M, PALETTE.ink));
+    bars.add(strut(new V(side * barHalf, BARS.y, BARS.z), new V(side * (barHalf + RUBBER), BARS.y, BARS.z - 0.02 * M), 0.055 * M, PALETTE.ink));
   }
   // The nozzle, out of the transom at the waterline.
   const jet = new THREE.Group();
@@ -193,6 +196,8 @@ const SEATS: readonly Seat[] = [
     pose: 'ride',
     shown: true,
     grip: [0, BARS.y - HIP, BARS.z - FRONT],
+    // The left rubber's middle, out past the bar's end, swept a little back.
+    bars: { at: [BAR_HALF + RUBBER / 2, BARS.y - HIP, BARS.z - 0.01 * M - FRONT], axis: [RUBBER, 0, -0.02 * M] },
     feet: [0.3 * M, WELL + PROUD - HIP, 0.12 * M],
   },
   {

@@ -30,6 +30,7 @@ import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
 import type { WheelGrip } from '../cast.ts';
+import { BAR_TUBE } from '../cast/hold.ts';
 import type { Seat } from './contract.ts';
 import { HERO } from './body.ts';
 import { PROUD, craftContext, loft, soupOf } from './build.ts';
@@ -309,9 +310,9 @@ export function seatPieces(seat: Seat, floor: number, base: number, headrest = t
  * (`HERO.drive.kneeTop`).
  */
 export const WHEELS = {
-  car: { centre: [0, 0.3 * H, 0.25 * H], tilt: (28 * Math.PI) / 180, radius: 0.08 * H, spread: 1.5 },
-  bus: { centre: [0, 0.28 * H, 0.24 * H], tilt: (50 * Math.PI) / 180, radius: 0.09 * H, spread: 1.5 },
-  tractor: { centre: [0, 0.3 * H, 0.24 * H], tilt: (40 * Math.PI) / 180, radius: 0.08 * H, spread: 1.5 },
+  car: { centre: [0, 0.22 * H, 0.25 * H], tilt: (28 * Math.PI) / 180, radius: 0.08 * H, spread: 1.1 },
+  bus: { centre: [0, 0.21 * H, 0.24 * H], tilt: (50 * Math.PI) / 180, radius: 0.09 * H, spread: 1.1 },
+  tractor: { centre: [0, 0.22 * H, 0.24 * H], tilt: (40 * Math.PI) / 180, radius: 0.08 * H, spread: 1.1 },
 } as const satisfies Record<string, WheelGrip>;
 
 export type WheelKind = keyof typeof WHEELS;
@@ -337,7 +338,8 @@ export function wheelAxle(wheel: WheelGrip): THREE.Vector3 {
 export function wheelPart(wheel: WheelGrip, at: THREE.Vector3, colour: number): Turning {
   const { ringWall, strut, column, tone } = craftContext();
   const group = new THREE.Group();
-  const rim = 0.014 * H;
+  // Half the rim's section; it is 1.6 of this deep along the axle.
+  const rim = BAR_TUBE;
   const ring = ringWall(wheel.radius - rim, wheel.radius + rim, rim * 1.6, colour, 14);
   // A ring wall stands up +Y; a quarter turn about X lays its axle along +Z.
   ring.rotation.x = Math.PI / 2;

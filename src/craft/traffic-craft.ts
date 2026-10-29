@@ -143,6 +143,7 @@ function shifted(seat: Seat, by: number): Seat {
     z: seat.z + by,
     ...(seat.grip === undefined ? {} : { grip: [seat.grip[0], seat.grip[1], seat.grip[2] - by] as const }),
     ...(seat.feet === undefined ? {} : { feet: [seat.feet[0], seat.feet[1], seat.feet[2] - by] as const }),
+    ...(seat.bars === undefined ? {} : { bars: { ...seat.bars, at: [seat.bars.at[0], seat.bars.at[1], seat.bars.at[2] - by] as const } }),
   };
 }
 
@@ -157,6 +158,7 @@ function seatOf(mount: Mount, x = mount.x): Seat {
     ...seat,
     grip: [0, (grip[1] - mount.y) * k, (grip[2] - mount.z) * k],
     feet: [Math.abs(feet[0]) * k, (feet[1] - mount.y) * k, (feet[2] - mount.z) * k],
+    ...(mount.bars === undefined ? {} : { bars: { at: [Math.abs(mount.bars.at[0]) * k, (mount.bars.at[1] - mount.y) * k, (mount.bars.at[2] - mount.z) * k], axis: mount.bars.axis } }),
   };
 }
 

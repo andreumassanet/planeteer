@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Person } from './types.ts';
 import { handsOf, type Knuckle } from './grip.ts';
+import { handFramesOf, type HandFrame } from './hold.ts';
 
 /** A person's limbs, as a hand-written pose needs them. */
 export interface Limbs {
@@ -11,6 +12,8 @@ export interface Limbs {
   arms: { upper: THREE.Bone; lower: THREE.Bone; wrist: THREE.Bone }[];
   /** Each hand's finger joints, the left first, which `closeHand` closes round a control; empty on a rig without fingers. */
   hands: Knuckle[][];
+  /** Each hand's frame, the left first, which `gripBar` turns a hand on a bar by; null on a rig without fingers. */
+  palms: (HandFrame | null)[];
 }
 
 /**
@@ -39,8 +42,10 @@ export function limbsOf(person: Person): Limbs {
     wrist: bone(`Wrist.${side}`),
   }));
   const spine = person.bones.get('Abdomen') ?? null;
-  const hands = handsOf((name) => person.bones.get(name) ?? person.bones.get(name.replace('.', '')));
-  return { hips: bone('Hips'), spine, legs, arms, hands };
+  const find = (name: string): THREE.Bone | undefined => person.bones.get(name) ?? person.bones.get(name.replace('.', ''));
+  const hands = handsOf(find);
+  const palms = handFramesOf(arms, find, hands);
+  return { hips: bone('Hips'), spine, legs, arms, hands, palms };
 }
 
 /**

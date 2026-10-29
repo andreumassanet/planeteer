@@ -787,6 +787,8 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
   // The seat handed back by `turned`, its grip carried round the fork's axis.
   const fork = parts.forks[0] ?? null;
   const turnedSeat: { -readonly [K in keyof Seat]: Seat[K] } = { x: 0, y: 0, z: 0, yaw: 0, pose: 'ride', shown: true };
+  const turnedFork: { at: [number, number, number]; axis: [number, number, number]; angle: number } = { at: [0, 0, 0], axis: [0, 1, 0], angle: 0 };
+  const seatAt = new THREE.Vector3();
   const gripAt = new THREE.Vector3();
   const forkAxis = new THREE.Vector3();
   const forkAt = new THREE.Vector3();
@@ -849,6 +851,10 @@ export function motionOf(group: THREE.Object3D, model: CraftModel): CraftMotion 
       gripAt.set(seat.x + seat.grip[0], seat.y + seat.grip[1], seat.z + seat.grip[2]).sub(forkAt).applyAxisAngle(forkAxis, surfaces.fork).add(forkAt);
       Object.assign(turnedSeat, seat);
       turnedSeat.grip = [gripAt.x - seat.x, gripAt.y - seat.y, gripAt.z - seat.z];
+      forkAt.sub(seatAt.set(seat.x, seat.y, seat.z)).toArray(turnedFork.at);
+      forkAxis.toArray(turnedFork.axis);
+      turnedFork.angle = surfaces.fork;
+      turnedSeat.fork = turnedFork;
       return turnedSeat;
     },
     rest,

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { LEAN_STEP, leanAxis, leanInverse, leanParent, leanTo, leanTurn } from './astride.ts';
-import { closeHand } from './grip.ts';
-import { aimArm, twoBone, type Limbs } from './limbs.ts';
+import { gripBar, type Bar } from './hold.ts';
+import type { Limbs } from './limbs.ts';
 
 /**
  * A steering wheel, or a yoke, or a tiller held in both hands, as a seated
@@ -66,22 +66,22 @@ export function wheelHand(hip: THREE.Vector3, wheel: WheelGrip, turn: number, si
   );
 }
 
-export const wheelShoulder = new THREE.Vector3();
-export const wheelElbow = new THREE.Vector3();
-export const wheelWrist = new THREE.Vector3();
-export const wheelTarget = new THREE.Vector3();
-export const wheelPole = new THREE.Vector3();
-export const wheelUpper = new THREE.Vector3();
-export const wheelLower = new THREE.Vector3();
+const wheelPole = new THREE.Vector3();
+const wheelUp = new THREE.Vector3();
+const wheelRing = { centre: new THREE.Vector3(), axle: new THREE.Vector3(), radius: 0 };
+const wheelBar: Bar = { at: new THREE.Vector3(), pinky: new THREE.Vector3(), facing: new THREE.Vector3(), ring: wheelRing };
+const restBar: Bar = { at: new THREE.Vector3(), pinky: new THREE.Vector3(), facing: new THREE.Vector3(0, -1, 0) };
+
+/** How far in towards the wheel's middle a palm on the rim faces, against along the axle. */
+const FACING_IN = 0.6;
 
 /**
- * Both hands on a wheel, the elbows bent out and down by the two-bone solve
- * (`twoBone`): each wrist to its hand's point on the rim (`wheelHand`), a
- * hand's breadth short of it towards the shoulder, so the palm and not the
- * wrist is on the rim. `hip` is where the seat's hip is in `frame`. Unlike
- * `reachArms` the arms are not locked straight: a wheel is held near the
- * chest, and an arm pointed at it from the shoulder would put the hand
- * through it. The fingers close round the rim (`closeHand`). Allocates nothing.
+ * Both hands closed round a wheel's rim (`gripBar`): each where `wheelHand`
+ * says, the rim across the palm with the little finger towards the bottom
+ * of the wheel, the fingers continuing the forearm, the elbows bent down and
+ * out by the two-bone solve. `hip` is where the seat's hip is in `frame`. A
+ * wheel is held near the chest, so the arms are never locked straight.
+ * Allocates nothing.
  */
 export function holdWheel(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vector3, wheel: WheelGrip, turn: number): number {
   frame.updateMatrixWorld(true);
@@ -99,26 +99,35 @@ export function holdWheel(limbs: Limbs, frame: THREE.Object3D, hip: THREE.Vector
     spine.quaternion.premultiply(leanTurn);
     spine.updateMatrixWorld(true);
   }
+  // The rim's own up, square to its axle, and the rim as a ring.
+  wheelUp.set(0, Math.cos(wheel.tilt), Math.sin(wheel.tilt));
+  wheelRing.centre.set(hip.x + wheel.centre[0], hip.y + wheel.centre[1], hip.z + wheel.centre[2]);
+  wheelRing.axle.set(0, -Math.sin(wheel.tilt), Math.cos(wheel.tilt));
+  wheelRing.radius = wheel.radius;
   limbs.arms.forEach((arm, i) => {
     const side = i === 0 ? 1 : -1;
-    frame.worldToLocal(arm.upper.getWorldPosition(wheelShoulder));
-    frame.worldToLocal(arm.lower.getWorldPosition(wheelElbow));
-    frame.worldToLocal(arm.wrist.getWorldPosition(wheelWrist));
-    const first = wheelShoulder.distanceTo(wheelElbow);
-    const second = wheelElbow.distanceTo(wheelWrist);
-    wheelHand(hip, wheel, turn, side, wheelTarget);
-    // The palm on the rim: the wrist a little short of it, back towards the shoulder.
-    wheelPole.copy(wheelShoulder).sub(wheelTarget).normalize();
-    wheelTarget.addScaledVector(wheelPole, second * 0.12);
-    // The elbow down and a little out to its own side, so the forearm comes
-    // up to the rim from under it and the hand lies along the rim's side
-    // rather than reaching across to meet the other one.
-    wheelPole.set(side * 0.45, -1, -0.15);
-    twoBone(wheelShoulder, first, second, wheelTarget, wheelPole, wheelUpper, wheelLower);
-    aimArm(arm, frame, wheelUpper, wheelLower);
-    // The fingers round the rim; a hand resting on its thigh stays open.
-    const hand = limbs.hands[i];
-    if (hand !== undefined && wheel.rest?.side !== side) closeHand(hand);
+    const palm = limbs.palms[i] ?? null;
+    // The elbow down and out to its own side, a little back.
+    wheelPole.set(side * 0.3, -1, -0.2);
+    if (wheel.rest !== undefined && wheel.rest.side === side) {
+      // A hand on its thigh: palm down, the little finger outboard, open.
+      wheelHand(hip, wheel, turn, side, restBar.at);
+      restBar.pinky.set(side, 0, 0);
+      gripBar(arm, palm, undefined, frame, restBar, wheelPole);
+      return;
+    }
+    wheelHand(hip, wheel, turn, side, wheelBar.at);
+    const angle = side * wheel.spread - Math.max(-WHEEL_HOLD, Math.min(WHEEL_HOLD, turn));
+    // A hand carried up towards the top of the rim swings its elbow further
+    // out, as a driver's does, rather than in against the chest.
+    wheelPole.x = side * (0.3 + 0.8 * Math.max(0, Math.cos(angle)));
+    // The rim's own direction at the hold, on round it away from the top:
+    // the little finger below the first at a quarter to three.
+    wheelBar.pinky.set(side * Math.cos(angle), 0, 0).addScaledVector(wheelUp, -side * Math.sin(angle)).normalize();
+    // The palm on the rim's outer back, facing in and along the axle, the
+    // fingers over its far face.
+    wheelBar.facing.set(-Math.sin(angle) * FACING_IN, -Math.sin(wheel.tilt), Math.cos(wheel.tilt)).addScaledVector(wheelUp, -Math.cos(angle) * FACING_IN).normalize();
+    gripBar(arm, palm, limbs.hands[i], frame, wheelBar, wheelPole);
   });
   return lean;
 }

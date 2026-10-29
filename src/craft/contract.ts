@@ -25,7 +25,7 @@
  */
 import type * as THREE from 'three';
 import type { Honk } from '../../server/src/limits.ts';
-import type { WheelGrip } from '../cast.ts';
+import type { AstrideSeat, WheelGrip } from '../cast.ts';
 import { RIDDEN_SECTION } from '../traffic/contract.ts';
 
 /** What a vehicle moves over, which is what decides how it is driven. */
@@ -153,6 +153,17 @@ export interface Seat {
    * the seat's own frame (+X the rider's left, +Z ahead).
    */
   grip?: readonly [number, number, number];
+  /**
+   * Astride: where the left hand closes on its handlebar grip, about the hip,
+   * and which way that grip runs; the right is the same mirrored across the
+   * seat. Absent, the hands hold `grip` a shoulder's width apart, across.
+   */
+  bars?: AstrideSeat['bars'];
+  /**
+   * Astride, set by `CraftMotion.turned` only: the fork the bars turn on,
+   * about the hip, and how far it is turned.
+   */
+  fork?: AstrideSeat['fork'];
   /**
    * Astride: where the soles rest about the hip, the left foot's; the right is
    * the same mirrored across the seat. For a seat that pedals it is the

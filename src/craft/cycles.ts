@@ -71,6 +71,8 @@ const REAR_AXLE = -0.43 * M;
 const FRONT_AXLE = 0.62 * M;
 /** The grips: an upright city bike's, over the saddle and a forearm ahead of the head tube's top. */
 const BARS = { y: BIKE_HIP + 0.1 * H, z: 0.28 * M };
+/** How far out either side the grips are. */
+const BIKE_BAR_HALF = 0.28 * M;
 /**
  * The lamp on the head tube, every bicycle's: its axis's height, where it
  * starts and how long it is, lying along +Z. Where its glass is is the
@@ -138,7 +140,7 @@ function buildBicycle(variant: number, body?: number): THREE.Group {
   // The stem up out of the head tube, and swept-back bars with dark grips.
   const stem = new V(0, BARS.y - 0.02 * M, headTop.z - 0.03 * M);
   bars.add(strut(headTop, stem, tube * 1.1, trim));
-  const barHalf = 0.28 * M;
+  const barHalf = BIKE_BAR_HALF;
   for (const side of [-1, 1]) {
     const x = side * barHalf;
     bars.add(strut(new V(0, stem.y, stem.z), new V(x, BARS.y, BARS.z + 0.05 * M), tube, trim));
@@ -200,6 +202,8 @@ const BIKE_SEAT: Seat = {
   pose: 'ride',
   shown: true,
   grip: [0, BARS.y - BIKE_HIP, BARS.z + BIKE_BACK],
+  // The left grip's middle, running fore and aft on the swept-back bars, the little finger aft.
+  bars: { at: [BIKE_BAR_HALF, BARS.y - BIKE_HIP, BARS.z - 0.01 * M + BIKE_BACK], axis: [0, 0, -1] },
   // The crank's axle about the hip, and the feet a pedal's width either side.
   feet: [0.13 * M, BB_Y - BIKE_HIP, BIKE_BACK],
   crank: CRANK,
@@ -242,6 +246,9 @@ const PILLION_HIP = MOTO_HIP + 0.06 * M;
 const PILLION_Z = MOTO_SEAT_Z - 0.5 * M;
 /** The bars and the pegs. */
 const MOTO_BARS = { y: 1.08 * M, z: 0.38 * M };
+/** How far out either side the bar ends and the rubbers' inner ends are; each rubber is `MOTO_RUBBER` long. */
+const MOTO_BAR_HALF = 0.32 * M;
+const MOTO_RUBBER = 0.12 * M;
 /** The headlamp's glass in its bowl, lying along +Z: its axis's height, where it starts, how wide and how deep. */
 const MOTO_LAMP = { y: 0.9 * M, z: 0.58 * M, radius: 0.085 * M, length: 0.02 * M };
 const PEG = { y: 0.34 * M, z: MOTO_SEAT_Z + 0.16 * M };
@@ -496,12 +503,12 @@ function addMotoControls(group: THREE.Group, bars: THREE.Group, ctx: CraftContex
   bars.add(clocks);
   const riser = new V(0, MOTO_BARS.y - 0.02 * M, MOTO_BARS.z + 0.05 * M);
   bars.add(strut(new V(0, STOCK.y + 0.04 * M, STOCK.z), riser, 0.04 * M, metal));
-  const barHalf = 0.32 * M;
+  const barHalf = MOTO_BAR_HALF;
   for (const side of [-1, 1]) {
     const end = new V(side * barHalf, MOTO_BARS.y, MOTO_BARS.z);
     bars.add(strut(riser.clone().setX(side * 0.001), new V(side * 0.12 * M, MOTO_BARS.y, MOTO_BARS.z + 0.04 * M), 0.03 * M, chrome));
     bars.add(strut(new V(side * 0.12 * M, MOTO_BARS.y, MOTO_BARS.z + 0.04 * M), end, 0.03 * M, chrome));
-    bars.add(strut(end, new V(side * (barHalf + 0.12 * M), MOTO_BARS.y, MOTO_BARS.z - 0.02 * M), 0.05 * M, PALETTE.ink));
+    bars.add(strut(end, new V(side * (barHalf + MOTO_RUBBER), MOTO_BARS.y, MOTO_BARS.z - 0.02 * M), 0.05 * M, PALETTE.ink));
     bars.add(strut(new V(side * 0.2 * M, MOTO_BARS.y + 0.01 * M, MOTO_BARS.z + 0.03 * M), new V(side * 0.36 * M, MOTO_BARS.y - 0.01 * M, MOTO_BARS.z + 0.08 * M), 0.015 * M, metal));
     const stalkFoot = new V(side * 0.2 * M, MOTO_BARS.y, MOTO_BARS.z + 0.02 * M);
     const stalkTop = new V(side * 0.28 * M, MOTO_BARS.y + 0.17 * M, MOTO_BARS.z);
@@ -558,6 +565,8 @@ const MOTO_SEATS: readonly Seat[] = [
     pose: 'ride',
     shown: true,
     grip: [0, MOTO_BARS.y - MOTO_HIP, MOTO_BARS.z - MOTO_SEAT_Z],
+    // The left rubber's middle, out past the clamp, swept a little back.
+    bars: { at: [MOTO_BAR_HALF + MOTO_RUBBER / 2, MOTO_BARS.y - MOTO_HIP, MOTO_BARS.z - 0.01 * M - MOTO_SEAT_Z], axis: [MOTO_RUBBER, 0, -0.02 * M] },
     feet: [0.2 * M, PEG.y - MOTO_HIP, PEG.z - MOTO_SEAT_Z],
   },
   {

@@ -36,6 +36,8 @@ export const autoRickshaw: Vehicle = {
       // No hats: a hat needs 1.63 of clearance and the hood gives 1.34.
       footrest: [0.2, 0.36, 0.98],
       grip: [0, 1.24, 1.02],
+      // The left rubber on the straight bar.
+      bars: { at: [0.37, 1.19, 1.02], axis: [1, 0, 0] },
     },
     { x: 0, y: 0.96, z: -0.6, yaw: 0, pose: 'sit', headroom: 1.34, legroom: 0.6, beam: Infinity },
   ],

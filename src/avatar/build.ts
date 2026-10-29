@@ -89,7 +89,8 @@ export function buildAvatar(appearance?: Appearance): Avatar {
   /** The head bone's own scale, kept while it is folded away; see `setHeadless`. */
   let headless = false;
   function foldHead(): void {
-    const head = rig.person.bones.get('Head');
+    // The neck folds with the head: an eye in a seat leaning to its wheel looks down on it.
+    const head = rig.person.bones.get('Neck') ?? rig.person.bones.get('Head');
     if (head === undefined) return;
     if (headless) head.scale.setScalar(1e-3);
     else head.scale.setScalar(1);
