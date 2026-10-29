@@ -126,7 +126,8 @@ export function click(s: MapSheet, hit: Hit | null, x: number, y: number): void 
   } else if (hit?.kind === 'course') {
     const site = courseSitesOf(s)[hit.index];
     if (site !== undefined) {
-      const at = latLonOf(site.at);
+      // The start, where a run begins, not the town it is named for.
+      const at = latLonOf(options.courseStart?.(site.key) ?? site.at);
       onMark(at.lat, at.lon, site.title, false);
     }
   } else if (hit?.kind === 'town') {

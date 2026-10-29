@@ -78,6 +78,8 @@ export interface WorldMapOptions {
    * an empty list until the courses are known.
    */
   courseSites?: () => readonly MapCourseSite[];
+  /** Where a course starts, a unit direction under its first ring; a click on its badge marks there. Omitted, its site. */
+  courseStart?: (key: string) => Point | null;
   /** A course's best on this device, for its badge's medal and its tip. */
   courseBest?: (key: string) => { ms: number; medal: number } | null;
   /** The course shown in the world now, run or not, or null: the sheet follows it to the ring it waits for. */

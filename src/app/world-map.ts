@@ -45,6 +45,7 @@ export async function createPlanetMap(app: App): Promise<WorldMap> {
     openSpan: () => app.minimap.span,
     // The rings come after the map at start-up, so they are asked for as the sheet needs them.
     courseSites: () => app.thrills?.rings.sites ?? [],
+    courseStart: (key) => app.thrills?.rings.course(key)?.[0]?.centre.clone().normalize() ?? null,
     courseBest: (key) => app.thrills?.rings.record.courses.get(key) ?? null,
     courseRing: () => app.thrills?.rings.active ?? null,
     ...(peers === null
