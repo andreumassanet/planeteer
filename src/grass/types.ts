@@ -136,6 +136,12 @@ export interface GrassStats {
   /** Whether each of the shown layer's fields is on the screen. */
   fineReady: boolean;
   coarseReady: boolean;
+  /**
+   * Which of the shown layer's fields holds the camera's point of the ground,
+   * with a quarter of its width to spare: what the blades round the camera
+   * stand on. `none` while the grass is drawn means bare ground.
+   */
+  underfoot: 'fine' | 'coarse' | 'none';
   /** Texels of work queued: fills, lines entering, and patches a changed floor dirtied. */
   pending: number;
   /** Texels baked since the world loaded, and the mean cost of one. */

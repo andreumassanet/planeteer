@@ -53,7 +53,7 @@ import { createBaker } from './grass/baker.ts';
 import { createFloorWatcher } from './grass/floors.ts';
 import type { Baker } from './grass/baker.ts';
 import { frameAt, tangentOf } from './grass/layers.ts';
-import type { Layer, Layers } from './grass/layers.ts';
+import type { Field, Layer, Layers } from './grass/layers.ts';
 import { grassMaterial, sharedUniforms } from './grass/material.ts';
 import { createLayer, createRings } from './grass/rings.ts';
 import {
@@ -71,6 +71,9 @@ import type { Grass, GrassFrame, GrassOptions, GrassQuality, GrassStats } from '
 
 export { GRASS_FIELDS, GRASS_SPREAD, METRE, qualityFor } from './grass/types.ts';
 export type { Grass, GrassFrame, GrassOptions, GrassQuality, GrassStats } from './grass/types.ts';
+
+/** Seconds the camera's velocity is eased over, for laying a fill ahead of it. */
+const MOTION_SECONDS = 0.5;
 
 /** A footprint's share of the vehicle's box: the wheels stand inside its bumpers and mirrors. */
 const PRESS_SHARE = 0.85;
@@ -98,6 +101,14 @@ export function pressOf(player: Pick<Player, 'state' | 'ride' | 'forward'>, out:
   return out;
 }
 
+/** Whether a field stands under `at` (a point of its layer's plane) with a quarter of its width to spare. */
+function holds(field: Field, at: THREE.Vector3): boolean {
+  const { x: i0, y: j0, z: texel, w: size } = field.window;
+  if (size <= 0) return false;
+  const spare = (size * texel) / 4;
+  return at.x >= i0 * texel + spare && at.x < (i0 + size) * texel - spare && at.z >= j0 * texel + spare && at.z < (j0 + size) * texel - spare;
+}
+
 function emptyStats(): GrassStats {
   return {
     visible: false,
@@ -110,6 +121,7 @@ function emptyStats(): GrassStats {
     coarse: `${COARSE.size} x ${COARSE.texel}`,
     fineReady: false,
     coarseReady: false,
+    underfoot: 'none',
     pending: 0,
     texels: 0,
     microsecondsATexel: 0,
@@ -139,6 +151,10 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
   const lastEye = new THREE.Vector3(Infinity, Infinity, Infinity);
   const eyeFront = new THREE.Vector3();
   const eyeBack = new THREE.Vector3();
+  /** The camera's velocity, units a second, eased over `MOTION_SECONDS`; and in each layer's plane. */
+  const velocity = new THREE.Vector3();
+  const stepVelocity = new THREE.Vector3();
+  const motion = { front: new THREE.Vector3(), back: new THREE.Vector3() };
   const noteChanges = createFloorWatcher(ground, R, layers, baker);
   let lastTime = performance.now();
 
@@ -189,14 +205,18 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
   /**
    * A layer is drawn once either of its fields stands (the shader reads the
    * coarse one wherever the fine one has nothing); one laid round a new anchor
-   * takes over once both of its do.
+   * takes over once its coarse field holds the camera (`holds`) and it is no
+   * worse than the shown one: its fine field too, unless the shown one's no
+   * longer holds the camera either (a camera running faster than a fine field
+   * fills).
    */
   function showAndSwap(): void {
     if (!layers.front.shown && (layers.front.fine.valid || layers.front.coarse.valid)) {
       layers.front.shown = true;
       layers.front.group.visible = true;
     }
-    if (layers.back.anchored && layers.back.fine.valid && layers.back.coarse.valid) {
+    const back = layers.back;
+    if (back.anchored && holds(back.coarse, eyeBack) && (holds(back.fine, eyeBack) || !holds(layers.front.fine, eyeFront))) {
       const old = layers.front;
       layers.front = layers.back;
       layers.back = old;
@@ -250,6 +270,8 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
 
       frame.camera.getWorldPosition(eye);
       const jumped = eye.distanceTo(lastEye) > JUMP;
+      if (jumped || dt <= 0) velocity.set(0, 0, 0);
+      else velocity.lerp(stepVelocity.subVectors(eye, lastEye).divideScalar(dt), 1 - Math.exp(-dt / MOTION_SECONDS));
       lastEye.copy(eye);
       // Nothing to see from up there, and nothing to bake for it: the rings
       // are drawn round the camera's point of the ground and the last of them
@@ -260,6 +282,7 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
       group.visible = active && low;
       stats.visible = group.visible;
       if (!active || !near) {
+        stats.underfoot = 'none';
         stats.pending = baker?.pending() ?? 0;
         return;
       }
@@ -267,9 +290,13 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
       reanchor(jumped);
       noteChanges();
 
-      // The bake: one job at a time, whole before the next, inside the frame.
+      // The bake: a job a field, the coarse fields first, inside the frame's allowance.
       const began = performance.now();
-      baker!.run(began, detailBuild(BUILD_MS), { front: eyeFront, back: eyeBack });
+      for (const which of ['front', 'back'] as const) {
+        const { across, north } = layers[which].frame;
+        motion[which].set(velocity.dot(across), 0, velocity.dot(north));
+      }
+      baker!.run(began, detailBuild(BUILD_MS), { front: eyeFront, back: eyeBack }, motion);
       stats.lastBakeMs = Number((performance.now() - began).toFixed(2));
 
       showAndSwap();
@@ -289,6 +316,7 @@ export function createGrass(ground: GrassGround | null, options: GrassOptions = 
       stats.anchor = `${latOf(up.y).toFixed(3)}, ${lonOf(up.x, up.z).toFixed(3)}`;
       stats.fineReady = layers.front.fine.valid;
       stats.coarseReady = layers.front.coarse.valid;
+      stats.underfoot = !layers.front.shown ? 'none' : holds(layers.front.fine, eyeFront) ? 'fine' : holds(layers.front.coarse, eyeFront) ? 'coarse' : 'none';
       stats.pending = baker?.pending() ?? 0;
     },
   };

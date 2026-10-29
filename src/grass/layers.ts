@@ -76,6 +76,8 @@ export interface Field {
   valid: boolean;
   /** Patches to bake again in place, in texel indices: `[i0, i1, j0, j1]`, half-open. */
   dirty: number[][];
+  /** Seconds the last fill took: how far ahead of a moving camera the next one is laid. */
+  fillSeconds: number;
 }
 
 export function createField(texel: number, size: number): Field {
@@ -92,7 +94,7 @@ export function createField(texel: number, size: number): Field {
   paintTexture.minFilter = THREE.LinearFilter;
   paintTexture.magFilter = THREE.LinearFilter;
   paintTexture.generateMipmaps = false;
-  return { texel, size, data, paint, dataTexture, paintTexture, window: new THREE.Vector4(0, 0, texel, 0), i0: 0, j0: 0, valid: false, dirty: [] };
+  return { texel, size, data, paint, dataTexture, paintTexture, window: new THREE.Vector4(0, 0, texel, 0), i0: 0, j0: 0, valid: false, dirty: [], fillSeconds: 0 };
 }
 
 /** A layer: a frame and its two fields, and the ring meshes that draw from them. */
@@ -135,4 +137,6 @@ export interface Job {
   kind: 'fill' | 'shift-i+' | 'shift-i-' | 'shift-j+' | 'shift-j-' | 'patch';
   /** Which gather this job's texels were asked under. */
   gathered: number;
+  /** When it was made, ms (`performance.now`). */
+  made: number;
 }

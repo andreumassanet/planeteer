@@ -6,7 +6,9 @@
  * knob, or a ceiling that binds everywhere, would make the setting do nothing.
  *
  * Also: the automatic knob (`sampleFrame`) moves only while it is on, and far
- * work is shared between streamers so none starves.
+ * work is shared between streamers so none starves, and the grass's fields
+ * keep up with a car on a frame the towns have already spent, and come back
+ * after a flight.
  *
  * `pnpm reach`. Headless, under a second, nothing is built.
  */
@@ -19,7 +21,9 @@ import { HAZE_RADIUS } from '../src/globe.ts';
 import { ROAD_CLASSES, classReaches, reachFor as roadReach } from '../src/roads.ts';
 import { reachFor as landmarkReach } from '../src/placement.ts';
 import { moverReach } from '../src/life.ts';
-import { qualityFor } from '../src/grass.ts';
+import { createGrass, qualityFor } from '../src/grass.ts';
+import type { GrassGround, GrassSite } from '../src/vegetation.ts';
+import { PerspectiveCamera, Vector3 } from 'three';
 
 // The towns and the wood import the part registries, each an eager
 // `import.meta.glob` (a Vite transform). This hook rewrites it into the static
@@ -214,6 +218,116 @@ console.log('the far work, from a plane:');
   // Turns, not equal shares: a cheap build fits more of them into a turn.
   check(Math.min(...counts) * 20 >= Math.max(...counts), 'and none is starved by another', JSON.stringify(built));
   check(spent / FRAMES < 9, 'and the frame pays about its far share on average', `${(spent / FRAMES).toFixed(1)} ms a frame`);
+}
+
+console.log('the grass, from a car:');
+{
+  // The grass's bake on a fake clock against a ground that costs what the
+  // real one does (`pnpm seated` measures it: about 4.5 microseconds a texel),
+  // a land index that follows the player as `land-probe.ts`'s does (a centre
+  // gathered a few frames after the player has gone `MOVE` from the old one,
+  // answering within `REACH` of it), and a frame the towns have spent before
+  // the grass is served.
+  const R = HAZE_RADIUS;
+  const TEXEL_MS = 0.0045;
+  const GATHER_MS = 0.05;
+  const PROBE_REACH = 1600;
+  const PROBE_MOVE = 400;
+  const PROBE_FRAMES = 6;
+  let clock = 0;
+  const realNow = performance.now.bind(performance);
+  const wasAuto = autoDetail();
+  const wasDetail = detail();
+  performance.now = (): number => clock;
+  try {
+    setDetail(DETAIL_DEFAULT);
+    let centre = new Vector3(1, 0, 0);
+    let gathering: Vector3 | null = null;
+    let wait = 0;
+    const prepare = (at: Vector3): void => {
+      const direction = at.clone().normalize();
+      if (gathering === null && centre.distanceTo(direction) * R > PROBE_MOVE) {
+        gathering = direction;
+        wait = PROBE_FRAMES;
+      }
+      if (gathering !== null && --wait <= 0) {
+        centre = gathering;
+        gathering = null;
+      }
+    };
+    const ground: GrassGround = {
+      covers: (direction) => direction.dot(centre) >= Math.cos(PROBE_REACH / R),
+      gather: () => {
+        clock += GATHER_MS;
+      },
+      at: (_direction, out: GrassSite) => {
+        clock += TEXEL_MS;
+        Object.assign(out, { radius: R + 1, density: 1, r: 0.3, g: 0.6, b: 0.2, dry: 0, height: 1, edge: 1000 });
+        return out;
+      },
+      floorChanges: (since) => since,
+      version: () => 0,
+    };
+    const grass = createGrass(ground, { radius: R });
+    const camera = new PerspectiveCamera();
+    const player = new Vector3();
+    const axis = new Vector3(0, 0.3, 1).normalize();
+    let travelled = 0;
+    /** Drives `seconds` at `speed` units a second, `fps` frames a second; the camera `height` over the ground. Frames over bare ground, and the longest run of them. */
+    const drive = (seconds: number, speed: number, fps: number, height: number): { bare: number; frames: number; longest: number } => {
+      let bare = 0;
+      let run = 0;
+      let longest = 0;
+      const frames = Math.round(seconds * fps);
+      for (let frame = 0; frame < frames; frame++) {
+        const start = clock;
+        travelled += speed / fps;
+        player.set(1, 0, 0).applyAxisAngle(axis, travelled / R).multiplyScalar(R + 1);
+        camera.position.copy(player).multiplyScalar((R + height) / (R + 1));
+        camera.updateMatrixWorld(true);
+        beginFrameBuild();
+        // The towns and the wood ahead of the grass have spent the frame.
+        clock += 9;
+        // The index is gathered only while the camera is low (`vegetation/land.ts`).
+        if (height < 900) prepare(player);
+        grass.update({ camera, player, press: null, height, wind: { speed: 2, from: 0 }, hidden: false });
+        endFrameBuild();
+        clock = Math.max(clock, start + 1000 / fps);
+        if (grass.stats.visible && grass.stats.underfoot === 'none') {
+          bare++;
+          longest = Math.max(longest, ++run);
+        } else run = 0;
+      }
+      return { bare, frames, longest };
+    };
+    drive(8, 0, 30, 10);
+    check(grass.stats.underfoot === 'fine', 'standing still, the fine field stands under the camera', `${grass.stats.underfoot}, ${grass.stats.pending} texels pending`);
+    for (const [speed, fps] of [[45, 60], [75, 30], [110, 60]] as const) {
+      const { bare, frames, longest } = drive(120, speed, fps, 10);
+      check(
+        bare <= frames * 0.02 && longest <= fps,
+        `at ${speed} units a second and ${fps} fps, there is grass round the camera`,
+        `${bare} of ${frames} frames bare, the longest ${(longest / fps).toFixed(1)} s, ${Math.round(travelled)} units driven`,
+      );
+    }
+    // Up out of the grass's reach and across the country, then down again:
+    // nothing baked up there may hold the bake once it is low.
+    // Taken off while a layer round a new anchor is half laid (it is laid
+    // `FRAME_REACH`, 1,500 units, from the last), and down short of the
+    // distance that drops every layer.
+    drive(6, 0, 60, 10);
+    travelled = 0;
+    drive(1510 / 20, 20, 60, 10);
+    drive(1480 / 150, 150, 60, 1500);
+    const back = drive(8, 20, 60, 10);
+    check(back.longest <= 3 * 60 && grass.stats.underfoot !== 'none', 'after a flight the grass stands round the camera again', `bare for ${(back.longest / 60).toFixed(1)} s`);
+    drive(6, 0, 30, 10);
+    check(grass.stats.underfoot === 'fine', 'and stopped, the fine field again', grass.stats.underfoot);
+  } finally {
+    performance.now = realNow;
+    setDetail(wasDetail);
+    setAutoDetail(wasAuto);
+  }
 }
 
 if (failures > 0) {

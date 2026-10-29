@@ -4,21 +4,30 @@ import { mayBuild } from '../view.ts';
 import type { GrassGround, GrassSite } from '../vegetation.ts';
 import { GRASS_SPREAD, TEXEL_BATCH } from './types.ts';
 import type { GrassStats } from './types.ts';
-import { finish, jobFor } from './jobs.ts';
+import { finish, jobFor, targetOf } from './jobs.ts';
 import { directionIn } from './layers.ts';
 import type { Field, Job, Layer, Layers } from './layers.ts';
 
 export interface Baker {
-  /** Works jobs in order until the allowance is spent or none is left. `at` is the camera in each layer's plane. */
-  run(began: number, allowance: number, at: { front: THREE.Vector3; back: THREE.Vector3 }): void;
+  /**
+   * Works each field's job in order until the allowance is spent or none is
+   * left. `at` is the camera in each layer's plane, `motion` its velocity there.
+   */
+  run(began: number, allowance: number, at: PerLayer, motion: PerLayer): void;
   /** Texels of work queued: fills, lines entering and patches. */
   pending(): number;
-  /** Forgets the job under way if it belongs to `layer`. */
+  /** Forgets the jobs under way on `layer`'s fields. */
   dropJobOf(layer: Layer): void;
-  /** Forgets the job under way. */
+  /** Forgets every job under way. */
   reset(): void;
   /** A patch under way was asked of the old answer: queue it again. */
   restartPatch(): void;
+}
+
+/** A point or a velocity in each layer's plane. */
+export interface PerLayer {
+  front: THREE.Vector3;
+  back: THREE.Vector3;
 }
 
 export function createBaker(ground: GrassGround, R: number, layers: Layers, stats: GrassStats): Baker {
@@ -28,7 +37,10 @@ export function createBaker(ground: GrassGround, R: number, layers: Layers, stat
   const srgb = new THREE.Color();
   /** Bumped at every gather, so a job resumed after another's knows to gather again. */
   let gatherCount = 0;
-  let current: Job | null = null;
+  /** The job each field has under way: one a field, so a line the camera needs never waits behind another field's fill. */
+  const jobs = new Map<Field, Job>();
+  /** The fields whose land was not gathered yet this run: asked again next frame, not twice in one. */
+  const waited: Field[] = [];
   let totalMicroseconds = 0;
 
   /** Writes texel `(I, J)` of a field of a layer. False when the land is not gathered there yet. */
@@ -70,12 +82,13 @@ export function createBaker(ground: GrassGround, R: number, layers: Layers, stat
     stats.microsecondsATexel = Number((totalMicroseconds / stats.texels).toFixed(2));
   }
 
-  /** Works on `job` until it is whole or the frame's allowance is spent; true when whole. */
-  function work(job: Job, began: number, allowance: number): boolean {
+  /** Works on `job` until it is whole (`done`), the frame's allowance is spent (`spent`) or the land is not gathered under it yet (`waiting`). */
+  function work(job: Job, began: number, allowance: number): 'done' | 'spent' | 'waiting' {
     const field = job.field;
     const width = job.i1 - job.i0;
     const height = job.j1 - job.j0;
     const total = width * height;
+    if (!mayBuild(began, allowance, true)) return 'spent';
     if (job.gathered !== gatherCount || job.gathered < 0) {
       const cx = ((job.i0 + job.i1) * 0.5) * field.texel;
       const cz = ((job.j0 + job.j1) * 0.5) * field.texel;
@@ -84,7 +97,7 @@ export function createBaker(ground: GrassGround, R: number, layers: Layers, stat
       job.gathered = ++gatherCount;
     }
     while (job.done < total) {
-      if (!mayBuild(began, allowance, true)) return false;
+      if (!mayBuild(began, allowance, true)) return 'spent';
       const stop = Math.min(total, job.done + TEXEL_BATCH);
       const start = performance.now();
       const from = job.done;
@@ -94,38 +107,85 @@ export function createBaker(ground: GrassGround, R: number, layers: Layers, stat
         if (!bakeTexel(job.layer, field, I, J)) {
           // The land index is not round here yet: wait for it rather than bake the sea.
           account(job.done - from, start);
-          return false;
+          return 'waiting';
         }
       }
       account(job.done - from, start);
     }
     finish(job);
-    return true;
+    return 'done';
   }
 
-  /** Every job every field of a layer could want, the urgent first; the first it finds. */
-  function nextJob(at: { front: THREE.Vector3; back: THREE.Vector3 }): Job | null {
-    const { front, back } = layers;
-    // The shown layer's lines first, while they keep up; then a layer being
-    // laid round a new anchor; then what a changed floor dirtied.
-    const order: [Layer, Field, THREE.Vector3, boolean][] = [];
-    if (front.anchored) order.push([front, front.fine, at.front, true], [front, front.coarse, at.front, true]);
-    if (back.anchored) order.push([back, back.fine, at.back, false], [back, back.coarse, at.back, false]);
-    if (front.anchored) order.push([front, front.fine, at.front, false], [front, front.coarse, at.front, false]);
-    for (const [layer, field, point, urgent] of order) {
-      const job = jobFor(layer, field, point, urgent);
-      if (job !== null) return job;
-    }
+  /** Gives a patch under way back to its field's dirty list. */
+  function requeue(job: Job): void {
+    if (job.kind === 'patch') job.field.dirty.unshift([job.i0, job.i1, job.j0, job.j1]);
+  }
+
+  /**
+   * The job a field has under way, if the camera at `at` still wants it: a
+   * fill whose window still overlaps where the field is wanted, a line or a
+   * patch of a window not yet left wholly behind. One that is not is
+   * forgotten, so nothing pinned to where the camera was can hold the bake.
+   */
+  function underWay(field: Field, at: THREE.Vector3): Job | null {
+    const job = jobs.get(field);
+    if (job === undefined) return null;
+    const [ti, tj] = targetOf(field, at);
+    const n = field.size;
+    const wanted =
+      job.kind === 'fill'
+        ? !field.valid && Math.abs(ti - job.i0) < n && Math.abs(tj - job.j0) < n
+        : field.valid && Math.abs(ti - field.i0) < n && Math.abs(tj - field.j0) < n;
+    if (wanted) return job;
+    requeue(job);
+    jobs.delete(field);
     return null;
   }
 
+  /**
+   * The order fields are served in: each anchored layer's coarse field before
+   * any fine one, because the coarse one stands under every ring and a fine
+   * one the camera outruns is filled again and again; the shown layer's lines
+   * first; then the fine fields; then what a changed floor dirtied.
+   */
+  function order(): [Layer, Field, 'front' | 'back', boolean][] {
+    const { front, back } = layers;
+    const list: [Layer, Field, 'front' | 'back', boolean][] = [];
+    if (front.anchored) list.push([front, front.coarse, 'front', true]);
+    if (back.anchored) list.push([back, back.coarse, 'back', true]);
+    if (front.anchored) list.push([front, front.fine, 'front', true]);
+    if (back.anchored) list.push([back, back.fine, 'back', true]);
+    if (front.anchored) list.push([front, front.coarse, 'front', false], [front, front.fine, 'front', false]);
+    if (back.anchored) list.push([back, back.coarse, 'back', false], [back, back.fine, 'back', false]);
+    return list;
+  }
+
   return {
-    run(began, allowance, at) {
-      for (;;) {
-        if (current === null) current = nextJob(at);
-        if (current === null) break;
-        if (!work(current, began, allowance)) break;
-        current = null;
+    run(began, allowance, at, motion) {
+      waited.length = 0;
+      for (const [layer, field, which, urgent] of order()) {
+        if (waited.includes(field)) continue;
+        const point = at[which];
+        for (;;) {
+          let job = underWay(field, point);
+          if (job !== null && urgent && job.kind === 'patch') {
+            // The lines come before a patch, which goes back on the list while they move the window.
+            const line = jobFor(layer, field, point, motion[which], true);
+            if (line === null) break;
+            requeue(job);
+            job = line;
+          }
+          job ??= jobFor(layer, field, point, motion[which], urgent);
+          if (job === null) break;
+          jobs.set(field, job);
+          const state = work(job, began, allowance);
+          if (state === 'spent') return;
+          if (state === 'waiting') {
+            waited.push(field);
+            break;
+          }
+          jobs.delete(field);
+        }
       }
     },
 
@@ -134,27 +194,30 @@ export function createBaker(ground: GrassGround, R: number, layers: Layers, stat
       for (const layer of [layers.front, layers.back]) {
         if (!layer.anchored) continue;
         for (const field of [layer.fine, layer.coarse]) {
-          // A fill under way is counted below, by what it has left.
-          if (!field.valid && current?.field !== field) count += field.size * field.size;
+          const job = jobs.get(field);
+          // A fill under way is counted by what it has left.
+          if (!field.valid && job?.kind !== 'fill') count += field.size * field.size;
           for (const [i0, i1, j0, j1] of field.dirty) count += (i1! - i0!) * (j1! - j0!);
+          if (job !== undefined) count += (job.i1 - job.i0) * (job.j1 - job.j0) - job.done;
         }
       }
-      if (current !== null) count += (current.i1 - current.i0) * (current.j1 - current.j0) - current.done;
       return count;
     },
 
     dropJobOf(layer) {
-      if (current !== null && current.layer === layer) current = null;
+      jobs.delete(layer.fine);
+      jobs.delete(layer.coarse);
     },
 
     reset() {
-      current = null;
+      jobs.clear();
     },
 
     restartPatch() {
-      if (current !== null && current.kind === 'patch') {
-        current.field.dirty.unshift([current.i0, current.i1, current.j0, current.j1]);
-        current = null;
+      for (const [field, job] of jobs) {
+        if (job.kind !== 'patch') continue;
+        requeue(job);
+        jobs.delete(field);
       }
     },
   };
