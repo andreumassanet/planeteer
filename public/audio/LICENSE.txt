@@ -3,3 +3,6 @@ Trimmed, levelled to one peak and re-encoded as mono MP3; otherwise unchanged.
 
 Kenney (https://kenney.nl) — Impact Sounds, Interface Sounds, RPG Audio.
 License: CC0 1.0 Universal (http://creativecommons.org/publicdomain/zero/1.0/).
+
+menu-space.mp3 is this game's own music (the "sky" style of src/music-score, seed 1), rendered by its
+synthesiser and levelled; it carries the code's MIT licence.

@@ -17,6 +17,12 @@
  * pointer and key press to `unlock`), so that click itself is silent and
  * everything after it is heard. Until then every call here returns at once.
  *
+ * Under it all, from the first gesture until the world opens, the music of
+ * space: the game's own `sky` style (High air, seed 1, its intro, theme and
+ * outro, 90 s) rendered once to `public/audio/menu-space.mp3`, looped with its
+ * end laid over its start. It joins where the world's music does, past the
+ * effects' master, so the music's volume and switch hold it.
+ *
  * The settings hold it as they hold the world. Everything goes through
  * the effects' master (`audio.bus`), so the Sound slider and its switch move
  * it; the hum is music rather than an effect, so it is also scaled by the
@@ -37,6 +43,12 @@ const TICK_LEVEL = 0.035;
 const TICK_GAP = 0.07;
 /** The dive's peak. */
 const DIVE_LEVEL = 0.16;
+/** The space music: where it is, its level at a music volume of 1, and how long its end overlaps its start, s. */
+const BED_URL = `${import.meta.env?.BASE_URL ?? '/'}audio/menu-space.mp3`;
+const BED_LEVEL = 0.7;
+const BED_OVERLAP = 5;
+/** How much of the hum is left under the music, which carries the space now. */
+const PAD_UNDER_MUSIC = 0.4;
 
 /** The recorded cue each of the menu's events is. */
 const RECORDED: Readonly<Record<Exclude<MenuSoundName, 'hover'>, 'ui-click' | 'ui-toggle' | 'ui-close' | 'ui-confirm' | 'ui-open'>> = {
@@ -54,6 +66,10 @@ export function createMenuSound(audio: Audio, music: { readonly on: boolean; rea
   let lastTick = -Infinity;
   /** The level the hum was last sent towards, so a frame that changes nothing schedules nothing. */
   let padAim = -1;
+  /** The space music: its decoded track, its level, when its next lap starts, and the laps under way. */
+  let bed: { gain: GainNode; buffer: AudioBuffer; next: number; laps: AudioBufferSourceNode[] } | null = null;
+  let bedLoading = false;
+  let bedAim = -1;
 
   /** The context and the bus, once a gesture has opened them and while they run. */
   function open(): { ctx: AudioContext; bus: GainNode } | null {
@@ -133,7 +149,59 @@ export function createMenuSound(audio: Audio, music: { readonly on: boolean; rea
 
   function padLevel(): number {
     if (stage === null || !music.on) return 0;
-    return PAD_LEVEL * PAD_AT[stage] * Math.max(0, Math.min(1, music.volume));
+    return PAD_LEVEL * PAD_UNDER_MUSIC * PAD_AT[stage] * Math.max(0, Math.min(1, music.volume));
+  }
+
+  /** One lap of the track at `when`, faded in and out over the overlap so two laps cross. */
+  function lap(ctx: AudioContext, into: GainNode, buffer: AudioBuffer, when: number): AudioBufferSourceNode {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const envelope = ctx.createGain();
+    const end = when + buffer.duration;
+    envelope.gain.setValueAtTime(0, when);
+    envelope.gain.linearRampToValueAtTime(1, when + BED_OVERLAP);
+    envelope.gain.setValueAtTime(1, end - BED_OVERLAP);
+    envelope.gain.linearRampToValueAtTime(0, end);
+    source.connect(envelope).connect(into);
+    source.start(when);
+    source.onended = () => envelope.disconnect();
+    return source;
+  }
+
+  /** The space music: loaded on the first chance after the gesture, laps queued a second ahead, its level followed. */
+  function followBed(): void {
+    const out = audio.output;
+    if (out === null || out.context.state !== 'running') return;
+    const ctx = out.context;
+    const wanted = stage === null || !music.on ? 0 : BED_LEVEL * Math.max(0, Math.min(1, music.volume));
+    if (bed === null) {
+      if (wanted <= 0 || bedLoading) return;
+      bedLoading = true;
+      fetch(BED_URL)
+        .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
+        .then((bytes) => ctx.decodeAudioData(bytes))
+        .then((buffer) => {
+          if (stage === null) return;
+          const gain = ctx.createGain();
+          gain.gain.value = 0;
+          gain.connect(out.node);
+          bed = { gain, buffer, next: ctx.currentTime + 0.1, laps: [] };
+          bedAim = -1;
+          followBed();
+        })
+        // No music is no menu: the rest still sounds.
+        .catch(() => {});
+      return;
+    }
+    const now = ctx.currentTime;
+    while (bed.next < now + 1) {
+      bed.laps.push(lap(ctx, bed.gain, bed.buffer, bed.next));
+      bed.next += bed.buffer.duration - BED_OVERLAP;
+    }
+    if (bed.laps.length > 2) bed.laps.splice(0, bed.laps.length - 2);
+    if (wanted === bedAim) return;
+    bedAim = wanted;
+    bed.gain.gain.setTargetAtTime(wanted, now, PAD_LAG);
   }
 
   function followPad(): void {
@@ -206,16 +274,28 @@ export function createMenuSound(audio: Audio, music: { readonly on: boolean; rea
     stage(next) {
       stage = next;
       followPad();
+      followBed();
     },
 
     update() {
       // The first gesture opens the context after the stage was set, and the
       // music's switch can move while the menu is up: both are caught here.
       followPad();
+      followBed();
     },
 
     dispose() {
       stage = null;
+      if (bed !== null) {
+        const { gain, laps } = bed;
+        bed = null;
+        const ctx = gain.context;
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setTargetAtTime(0, now, 0.8);
+        for (const source of laps) source.stop(now + 4);
+        window.setTimeout(() => gain.disconnect(), 4200);
+      }
       const opened = open();
       if (pad === null) return;
       const { gain, sources } = pad;
