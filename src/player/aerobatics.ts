@@ -105,6 +105,20 @@ export function thrustShareOf(throttle: number): number {
   return throttle >= 0 ? AERO_NEUTRAL + (1 - AERO_NEUTRAL) * throttle : AERO_NEUTRAL + (AERO_NEUTRAL - AERO_IDLE) * throttle;
 }
 
+/** The top speed at full throttle in level flight, in air of `air` (`airAt`). */
+export function aeroTop(air: number): number {
+  return PLANE_CRUISE_LOW * (1 + PLANE_THROTTLE_UP) * air;
+}
+
+/**
+ * Over `AERO_OVER` times that top — travel's cruise at the ceiling is ten
+ * times it, and kept, a dive from there met the ground in a second — the
+ * airspeed comes down to it with this time constant, seconds: a brake
+ * over about a second rather than a snap.
+ */
+export const AERO_OVER = 1.2;
+export const AERO_BRAKE = 0.4;
+
 /**
  * One step of the airspeed: the thrust and gravity along the path (`climb`,
  * the sine of the path's climb), then the drag, solved implicitly so no step
@@ -112,7 +126,7 @@ export function thrustShareOf(throttle: number): number {
  * more than `AERO_MAX_ACCEL`, and it never passes `AERO_MAX_SPEED`.
  */
 export function airspeedStep(speed: number, share: number, climb: number, pull: number, air: number, h: number): number {
-  const top = PLANE_CRUISE_LOW * (1 + PLANE_THROTTLE_UP) * air;
+  const top = aeroTop(air);
   const thrust = AERO_THRUST * air;
   const drag = thrust / (top * top);
   let next = speed + (thrust * share - AERO_GRAVITY * climb) * h;
@@ -371,6 +385,8 @@ export function createAerobatics(
       axes();
       const authority = clamp(s.speed / (AERO_LIFT_SPEED * air), AERO_MIN_AUTHORITY, 1);
       s.speed = airspeedStep(s.speed, thrust, nose.y, Math.abs(s.elevator) * authority, air, h);
+      const over = aeroTop(air) * AERO_OVER;
+      if (s.speed > over) s.speed = over + (s.speed - over) * Math.exp(-h / AERO_BRAKE);
       if (move(h, model)) return;
       turned += headOn();
     }

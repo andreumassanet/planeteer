@@ -293,9 +293,22 @@ for (const fps of [30, 60, 144]) {
     last = player.speed;
     was.copy(player.attitude);
   };
-  step(1 / 60, { flightMode: true }, watch);
+  // Into aerobatics travel's ceiling speed is braked over about a second, not kept and not snapped.
+  const fast = player.speed;
+  let braking = 0;
+  const brake = (): void => {
+    braking = Math.max(braking, (last - player.speed) / Math.max(last, 1));
+    last = player.speed;
+    was.copy(player.attitude);
+  };
+  step(1 / 60, { flightMode: true }, brake);
   check(events.includes('aerobatics') && player.aerobatic, 'the mode key switches to aerobatics, and says so');
+  step(1.5, {}, brake);
+  const quick = PLANE_CRUISE_LOW * (1 + PLANE_THROTTLE_UP) * airAt(player.altitude) * 1.5;
+  check(player.speed < quick && braking < 0.06, 'from travel\'s ceiling speed aerobatics brakes to its own within seconds, without a snap',
+    `${fast.toFixed(0)} to ${player.speed.toFixed(0)} units/s in 1.5 s against ${quick.toFixed(0)}, at most ${(braking * 100).toFixed(1)}% a frame`);
   step(40, {}, watch);
+  jump = 0;
   const gentle = PLANE_CRUISE_LOW * (1 + PLANE_THROTTLE_UP) * airAt(player.altitude);
   check(player.speed < gentle, 'high up aerobatics slows to its own speeds, not travel\'s', `${player.speed.toFixed(0)} units/s against ${gentle.toFixed(0)}`);
   step(1 / 60, { roll: 1 }, watch);
