@@ -32,7 +32,8 @@ const { horseMaterial } = await import('../src/craft/horse.ts');
 const { prepareAvatar } = await import('../src/avatar.ts');
 const { createPlayer } = await import('../src/player.ts');
 const { writePose } = await import('../src/fleet.ts');
-const { unitAt } = await import('../src/sphere.ts');
+const { unitAt, latOf } = await import('../src/sphere.ts');
+const { createCameraRig } = await import('../src/camera.ts');
 const { FOUNDER_DRAG, FOUNDER_TIME, HELI_SPOOL, PLANE_DITCH_SPEED, PLANE_CEILING, PLANE_CLIMB_MIN, PLANE_CLIMB_RATE, PLANE_CLIMB_SLOPE, PLANE_CRUISE_LOW, PLANE_SPEED_RATE, PLANE_THROTTLE_UP } = await import('../src/vehicles.ts');
 const { airAt } = await import('../src/player/aerobatics.ts');
 const { AERO_GRAVITY, AERO_LIFT_SPEED, AERO_MAX_ACCEL, AERO_STALL, AERO_THRUST, ASSIST_NEAR, PLANE_BANK } = await import('../src/player/constants.ts');
@@ -59,15 +60,18 @@ const DEG = Math.PI / 180;
 /** A pass this near a ring's centre is a perfect one (`rings/layout.ts`). */
 const PERFECT = COURSE_RING_RADIUS * PERFECT_SHARE;
 
+type Collide = (point: Vector3, radius: number, push: Vector3) => boolean;
+type Walls = { collide: Collide; collideAloft: Collide; strike?: (from: Vector3, to: Vector3, radius: number) => number };
+
 type Keys = {
   x?: number; y?: number; climb?: boolean; dive?: boolean; pitch?: number; roll?: number; flightMode?: boolean;
   assist?: { target: Vector3; strength: number } | null;
 };
 
 /** An aircraft of `model` standing on the ground, flown at `fps` frames a second. */
-function aboard(model: typeof plane, fps: number, groundAt: () => number = () => FLOOR) {
+function aboard(model: typeof plane, fps: number, groundAt: (point: Vector3) => number = () => FLOOR, walls?: Walls) {
   const events: string[] = [];
-  const player = createPlayer(world, LAT, LON, { groundAt, onEvent: (event) => events.push(event) });
+  const player = createPlayer(world, LAT, LON, { groundAt, onEvent: (event) => events.push(event), ...(walls ?? {}) });
   const heading = new Vector3();
   const dt = 1 / fps;
   const step = (seconds: number, keys: Keys, each?: () => void): void => {
@@ -94,8 +98,8 @@ function aboard(model: typeof plane, fps: number, groundAt: () => number = () =>
 }
 
 /** A plane up and level in the low air, `upTo` over the ground. */
-async function flying(fps: number, upTo = 400, groundAt?: () => number) {
-  const flight = aboard(plane, fps, groundAt);
+async function flying(fps: number, upTo = 400, groundAt?: (point: Vector3) => number, walls?: Walls) {
+  const flight = aboard(plane, fps, groundAt, walls);
   const { player, events, step, dt } = flight;
   for (let t = 0; t < 10 && !events.includes('took-off'); t += dt) step(dt, { y: 1 });
   for (let t = 0; t < 60 && over(player) < upTo; t += dt) step(dt, { climb: true });
@@ -104,16 +108,16 @@ async function flying(fps: number, upTo = 400, groundAt?: () => number) {
 }
 
 /** The same plane taken into aerobatics by the mode key, and settled there. */
-async function aerobatic(fps: number) {
-  const flight = await flying(fps);
+async function aerobatic(fps: number, groundAt?: (point: Vector3) => number) {
+  const flight = await flying(fps, 400, groundAt);
   flight.step(flight.dt, { flightMode: true });
   flight.step(2, {});
   return flight;
 }
 
 /** A helicopter up and hovering `upTo` over the ground. */
-async function hovering(fps: number, upTo = 120) {
-  const flight = aboard(helicopter, fps);
+async function hovering(fps: number, upTo = 120, groundAt?: (point: Vector3) => number, walls?: Walls) {
+  const flight = aboard(helicopter, fps, groundAt, walls);
   const { player, step, dt } = flight;
   for (let t = 0; t < HELI_SPOOL + 30 && over(player) < upTo; t += dt) step(dt, { climb: true });
   step(2, {});
@@ -458,6 +462,228 @@ for (const fps of [30, 60, 144]) {
   });
   check(slowest < stall && lowest < peak - 0.6, 'a stall drops the nose',
     `${slowest.toFixed(0)} units/s at the slowest against a stall at ${stall.toFixed(0)}, the nose from ${peak.toFixed(2)} to ${lowest.toFixed(2)}`);
+}
+
+console.log('smooth, and wrecked:');
+/** How far north of `from` a point is along the ground, units. */
+const northOf = (point: Vector3, from: number): number => (latOf(point.y / point.length()) - from) * (PLANE_CEILING > 0 ? UNITS_PER_DEGREE : 0);
+/** A tall wall across the way north, `ahead` units north of latitude `from`, as both a low and an aloft wall. */
+function wallNorth(from: () => number, ahead: number): Walls {
+  const collide: Collide = (point, radius, push) => {
+    const into = northOf(point, from()) + radius - ahead;
+    if (into <= 0 || into > 60) return false;
+    const up = point.clone().normalize();
+    push.set(0, 1, 0).projectOnPlane(up).normalize().multiplyScalar(-into);
+    return true;
+  };
+  return { collide, collideAloft: collide };
+}
+{
+  // The same manoeuvre at 30 and at 144 frames a second: a bank in and out, a
+  // climb, a descent and a ring's pull. The attitude's angular acceleration
+  // stays bounded and does not grow with the frame rate (an ease that jumps
+  // its rate would), and the lens chasing it neither.
+  // The measure is how much a rate changes from one frame to the next: a
+  // motion whose rate is continuous changes it less the shorter the frame, a
+  // kink by the same whatever the frame.
+  const runs: { attitude: number; lens: number; fov: number }[] = [];
+  for (const fps of [30, 144]) {
+    const flight = await flying(fps, 300);
+    const { player, step, dt } = flight;
+    const rig = createCameraRig();
+    const ground = (): number => FLOOR;
+    rig.snap(player, ground);
+    const lastQ = player.attitude.clone();
+    const lastLook = new Vector3();
+    rig.camera.getWorldDirection(lastLook);
+    let rate = 0;
+    let lookRate = 0;
+    let fovRate = 0;
+    let lastFov = rig.camera.fov;
+    const worst = { attitude: 0, lens: 0, fov: 0 };
+    let frames = 0;
+    const look = new Vector3();
+    const watch = (): void => {
+      rig.follow(dt, player, ground);
+      const now = lastQ.angleTo(player.attitude) / dt;
+      rig.camera.getWorldDirection(look);
+      const turning = look.angleTo(lastLook) / dt;
+      const widening = (rig.camera.fov - lastFov) / dt;
+      if (frames++ > 2) {
+        worst.attitude = Math.max(worst.attitude, Math.abs(now - rate));
+        worst.lens = Math.max(worst.lens, Math.abs(turning - lookRate));
+        worst.fov = Math.max(worst.fov, Math.abs(widening - fovRate));
+      }
+      rate = now;
+      lookRate = turning;
+      fovRate = widening;
+      lastQ.copy(player.attitude);
+      lastLook.copy(look);
+      lastFov = rig.camera.fov;
+    };
+    step(0.5, {}, watch);
+    step(1.2, { roll: 1 }, watch);
+    step(1.5, {}, watch);
+    step(1, { climb: true }, watch);
+    step(1.5, {}, watch);
+    step(1, { dive: true }, watch);
+    step(1.5, {}, watch);
+    // A ring flown through punches the lens open at once (`thrills.ts`).
+    rig.rush = 0.8;
+    const target = ringAt(player, 700, -30 * DEG, 40);
+    step(4, { y: 1, assist: { target, strength: 1 } }, watch);
+    rig.rush = 0;
+    step(1, {}, watch);
+    runs.push(worst);
+  }
+  const [a, b] = runs as [typeof runs[0], typeof runs[0]];
+  check(b.attitude < 0.5 * a.attitude + 0.01 && b.attitude < 0.25,
+    'the attitude turns without a kink: its rate changes less a frame the shorter the frame', `${a.attitude.toFixed(3)} / ${b.attitude.toFixed(3)} rad/s a frame at 30 / 144 fps`);
+  check(b.lens < 0.5 * a.lens + 0.01 && b.lens < 0.1,
+    'and so does the chasing lens', `${a.lens.toFixed(3)} / ${b.lens.toFixed(3)} rad/s a frame`);
+  check(b.fov < 0.5 * a.fov + 0.5 && b.fov < 15, 'and its field of view opens by a punch of the rush without a jump', `${a.fov.toFixed(1)} / ${b.fov.toFixed(1)} degrees/s a frame`);
+}
+{
+  // Low over the ground towards a ridge: the plane climbs for it before it
+  // arrives, at any frame rate, rather than being snapped up its face.
+  const worst: number[] = [];
+  for (const fps of [30, 144]) {
+    let from = Infinity;
+    const ridge = (point: Vector3): number => FLOOR + Math.min(90, Math.max(0, northOf(point, from) - 500) * 0.35);
+    const { player, events, step } = await flying(fps, 30, ridge);
+    from = latOf(player.position.y / player.position.length());
+    let last = player.climb;
+    let jolt = 0;
+    let lowest = Infinity;
+    step(8, {}, () => {
+      jolt = Math.max(jolt, Math.abs(player.climb - last));
+      last = player.climb;
+      lowest = Math.min(lowest, player.position.length() - ridge(player.position));
+    });
+    worst.push(jolt);
+    check(!events.includes('exploded') && lowest > 0 && northOf(player.position, from) > 800,
+      `${fps} fps: low over a ridge, the plane climbs over it`, `${lowest.toFixed(1)} over it at the lowest`);
+  }
+  check(worst[1]! < 0.5 * worst[0]! + 0.05 && worst[1]! < 1.5, 'with no jolt: its climb rate changes less a frame the shorter the frame', `${worst[0]!.toFixed(2)} / ${worst[1]!.toFixed(2)} units/s a frame at 30 / 144 fps`);
+}
+{
+  // Into a cliff low in travel: a wreck. The body is thrown out and falls under a canopy.
+  let from = Infinity;
+  const cliff = (point: Vector3): number => FLOOR + Math.min(300, Math.max(0, northOf(point, from) - 300) * 6);
+  const { player, events, step } = await flying(60, 20, cliff);
+  from = latOf(player.position.y / player.position.length());
+  for (let t = 0; t < 6 && !events.includes('exploded'); t += 1 / 60) step(1 / 60, {});
+  check(events.includes('exploded') && player.ride === null && player.parachute, 'into a cliff it explodes and the body is thrown out under a canopy', events.slice(-3).join(', '));
+  step(20, {});
+  check(!player.parachute && player.position.length() >= cliff(player.position) - 0.5, 'and comes down on the ground');
+}
+{
+  // Into a building in travel: a wreck, not the knock a slow graze is.
+  let from = Infinity;
+  const { player, events, step } = await flying(60, 40, undefined, wallNorth(() => from, 400));
+  from = latOf(player.position.y / player.position.length());
+  let wrecked = 0;
+  for (let t = 0; t < 6 && !events.includes('exploded'); t += 1 / 60) step(1 / 60, {}, () => { if (player.wrecked) wrecked++; });
+  check(events.includes('exploded') && !events.includes('crashed') && player.ride === null, 'flown into a building it explodes and the body is thrown out');
+  step(1 / 60, {});
+  check(wrecked === 1 && !player.wrecked, 'and says so for one frame, for the fleet to take the craft away', `${wrecked} frames`);
+}
+{
+  // Low into a tree's crown in travel: the tree goes over and the plane flies on.
+  let from = Infinity;
+  let felled = false;
+  const near = (point: Vector3, reach: number): boolean => Math.abs(northOf(point, from) - 400) < 4 + reach && point.length() - FLOOR < 80;
+  const collide: Collide = (point, radius, push) => {
+    if (felled || !near(point, radius)) return false;
+    push.set(0, 1, 0).projectOnPlane(point.clone().normalize()).normalize().multiplyScalar(-radius);
+    return true;
+  };
+  // The tree as `strike` knocks it: met anywhere up its height, its wall down.
+  const strike = (a: Vector3, b: Vector3, radius: number): number => {
+    if (felled || !(near(a, radius) || near(b, radius) || near(a.clone().lerp(b, 0.5), radius))) return 0;
+    felled = true;
+    return 0.22;
+  };
+  const { player, events, step } = aboard(plane, 60, () => FLOOR, { collide, collideAloft: collide, strike });
+  for (let t = 0; t < 10 && !events.includes('took-off'); t += 1 / 60) step(1 / 60, { y: 1 });
+  for (let t = 0; t < 60 && over(player) < 20; t += 1 / 60) step(1 / 60, { climb: true });
+  step(4, {});
+  from = latOf(player.position.y / player.position.length());
+  for (let t = 0; t < 6 && northOf(player.position, from) < 500; t += 1 / 60) step(1 / 60, {});
+  check(felled && events.includes('broke') && !events.includes('exploded') && !events.includes('crashed') && player.ride !== null,
+    'flown into a tree\'s crown, the plane knocks it over and flies on', `${over(player).toFixed(0)} up; ${events.slice(-3).join(', ')}`);
+}
+{
+  // A steep dive onto a roof: a wreck, though the wall's push is sideways.
+  let built = false;
+  const roof = FLOOR + 40;
+  const block: Collide = (point, radius, push) => {
+    if (!built || point.length() > roof) return false;
+    push.set(0, 1, 0).projectOnPlane(point.clone().normalize()).normalize().multiplyScalar(radius);
+    return true;
+  };
+  const flight = aboard(plane, 60, () => FLOOR, { collide: block, collideAloft: block });
+  const { player, events, step } = flight;
+  for (let t = 0; t < 10 && !events.includes('took-off'); t += 1 / 60) step(1 / 60, { y: 1 });
+  for (let t = 0; t < 60 && over(player) < 400; t += 1 / 60) step(1 / 60, { climb: true });
+  step(3, {});
+  step(1 / 60, { flightMode: true });
+  step(2, {});
+  built = true;
+  for (let t = 0; t < 4 && player.nosePitch > -1.2; t += 1 / 60) step(1 / 60, { pitch: -1 });
+  for (let t = 0; t < 20 && !events.includes('exploded'); t += 1 / 60) step(1 / 60, {});
+  check(events.includes('exploded') && player.position.length() > roof - 20, 'a steep dive onto a roof explodes on it', events.slice(-3).join(', '));
+}
+{
+  // A slow touch: a wall met at a glancing angle is a knock, not a wreck.
+  let start: Vector3 | null = null;
+  let normal: Vector3 | null = null;
+  const side: Collide = (point, radius, push) => {
+    if (start === null || normal === null) return false;
+    const into = point.clone().sub(start).dot(normal) + radius - 20;
+    if (into <= 0) return false;
+    push.copy(normal).multiplyScalar(-into);
+    return true;
+  };
+  const { player, events, step } = await flying(60, 50, undefined, { collide: side, collideAloft: side });
+  start = player.position.clone();
+  normal = new Vector3().crossVectors(player.forward, player.up).normalize();
+  player.forward.applyAxisAngle(player.up, -3 * DEG);
+  for (let t = 0; t < 10 && !events.includes('crashed') && !events.includes('exploded'); t += 1 / 60) step(1 / 60, {});
+  check(events.includes('crashed') && !events.includes('exploded') && player.ride !== null, 'a wall brushed at a glancing angle is a knock, not a wreck', events.slice(-3).join(', '));
+}
+{
+  // Nose down into the ground in aerobatics: a wreck.
+  const { player, events, step } = await aerobatic(60);
+  for (let t = 0; t < 4 && player.nosePitch > -1; t += 1 / 60) step(1 / 60, { pitch: -1 });
+  for (let t = 0; t < 30 && !events.includes('exploded'); t += 1 / 60) step(1 / 60, {});
+  check(events.includes('exploded') && player.ride === null, 'dived nose first into the ground in aerobatics, it explodes', events.slice(-3).join(', '));
+}
+{
+  // Nose down into the sea in aerobatics: in, and under.
+  let sea = false;
+  const { player, events, step } = await aerobatic(60, () => (sea ? PLANET_RADIUS : FLOOR));
+  sea = true;
+  for (let t = 0; t < 4 && player.nosePitch > -1; t += 1 / 60) step(1 / 60, { pitch: -1 });
+  for (let t = 0; t < 30 && !events.includes('plunged'); t += 1 / 60) step(1 / 60, {});
+  check(events.includes('plunged') && !events.includes('exploded') && !events.includes('crashed'), 'dived into the sea in aerobatics, it plunges in', events.slice(-3).join(', '));
+  step(FOUNDER_TIME - 1, {});
+  check(player.sunk && player.position.length() < PLANET_RADIUS, 'and goes down at once', `${(player.position.length() - PLANET_RADIUS).toFixed(1)}`);
+}
+{
+  // A helicopter brought down onto the sea goes in and sinks; flown into a wall fast it explodes.
+  let sea = false;
+  const { player, events, step } = await hovering(60, 60, () => (sea ? PLANET_RADIUS : FLOOR));
+  sea = true;
+  for (let t = 0; t < 30 && !events.includes('plunged'); t += 1 / 60) step(1 / 60, { dive: true });
+  check(events.includes('plunged') && !events.includes('water-refused'), 'a helicopter let down onto the sea goes in', events.slice(-3).join(', '));
+  step(FOUNDER_TIME, {});
+  check(player.sunk, 'and sinks');
+  let from = Infinity;
+  const walled = await hovering(60, 30, undefined, wallNorth(() => from, 200));
+  from = latOf(walled.player.position.y / walled.player.position.length());
+  for (let t = 0; t < 12 && !walled.events.includes('exploded'); t += 1 / 60) walled.step(1 / 60, { y: 1 });
+  check(walled.events.includes('exploded') && walled.player.ride === null, 'flown into a wall at speed, a helicopter explodes', walled.events.slice(-3).join(', '));
 }
 
 console.log(failures === 0 ? '\nflight: all ok' : `\nflight: ${failures} failed`);

@@ -15,11 +15,16 @@ import type { CraftModel, PlayerState, WirePose } from '../craft/contract.ts';
  *   took off it.
  * - `foundered`: a vehicle driven into water it cannot float on, or a plane
  *   come down on it.
+ * - `plunged`: an aircraft gone into the water harder than a ditching, which
+ *   goes down at once; told with how hard it went in, units a second.
+ * - `exploded`: an aircraft wrecked on the ground or a wall; told with how
+ *   hard it hit, units a second, while the body is still in it. The body is
+ *   thrown out the same frame.
  * - `broke`: a vehicle on wheels knocked something small over (`breakables.ts`);
  *   told with how hard the knock was, 0 to `MAX_JOLT`.
  * - `boosted`: a drift let go paid its boost; told with the tier, 1 or 2.
  */
-export type PlayerEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered' | 'broke' | 'boosted';
+export type PlayerEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered' | 'plunged' | 'exploded' | 'broke' | 'boosted';
 
 export interface PlayerInput {
   move: { x: number; y: number };
@@ -115,6 +120,12 @@ export interface Player {
    * swimming and sends the vehicle back to its site.
    */
   sunk: boolean;
+  /**
+   * True the frame an aircraft at the controls blew up (`exploded`): the body
+   * is out of it, and the fleet takes the vehicle out of the world and sends
+   * it back to its site, as a sunk one.
+   */
+  wrecked: boolean;
   /** Seconds the vehicle at the controls has been going down in the water, -1 while it is not. */
   foundering: number;
   /** On foot, swimming, or in a seat: `PLAYER_STATES`, which is what the wire carries. */

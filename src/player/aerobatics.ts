@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import type { CraftModel } from '../craft/contract.ts';
 import { PLANET_RADIUS } from '../globe.ts';
-import { PLANE_CEILING, PLANE_CRUISE_LOW, PLANE_THROTTLE_UP } from '../vehicles.ts';
+import { PLANE_CEILING, PLANE_CRUISE_LOW, PLANE_THROTTLE_UP, WATERLINE, isWater } from '../vehicles.ts';
 import {
   AERO_ASSIST_BANK,
   AERO_BANK_TURN,
@@ -55,16 +55,17 @@ import {
   PLANE_BANK,
   PLANE_BOUNCE,
   PLANE_WALL,
+  WRECK_INTO,
 } from './constants.ts';
-import { approach, clamp, levers } from './math.ts';
+import { approach, clamp, levers, noseOf } from './math.ts';
 import type { PlayerInput } from './types.ts';
 import type { PlayerCore } from './core.ts';
 import type { Frame } from './frame.ts';
 import type { WallChecks } from './walls.ts';
 import type { Flight } from './flight.ts';
 
-/** What a touchdown came to: down, down on the sea to founder, or refused for the water or the slope under it. */
-export type Touchdown = 'landed' | 'ditched' | 'water' | 'steep';
+/** What a touchdown came to: down, down on the sea to founder (gently, or plunging in), or refused for the water or the slope under it. */
+export type Touchdown = 'landed' | 'ditched' | 'plunged' | 'water' | 'steep';
 
 const Y = new THREE.Vector3(0, 1, 0);
 const Z = new THREE.Vector3(0, 0, 1);
@@ -125,13 +126,13 @@ export function createAerobatics(
   frame: Frame,
   wallSet: WallChecks,
   flight: Flight,
-  touchdown: (model: CraftModel) => Touchdown,
+  touchdown: (model: CraftModel, ditch?: boolean, sink?: number) => Touchdown,
 ) {
   const { forward, landAt, options, position, probe, pushed, side, stick, up } = core;
   const s = core.fields;
   const { advance, pointAhead } = frame;
   const { airHit, airWalls } = wallSet;
-  const { bounce, refuse } = flight;
+  const { bounce, refuse, smash, wreck } = flight;
   const q = s.attitude;
   const nose = new THREE.Vector3();
   const bodyUp = new THREE.Vector3();
@@ -153,7 +154,7 @@ export function createAerobatics(
 
   /** Into full control from the simple mode's own look: its nose off the climb, its wings off the roll, the throttle holding its speed. */
   function engage(): void {
-    const pitchUp = clamp(Math.atan2(s.climbRate, Math.max(s.speed, 1)), -MAX_NOSE, MAX_NOSE);
+    const pitchUp = noseOf(s.climbRate, s.speed, MAX_NOSE);
     q.setFromEuler(euler.set(-pitchUp, 0, -s.roll * PLANE_BANK));
     const cruise = PLANE_CRUISE_LOW * airAt(s.altitude);
     thrust = clamp(AERO_NEUTRAL * (s.speed / cruise) ** 2, AERO_IDLE, 1);
@@ -165,6 +166,7 @@ export function createAerobatics(
   function release(): void {
     axes();
     s.climbing = s.speed * nose.y;
+    s.climbAccel = 0;
     s.roll = s.rollRate = 0;
     s.aerobatic = false;
     s.recovering = false;
@@ -280,6 +282,10 @@ export function createAerobatics(
       if (airWalls !== null) {
         const wide = Math.max(model.size[0], model.size[1]) * PLANE_WALL;
         const steps = Math.min(6, Math.max(1, Math.ceil(way / wide)));
+        pointAhead(along, (way + model.size[0] / 2) / before, probe);
+        probe.setLength(radius);
+        spin.copy(along).multiplyScalar(s.speed);
+        smash(position, probe, wide, spin, model);
         s.airHeight = radius;
         s.airLow = aboveGround < AIR_LOW;
         s.airEnvelope = 0;
@@ -290,17 +296,27 @@ export function createAerobatics(
         }
         if (struck > 0) {
           advance(along, (way * (struck - 1)) / steps / before);
-          // Turned off the wall and slowed by `bounce`, which tells the crash.
-          bounce(pushed);
+          // Turned off the wall and slowed by `bounce`, which tells the crash; or wrecked on it.
+          if (bounce(pushed, Math.max(0, -s.speed * nose.y))) return true;
           knock(0);
         } else advance(along, way / before);
       } else advance(along, way / before);
+    } else if (airWalls !== null) {
+      // Straight down: only a roof under it can be in the way.
+      s.airHeight = radius;
+      s.airLow = before - landAt(position) < AIR_LOW;
+      s.airEnvelope = 0;
+      if (airHit(position, Math.max(model.size[0], model.size[1]) * PLANE_WALL, pushed) && bounce(pushed, Math.max(0, -s.speed * nose.y))) return true;
     }
 
     // The ground has the last word: a touchdown if the plane comes down on its
-    // wheels the right way up and nearly level, a knock if it does not, and a
-    // lift over a ridge rising under a plane flying level.
-    const beneath = landAt(position);
+    // wheels the right way up and nearly level, a wreck if it comes down hard
+    // any other way, a knock if it only grazes, and a lift over a ridge rising
+    // under a plane flying level. The sea takes it at any attitude: gently
+    // only a fair ditching, plunging in otherwise.
+    const ground = landAt(position);
+    const water = isWater(ground);
+    const beneath = water ? PLANET_RADIUS + WATERLINE : ground;
     const floor = beneath + PLANE_AIR_CLEARANCE;
     if (radius <= floor + 0.5) {
       axes();
@@ -308,12 +324,17 @@ export function createAerobatics(
         const bank = bankOf(nose, bodyUp, level);
         const pitchAngle = Math.asin(clamp(nose.y, -1, 1));
         const fair = Math.abs(bank) < AERO_LAND_BANK && pitchAngle > -AERO_LAND_PITCH && pitchAngle < AERO_LAND_PITCH && nose.z > 0;
-        const outcome = fair ? touchdown(model) : null;
-        if (outcome === 'landed' || outcome === 'ditched') {
+        const sink = (before - radius) / h;
+        const outcome = water ? touchdown(model, true, fair ? sink : Infinity) : fair ? touchdown(model) : null;
+        if (outcome === 'landed' || outcome === 'ditched' || outcome === 'plunged') {
           s.aerobatic = false;
           s.recovering = false;
           q.identity();
           s.elevator = s.aileron = 0;
+          return true;
+        }
+        if (outcome === null && sink >= WRECK_INTO) {
+          wreck(sink);
           return true;
         }
         if (outcome !== null) refuse(outcome === 'water' ? 'water-refused' : 'steep-refused');

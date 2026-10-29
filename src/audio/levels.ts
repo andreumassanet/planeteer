@@ -75,6 +75,8 @@ export const CRICKET_LEVEL = 0.025;
 export const HORN_LEVEL = 0.06;
 export const RAIN_LEVEL = 0.2;
 export const THUNDER_LEVEL = 0.55;
+/** An explosion at its loudest, near: as loud as a strike overhead. */
+export const BOOM_LEVEL = 0.6;
 
 export const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 export const between = (a: number, b: number): number => a + Math.random() * (b - a);

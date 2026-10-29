@@ -112,7 +112,9 @@ function wireStreet(h: Hanger, street: Street, rng: Rng, poleColour: THREE.Color
     h.poles++;
   }
   for (const wire of strung) {
+    const first = out.position.length / 3;
     line(out, wire.a, wire.b, wire.sag, WIRE_WIDTH * 0.5, WIRE_COLOUR, wire.pieces);
+    h.record(first, wire.a, wire.b);
     h.wires++;
   }
 }

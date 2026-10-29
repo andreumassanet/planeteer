@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { AT_REST } from '../craft/motion.ts';
 import type { MotionInput } from '../craft/motion.ts';
-import { HELI_BANK, HELI_NOSE, HELI_SPEED, HELI_SPOOL, HELI_STRAFE, HELI_TURN } from '../vehicles.ts';
+import { HELI_BANK, HELI_NOSE, HELI_SPEED, HELI_SPOOL, HELI_STRAFE, HELI_TURN, founderNose } from '../vehicles.ts';
 import {
   AERO_PIVOT,
   BALLOON_PIVOT,
@@ -21,7 +21,7 @@ import {
   roadOf,
 } from './constants.ts';
 import type { Held } from './core.ts';
-import { approach, clamp } from './math.ts';
+import { approach, clamp, noseOf } from './math.ts';
 import type { PlayerCore } from './core.ts';
 import type { BodyRig } from './body.ts';
 import { createHullPose } from './hull-pose.ts';
@@ -80,6 +80,11 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
       hull.ride(held, dt, speed_);
       return;
     }
+    if (kind === 'helicopter' && s.founder >= 0) {
+      // Going down in the water, nose first.
+      craft.rotation.set(founderNose(s.founder), 0, s.lean);
+      return;
+    }
     if (kind === 'helicopter') {
       // Nose down into its speed and banked into its turn, both eased like
       // the machine's own weight; square on its skids.
@@ -109,7 +114,7 @@ export function createRidePose(core: PlayerCore, body: BodyRig) {
       s.lean = -s.roll * PLANE_BANK;
       // Nose follows the actual climb rate, so the attitude is the flight path
       // rather than a decoration: negative pitches it up.
-      const pitchUp = -clamp(Math.atan2(s.climbRate, Math.max(speed_, 1)), -MAX_NOSE, MAX_NOSE);
+      const pitchUp = -noseOf(s.climbRate, speed_, MAX_NOSE);
       craft.rotation.set(pitchUp, 0, s.lean);
       return;
     }

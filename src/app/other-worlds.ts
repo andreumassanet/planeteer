@@ -69,6 +69,7 @@ export async function exploreWorld(app: App, id: string, name: string, spawn?: M
       peersUrl: app.peersUrl,
       settings: app.sharedSettings,
       cue: (cue) => audio.cue(cue),
+      boom: (loudness) => audio.boom(loudness),
       traveller: app.traveller,
       step: (weight) => audio.step('dirt', weight),
       countries: app.world.countries,

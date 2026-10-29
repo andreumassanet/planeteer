@@ -97,6 +97,17 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
         if (speed > 12) host.cue?.('land');
         effects.touchdown(speed);
       },
+      // Earth's wreck: the same explosion, boom, knock of the lens and fire.
+      onWreck: (point, strength, size, craft) => {
+        const power = Math.min(1, Math.max(0.4, strength / 80));
+        const ground = R + groundAt(point);
+        effects.explodeAt(point, size, power, ground);
+        effects.burnAt(point.clone().setLength(ground), 6);
+        // Blown up: gone from the world; a town's spot builds a new one when the town next stands.
+        craftStream.wreck(craft);
+        host.boom?.(power);
+        rig.shake(1);
+      },
     },
     avatar,
   );

@@ -124,6 +124,8 @@ export interface Audio {
    * low-pass in three or four swells.
    */
   thunder(delay: number, loudness: number): void;
+  /** An explosion, once, at `loudness` 1 beside it: a crack, a falling thump and a rumble rolling off. */
+  boom(loudness: number): void;
   /** 0 to 1, a linear gain on the master; the slider that sets it is logarithmic. */
   volume: number;
   muted: boolean;

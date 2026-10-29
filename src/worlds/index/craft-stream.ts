@@ -14,6 +14,8 @@ export interface CraftStream {
   stream(): void;
   /** The nearest craft in reach to board, or null. */
   inReach(): Craft | null;
+  /** A craft blown up: out of the world, and its town's spot free for a new one. */
+  wreck(craft: Craft): void;
 }
 
 export function createCraftStream(deps: {
@@ -76,6 +78,19 @@ export function createCraftStream(deps: {
     },
     // Not the traffic's: a rover on the road has its driver at the wheel
     // (`traffic.ts`), and `E` beside one says so.
+    wreck(craft) {
+      const at = crafts.indexOf(craft);
+      if (at >= 0) crafts.splice(at, 1);
+      still.delete(craft);
+      for (const [site, made] of standingCraft) {
+        const index = made.indexOf(craft);
+        if (index >= 0) made.splice(index, 1);
+        if (made.length === 0) standingCraft.delete(site);
+      }
+      const spot = spotOf.get(craft);
+      if (spot !== undefined) takenSpots.delete(spot);
+      disposeCraft(craft);
+    },
     inReach() {
       let found: Craft | null = null;
       let best = Infinity;

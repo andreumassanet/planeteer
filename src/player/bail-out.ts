@@ -2,7 +2,7 @@
  * Out of an aircraft in flight: the fall, and the canopy to come.
  */
 import { AVATAR_HEIGHT } from '../avatar.ts';
-import { BAIL_CARRY, BODY_RADIUS } from './constants.ts';
+import { BAIL_CARRY, BODY_RADIUS, EJECT_BACK, EJECT_RISE } from './constants.ts';
 import type { PlayerCore } from './core.ts';
 import type { Frame } from './frame.ts';
 import type { Stance } from './stance.ts';
@@ -56,7 +56,20 @@ export function createBailOut(
     pose(0, 0);
   }
 
-  return { bailOut };
+  /**
+   * Out of a wreck: the body thrown up and back from the impact, falling, the
+   * canopy opening over the ground as a bail's does (`CHUTE_FORCED`).
+   */
+  function eject(): void {
+    bailOut();
+    motion.copy(forward).multiplyScalar(-EJECT_BACK);
+    s.speed = EJECT_BACK;
+    s.velocity = s.speed;
+    s.vertical = EJECT_RISE;
+    publish();
+  }
+
+  return { bailOut, eject };
 }
 
 export type BailOut = ReturnType<typeof createBailOut>;

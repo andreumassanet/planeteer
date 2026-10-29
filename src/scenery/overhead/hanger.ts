@@ -43,6 +43,10 @@ export interface Hanger {
   wires: number;
   /** Where a pole or a mast already stands, so two never share a spot. */
   readonly taken: [number, number][];
+  /** Every line strung, as its first vertex, its vertex count and its two ends: eight numbers each (`Overhead.lines`). */
+  readonly lines: number[];
+  /** Records the line drawn since `first` (a vertex index of `out`) from `a` to `b`. */
+  record(first: number, a: THREE.Vector3, b: THREE.Vector3): void;
   /** The highest floor under a line across a street at `at0` and `at1`, or null where any of it is off the floor. */
   floorUnder(street: Street, at0: number, at1: number): number | null;
   /**
@@ -98,6 +102,11 @@ export function createHanger(
     masts: 0,
     wires: 0,
     taken: [],
+    lines: [],
+    record(first, a, b) {
+      const count = out.position.length / 3 - first;
+      if (count > 0) hanger.lines.push(first, count, a.x, a.y, a.z, b.x, b.y, b.z);
+    },
     floorUnder(street, at0, at1) {
       let high = -Infinity;
       for (const [across, at] of [[0, (at0 + at1) / 2], [-street.half * 0.7, at0], [street.half * 0.7, at1]] as const) {
@@ -143,6 +152,7 @@ export function createHanger(
     },
     hang(kind, a, b, sag, draw, a1, b1) {
       const { profile: p } = hanger;
+      const first = out.position.length / 3;
       if (kind === 'pennants') pennants(out, a, b, sag, p.colours, draw);
       else if (kind === 'picado') picado(out, a, b, sag, p.colours, draw);
       else if (kind === 'laundry') laundry(out, a, b, sag, draw);
@@ -151,6 +161,7 @@ export function createHanger(
       else if (kind === 'bulbs') bulbs(out, a, b, sag, draw);
       else if (kind === 'banner') banner(out, a, b, sag, p.colours, draw);
       else if (a1 !== undefined && b1 !== undefined) sail(out, a, a1, b, b1, sag, p.colours, draw);
+      hanger.record(first, a, b);
       hanger.spans++;
       hanger.counts.set(kind, (hanger.counts.get(kind) ?? 0) + 1);
     },

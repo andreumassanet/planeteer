@@ -12,6 +12,8 @@ export const H = AVATAR_HEIGHT;
 export const MAX_PUFFS = 384;
 export const MAX_DISCS = 256;
 export const MAX_DEBRIS = 40;
+/** Wrecks burning at once: past it the oldest goes out. Each is two streams of puffs, no draw call of its own. */
+export const MAX_FIRES = 3;
 /** Ribbons, three to a boat: the player's own and seven other boats'; and two skid marks, the player's rear wheels. */
 export const MAX_RIBBONS = 26;
 /** Points one ribbon holds: a stern trail at full boost needs about 120 of them. */

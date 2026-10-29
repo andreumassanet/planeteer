@@ -20,6 +20,7 @@ import { PLANET_RADIUS, UNITS_PER_DEGREE } from '../src/globe.ts';
 import {
   BREAKABLE, BREAK_SPEED, DRESSING_KIND, KNOCK_DIZZY, KNOCK_FLY, KNOCK_LIE, KNOCK_RISE, KNOCK_TOTAL, LIE_SECONDS, MAX_JOLT,
   REGROW_SECONDS, breaks, createBreakables, flingOf, knockPose, newKnockPose, punchOf,
+  BUILDING_REACH, BUILDING_REGROW_SECONDS, COLLAPSE_SECONDS, blown,
 } from '../src/breakables.ts';
 import type { Prop, PropHost, PropKind } from '../src/breakables.ts';
 import { knockSolidAt } from '../src/breakables/knock.ts';
@@ -46,13 +47,16 @@ console.log('the table');
 {
   const kinds = Object.keys(BREAKABLE) as PropKind[];
   check(kinds.every((kind) => BREAKABLE[kind].jolt > 0 && BREAKABLE[kind].jolt <= MAX_JOLT), 'every kind is felt, under the cap');
-  check(kinds.every((kind) => BREAKABLE[kind].need > 0 && BREAKABLE[kind].need <= 1.6), 'every kind asks a punch a bus has');
+  check(kinds.every((kind) => BREAKABLE[kind].need > 0 && (kind === 'building' || BREAKABLE[kind].need <= 1.6)), 'every kind but a building asks a punch a bus has');
+  check(!breaks('building', punchOf(11, 2.6), 200) && blown('building', 1, BUILDING_REACH * 0.9) && !blown('building', 1, BUILDING_REACH * 1.1) && !blown('building', 0.3, BUILDING_REACH * 0.5),
+    'no vehicle brings a building down; a blast does, near enough and hard enough');
+  check(blown('bench', 0.2, 0.95) && !blown('bench', 1, 1.05), 'a blast knocks anything small over anywhere inside its radius, nothing past it');
   check(Object.values(DRESSING_KIND).every((kind) => kind in BREAKABLE), 'every dressing piece names a kind');
   check(!('kiosk' in DRESSING_KIND), 'a kiosk is not breakable');
   const bicycle = punchOf(1.8, 0.6);
   const car = punchOf(4.5, 2);
   const bus = punchOf(11, 2.6);
-  check(!breaks('lamp', bicycle, 30) && breaks('bollard', bicycle, 30), 'a bicycle fells a bollard and not a lamp');
+  check(breaks('lamp', bicycle, 20) && breaks('tree', bicycle, 20) && !breaks('vending', bicycle, 30), 'a bicycle fells a lamp and a tree, and not a vending machine');
   check(breaks('tree', car, 30) && breaks('bench', car, 30), 'a car fells a tree and a bench');
   check(breaks('vending', bus, 30), 'a bus fells a vending machine');
   check(!breaks('bollard', bus, BREAK_SPEED - 0.1) && breaks('bollard', bus, BREAK_SPEED), `nothing breaks under ${BREAK_SPEED} units a second`);
@@ -62,6 +66,8 @@ console.log('the table');
   check(small.every((id) => { const kind = COUNTRY_PARTS[id]?.breaks; return kind !== undefined && kind in BREAKABLE; }), 'standing stones, cairns, rocks, bales and the other small country pieces are breakable');
   check(big.every((id) => COUNTRY_PARTS[id] !== undefined && COUNTRY_PARTS[id].breaks === undefined), 'barns, mills, lighthouses and chapels stay walls');
   check(breaks('stone', car, 30) && !breaks('stone', bicycle, 30), 'a car fells a standing stone and a bicycle does not');
+  check(breaks('boulder', car, 30) && !breaks('boulder', car, (BREAKABLE.boulder.speed ?? 0) - 1) && !breaks('boulder', bicycle, 30),
+    'a car at speed shatters a boulder; crawling, or on a bicycle, it is a wall', `from ${BREAKABLE.boulder.speed} units/s`);
   // A tile packs such a piece as a prop of its kind, its walls with it; a farm building it leaves alone.
   const triangle = (): FlatVariant => ({
     position: new Float32Array([0, 0, 0, 1, 0, 0, 0, 2, 0]), normal: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
@@ -75,6 +81,13 @@ console.log('the table');
   const prop = packed.props[0];
   check(packed.props.length === 1 && prop?.kind === 'stone' && prop.start === 3 && prop.count === 3 && prop.solids[0] === wall && prop.x === 5,
     'a tile packs a standing stone as a stone prop with its wall, and not the barn beside it', JSON.stringify(packed.props.map((p) => [p.kind, p.start, p.count])));
+  // The wood's boulders: one with a wall is a prop that reaches past its wall; a pebble under the knee is none.
+  const rock: Placed = { flat: { ...triangle(), solid: 'boulder' }, matrix: new THREE.Matrix4().makeTranslation(-4, 0, 2) };
+  const pebble: Placed = { flat: { ...triangle(), solid: 'boulder' }, matrix: new THREE.Matrix4().makeTranslation(8, 0, 8) };
+  const rockWall = disc(-4, 2, 2.5, 2);
+  const rocks = packTile([rock, pebble], 6, 0, false, new Map(), new Map([[rock, [rockWall]], [pebble, []]]));
+  check(rocks.props.length === 1 && rocks.props[0]!.kind === 'boulder' && rocks.props[0]!.radius * 0.8 >= rockWall.hx && rocks.props[0]!.solids[0] === rockWall,
+    'a tile packs a boulder with a wall as a boulder prop, met before its wall, and no pebble', JSON.stringify(rocks.props.map((p) => [p.kind, p.radius.toFixed(2)])));
 }
 
 // --- the knock pose ----------------------------------------------------------
@@ -209,7 +222,7 @@ const same = (a: Float32Array, b: Float32Array): boolean => a.length === b.lengt
   };
   // Too slow, too light: nothing.
   check(sweep(s.feet[0]!, 1, BREAK_SPEED - 1, 1) === 0 && breakables.stats.folded === 0, 'a slow sweep breaks nothing');
-  check(sweep(s.feet[1]!, 1, 20, 0.25) === 0 && s.dropped.length === 0, 'a bicycle leaves the lamp standing');
+  check(sweep(s.feet[1]!, 1, 20, 0.2) === 0 && s.dropped.length === 0, 'a punch under its need leaves the lamp standing');
   // The bench.
   const jolt = sweep(s.feet[0]!, 1, 20, 1);
   check(Math.abs(jolt - BREAKABLE.bench.jolt) < 1e-9, 'the bench is felt as its jolt', jolt.toFixed(3));
@@ -274,6 +287,126 @@ const same = (a: Float32Array, b: Float32Array): boolean => a.length === b.lengt
   check(breakables.stats.hosts === 0 && breakables.group.children.length === 1, 'a forgotten host leaves its debris');
   breakables.clear();
   check(breakables.group.children.length === 0, 'cleared');
+}
+
+// --- every vehicle on wheels or hooves -----------------------------------------
+console.log('every vehicle on wheels or hooves');
+{
+  // Each road kind at its ordinary speed knocks over a bench, a lamp and a tree.
+  const { readFileSync } = await import('node:fs');
+  const { dirname, resolve } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const PUBLIC = resolve(dirname(fileURLToPath(import.meta.url)), '../public');
+  await import('./kit-node.ts');
+  const { modelsFrom, rigFrom } = await import('../src/kit.ts');
+  const { craftFrom } = await import('../src/craft/index.ts');
+  const { horseMaterial } = await import('../src/craft/horse.ts');
+  const { ROAD_HANDLING } = await import('../src/vehicles.ts');
+  const horse = await rigFrom(readFileSync(resolve(PUBLIC, 'models/fauna/horse.bin')), 'horse', horseMaterial());
+  const models = [...craftFrom(await modelsFrom(readFileSync(resolve(PUBLIC, 'models/traffic/kit.bin'))), horse).values()];
+  const misses: string[] = [];
+  const kinds = Object.keys(ROAD_HANDLING) as (keyof typeof ROAD_HANDLING)[];
+  for (const kind of kinds) {
+    const model = models.find((entry) => entry.kind === kind);
+    if (model === undefined) continue;
+    const punch = punchOf(model.size[0], model.size[1]);
+    const speed = ROAD_HANDLING[kind]!.speed;
+    for (const prop of ['bench', 'lamp', 'tree'] as const) if (!breaks(prop, punch, speed)) misses.push(`${kind} ${prop}`);
+  }
+  check(misses.length === 0, `${kinds.length} road kinds at their ordinary speed knock over a bench, a lamp and a tree`, misses.join(', '));
+}
+{
+  // A tree whose trunk's wall reaches past its own radius, met by a car at
+  // mid-trunk height and off its foot, inside its wall: knocked over.
+  const s = synthetic();
+  const tree = s.host.props[2]!;
+  (tree.solids as Solid[])[0] = disc(0, 14, 1.4, 0);
+  const breakables = createBreakables({ floorAt: () => PLANET_RADIUS });
+  breakables.register(s.host);
+  const half = 1.1;
+  const mid = s.feet[2]!.clone().addScaledVector(s.up, tree.height * 0.5).addScaledVector(s.across, 0);
+  const side = new THREE.Vector3().crossVectors(s.up, s.across).normalize();
+  mid.addScaledVector(side, half + 1.2);
+  const jolt = breakables.strike(mid.clone().addScaledVector(s.across, -3), mid.clone().addScaledVector(s.across, 3), half, s.across.clone().multiplyScalar(30), 1);
+  check(jolt > 0 && foldedRun(s.mesh, tree.ranges[0]!.start, tree.ranges[0]!.count), 'a car meeting a tree at mid-trunk, off its foot but inside its wall, knocks it over', jolt.toFixed(3));
+}
+
+// --- a blast -------------------------------------------------------------------
+console.log('a blast');
+{
+  // A building with an awning on its front and a lamp and a bench beside it,
+  // one host; a blast at the building's door.
+  const up = unitAt(41.5, 2.1, new THREE.Vector3());
+  const north = new THREE.Vector3(0, 1, 0).projectOnPlane(up).normalize();
+  const across = new THREE.Vector3().crossVectors(up, north).normalize();
+  const basis = new THREE.Matrix4().makeBasis(across, up, north);
+  if (basis.determinant() <= 0) throw new Error('the blast basis reflects');
+  const positions: number[] = [];
+  const material = new THREE.MeshBasicMaterial();
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  const buildingCount = boxAt(positions, 0, 0, 4, 10);
+  const awningStart = positions.length / 3;
+  const awningCount = boxAt(positions, 4.6, 0, 0.5, 4);
+  const lampStart = positions.length / 3;
+  const lampCount = boxAt(positions, 0, 12, 0.3, 6);
+  const benchStart = positions.length / 3;
+  const benchCount = boxAt(positions, 80, 0, 1, 1);
+  mesh.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  mesh.geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(positions.length).fill(0.5), 3));
+  mesh.position.copy(up).multiplyScalar(PLANET_RADIUS);
+  mesh.quaternion.setFromRotationMatrix(basis);
+  mesh.updateMatrixWorld(true);
+  const original = (mesh.geometry.getAttribute('position').array as Float32Array).slice();
+  const wall = disc(0, 0, 4, PLANET_RADIUS + 10);
+  const props: Prop[] = [
+    { kind: 'building', x: 0, y: 0, z: 0, radius: 4, height: 10, ranges: [{ mesh, start: 0, count: buildingCount, material }], solids: [wall],
+      clings: () => [{ mesh, start: awningStart, count: awningCount, material }] },
+    { kind: 'lamp', x: 0, y: 0, z: 12, radius: 0.3, height: 6, ranges: [{ mesh, start: lampStart, count: lampCount, material }], solids: [] },
+    { kind: 'bench', x: 80, y: 0, z: 0, radius: 1, height: 1, ranges: [{ mesh, start: benchStart, count: benchCount, material }], solids: [] },
+  ];
+  const standing = new Set<Solid>([wall]);
+  const host: PropHost = {
+    mesh, props,
+    dropSolids: (gone) => gone.forEach((solid) => standing.delete(solid)),
+    restoreSolids: (back) => back.forEach((solid) => standing.add(solid)),
+  };
+  const knocked: PropKind[] = [];
+  const breakables = createBreakables({ floorAt: () => PLANET_RADIUS, onBreak: (knock) => knock.blasted && knocked.push(knock.kind) });
+  breakables.register(host);
+  const door = new THREE.Vector3(0, 0, 5).applyMatrix4(mesh.matrixWorld);
+  const down = breakables.blast(door, 30, 1);
+  breakables.update(0);
+  check(down === 2 && knocked.includes('building') && knocked.includes('lamp') && !knocked.includes('bench'), 'a blast brings down the building and the lamp in its radius, not the bench past it', knocked.join(', '));
+  check(foldedRun(mesh, 0, buildingCount) && foldedRun(mesh, awningStart, awningCount) && !foldedRun(mesh, benchStart, benchCount),
+    'the building\'s run is folded, and the awning on its front with it');
+  check(!standing.has(wall), 'its wall is down');
+  check(breakables.stats.collapsed === 1, 'one building down');
+  // It sinks into its plot as it dissolves, never thrown about.
+  const copy = breakables.group.children.find((child) => child.children.some((m) => (m as THREE.Mesh).geometry.getAttribute('position').count === buildingCount + awningCount));
+  check(copy !== undefined, 'its copy carries the building and the awning in one mesh');
+  const foot = new THREE.Vector3(0, 0, 0).applyMatrix4(mesh.matrixWorld);
+  breakables.update(COLLAPSE_SECONDS * 0.5);
+  const sunk = copy === undefined ? 0 : foot.length() - copy.position.length();
+  check(sunk > 0.5 && copy!.position.clone().projectOnPlane(up).distanceTo(foot.clone().projectOnPlane(up)) < 0.01, 'and sinks straight down into its plot as it goes', `${sunk.toFixed(2)} down`);
+  for (let t = 0; t < COLLAPSE_SECONDS + 1; t += 0.1) {
+    await sleep(40);
+    breakables.update(0.1);
+  }
+  check(copy !== undefined && copy.parent === null, 'down and gone once the dissolve has run');
+  check(blown('building', 1, 0) && breakables.blast(door, 30, 1) === 0, 'a second blast finds nothing standing');
+  breakables.update(BUILDING_REGROW_SECONDS);
+  check(breakables.stats.returning >= 1 && foldedRun(mesh, 0, buildingCount), 'after the regrow it stands again, dissolving in, the run still folded under it');
+  // The lamp beside it lies, goes and stands again on its own clock.
+  for (let k = 0; k < 8 && breakables.stats.folded > 0; k++) {
+    for (let j = 0; j < 40; j++) breakables.update(0.25);
+    await sleep(400);
+    breakables.update(LIE_SECONDS);
+  }
+  check(breakables.stats.collapsed === 0 && standing.has(wall), 'its wall is back');
+  const after = mesh.geometry.getAttribute('position').array as Float32Array;
+  let first = -1;
+  for (let i = 0; i < after.length && first < 0; i++) if (after[i] !== original[i]) first = i / 3;
+  check(breakables.stats.folded === 0 && same(after, original), 'every run is put back bit for bit, the awning\'s too', `${breakables.stats.folded} folded, first differing vertex ${first} (building ${buildingCount}, awning from ${awningStart}, lamp from ${lampStart})`);
 }
 
 // --- a real town ---------------------------------------------------------------
@@ -347,7 +480,7 @@ console.log(`a real town: ${name}`);
       const at = new THREE.Vector3();
       const across = new THREE.Vector3();
       const walled = host.props.find((prop) => {
-        if (prop.solids.length === 0) return false;
+        if (prop.solids.length === 0 || prop.kind === 'building') return false;
         at.set(prop.x, prop.y, prop.z).applyMatrix4(host.mesh.matrixWorld);
         return settlements.collide(at, 0.2, push);
       });
@@ -373,10 +506,64 @@ console.log(`a real town: ${name}`);
           if (settlements.madeHeightAt(point) > 0 && settlements.collide(point, 6, push)) walls++;
         }
       }
-      check(breakables.stats.folded === host.props.length && walls > 0, 'every prop down, the buildings still walls', `${breakables.stats.folded}/${host.props.length} down, ${walls} probes met a wall`);
+      const small = host.props.filter((prop) => prop.kind !== 'building').length;
+      check(breakables.stats.folded === small && walls > 0, 'every prop down, the buildings still walls', `${breakables.stats.folded}/${small} down, ${walls} probes met a wall`);
       breakables.clear();
       breakables.update(0);
       check(breakables.stats.folded === 0, 'cleared, every run back');
+      // A blast at a building's door: its wall drops, what hangs on its front goes with it, and it comes back.
+      const building = host.props.find((prop) => prop.kind === 'building' && prop.solids.length > 0 && (prop.clings?.().length ?? 0) > 0);
+      check(building !== undefined, 'a building stands as a prop, with something on its front', `${host.props.filter((prop) => prop.kind === 'building').length} buildings`);
+      if (building !== undefined) {
+        const before = (building.ranges[0]!.mesh.geometry.getAttribute('position').array as Float32Array).slice();
+        at.set(building.x, building.y, building.z).applyMatrix4(host.mesh.matrixWorld);
+        const solid = building.solids[0]!;
+        const inside = new THREE.Vector3(solid.x, 0, solid.z);
+        const probe = settlements.collide(at, 0.5, push);
+        breakables.blast(at, building.radius * 1.2, 1);
+        breakables.update(0);
+        const clinging = building.clings?.() ?? [];
+        check(probe && !settlements.collide(at, 0.5, push), 'a blast brings a building down: its wall is gone', `${inside.x.toFixed(1)}, ${inside.z.toFixed(1)}`);
+        check(foldedRun(building.ranges[0]!.mesh, building.ranges[0]!.start, building.ranges[0]!.count), 'and its run is folded');
+        breakables.update(BUILDING_REGROW_SECONDS + COLLAPSE_SECONDS);
+        await sleep(450);
+        breakables.update(1);
+        await sleep(450);
+        breakables.update(1);
+        check(settlements.collide(at, 0.5, push), 'it stands again, a wall again');
+        check(same(building.ranges[0]!.mesh.geometry.getAttribute('position').array as Float32Array, before), 'its run and what clung to it put back bit for bit', `${clinging.length} clinging runs`);
+      }
+      // A span strung from a building's wall (bunting, washing, a wire) goes down with it and comes back with it.
+      const lines = (host.mesh.userData.lines ?? []) as number[];
+      const starts = new Set<number>();
+      for (let i = 0; i + 7 < lines.length; i += 8) starts.add(lines[i]!);
+      let spanned: Prop | undefined;
+      let span = -1;
+      for (const prop of host.props) {
+        if (prop.kind !== 'building' || prop.solids.length === 0) continue;
+        const hit = (prop.clings?.() ?? []).find((range) => starts.has(range.start));
+        if (hit !== undefined) {
+          spanned = prop;
+          span = lines.indexOf(hit.start);
+          break;
+        }
+      }
+      check(spanned !== undefined, 'a line is strung from a building\'s wall', `${lines.length / 8} lines in the town`);
+      if (spanned !== undefined && span >= 0) {
+        const geometry = spanned.ranges[0]!.mesh;
+        const before = (geometry.geometry.getAttribute('position').array as Float32Array).slice();
+        at.set(spanned.x, spanned.y, spanned.z).applyMatrix4(host.mesh.matrixWorld);
+        breakables.blast(at, spanned.radius * 1.2, 1);
+        breakables.update(0);
+        check(foldedRun(geometry, lines[span]!, lines[span + 1]!), 'broken, the building takes the line strung from it down with it');
+        breakables.update(BUILDING_REGROW_SECONDS + COLLAPSE_SECONDS);
+        for (let k = 0; k < 8 && breakables.stats.folded > 0; k++) {
+          for (let j = 0; j < 40; j++) breakables.update(0.25);
+          await sleep(400);
+          breakables.update(LIE_SECONDS);
+        }
+        check(!foldedRun(geometry, lines[span]!, lines[span + 1]!) && same(geometry.geometry.getAttribute('position').array as Float32Array, before), 'and stood again, the line hangs where it hung');
+      }
     }
   }
 }

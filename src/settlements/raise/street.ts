@@ -100,7 +100,7 @@ export function* hangOverSteps(kit: RaiseKit, job: RaiseJob, ground: Ground, ban
   }), (spent) => (ms += spent));
   if (hung === null) return;
   const count = hung.position.length / 3;
-  job.standing.push({ flat: runOf(hung, count), matrix: new THREE.Matrix4(), glow: 1 });
+  job.standing.push({ flat: runOf(hung, count), matrix: new THREE.Matrix4(), glow: 1, lines: hung.lines });
   job.vertices += count;
   slot.overhead = { triangles: hung.triangles, spans: hung.spans, poles: hung.poles, masts: hung.masts, wires: hung.wires, cells: hung.cells, ms };
   job.overheadSpots.push(...hung.spots);
@@ -169,7 +169,7 @@ export function* dressStreetsSteps(kit: RaiseKit, job: RaiseJob, ground: Ground,
       if (kind === undefined || piece.count === 0) continue;
       props.push({ kind, first: piece.first, count: piece.count, x: piece.x, y: piece.y, z: piece.z, radius: piece.radius, height: piece.height, solid: piece.solid });
     }
-    job.standing.push({ flat: runOf(dressed, count), matrix: new THREE.Matrix4(), glow: 1, props });
+    job.standing.push({ flat: runOf(dressed, count), matrix: new THREE.Matrix4(), glow: 1, props, dressing: true });
     job.vertices += count;
     job.solids.push(...dressed.solids);
     // In the town's frame here; into the world's with the benches once the mesh is placed.

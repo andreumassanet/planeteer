@@ -199,14 +199,18 @@ export function packTile(
     const leafFirst = b.leafCursor / 3;
     const count = writeWood(b, item, inverseScale);
     if (item.machine !== undefined) machines.push(recordMachine(b, item.machine, count, machineWalls));
-    // A tree with a trunk, or a small country piece that says so, is what a
-    // vehicle knocks over; a tree's cards, written below, go with it.
-    const breaks = item.flat.breaks ?? (item.flat.solid === 'trunk' ? 'tree' : undefined);
-    if (propWalls !== null && breaks !== undefined && item.machine === undefined) {
+    // A tree with a trunk, a boulder, or a small country piece that says so,
+    // is what a vehicle knocks over; a tree's cards, written below, go with it.
+    const solid = item.flat.solid;
+    const breaks = item.flat.breaks ?? (solid === 'trunk' ? 'tree' : solid === 'boulder' ? 'boulder' : undefined);
+    // A rock under the knee is stepped over and driven over: no wall, nothing to knock over.
+    const pebble = breaks === 'boulder' && (propWalls?.get(item)?.length ?? 0) === 0;
+    if (propWalls !== null && breaks !== undefined && !pebble && item.machine === undefined) {
       props.push({
         kind: breaks,
         x: e[12]!, y: e[13]!, z: e[14]!,
-        radius: Math.max(0.5, item.flat.footprint * scale * 0.35),
+        // A boulder is met by its wall's disc, so a vehicle reaches it before it reaches the wall.
+        radius: Math.max(0.5, item.flat.footprint * scale * 0.35, breaks === 'boulder' ? (propWalls.get(item)?.[0]?.hx ?? 0) * 1.3 : 0),
         height: item.flat.height * scale,
         start: (b.cursor - count) / 3, count: count / 3,
         leafStart: leafFirst, leafCount: 0,

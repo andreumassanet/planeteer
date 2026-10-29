@@ -12,8 +12,43 @@ import { KIND_OF, footprintOf } from '../rules.ts';
 import { standsDry } from '../shore.ts';
 import { wallSurfaceOf } from '../surfaces.ts';
 import type { FlatVariant } from '../types.ts';
+import * as THREE from 'three';
 import { compose } from './job.ts';
-import type { RaiseJob, RaiseKit } from './job.ts';
+import type { BuildingBox, RaiseJob, RaiseKit, Standing } from './job.ts';
+import type { Solid } from '../../scenery/solids.ts';
+
+/** Each variant's bounds in its own frame, measured once. */
+const bounds = new WeakMap<FlatVariant, THREE.Box3>();
+
+function boundsOf(flat: FlatVariant): THREE.Box3 {
+  let box = bounds.get(flat);
+  if (box === undefined) {
+    box = new THREE.Box3();
+    const p = flat.position;
+    const at = new THREE.Vector3();
+    for (let i = 0; i < p.length; i += 3) box.expandByPoint(at.set(p[i]!, p[i + 1]!, p[i + 2]!));
+    bounds.set(flat, box);
+  }
+  return box;
+}
+
+/**
+ * A building standing in a town as a blast may bring it down
+ * (`breakables.ts`): its whole run, its foot, its wall and its box, for
+ * what clings to its fronts.
+ */
+function asBuilding(item: Standing, scale: number, footprint: number, solid: Solid): void {
+  const e = item.matrix.elements;
+  const box = boundsOf(item.flat);
+  const inverse = item.matrix.clone().invert();
+  const building: BuildingBox = { inverse, min: box.min.clone(), max: box.max.clone() };
+  item.props = [{
+    kind: 'building', first: 0, count: item.flat.position.length / 3,
+    x: e[12]!, y: e[13]!, z: e[14]!,
+    radius: Math.max(1, footprint * 0.5), height: item.flat.height * scale,
+    solid, box: building,
+  }];
+}
 
 /**
  * The first pass of a raise: the ground under every planned plot, keeping
@@ -135,6 +170,7 @@ function standPlot(kit: RaiseKit, job: RaiseJob, entry: Placed, flat: FlatVarian
   job.built.add(cellKey(entry.plot.col, entry.plot.row));
   const solid = solidOf(flat, entry.plot.x, entry.plot.z, entry.plot.yaw, entry.scale, level);
   const matrix = job.standing[job.standing.length - 1]!.matrix;
+  asBuilding(job.standing[job.standing.length - 1]!, entry.scale, footprint, solid);
   job.solids.push(solid);
   job.solidFlats.push(flat);
   job.solidKinds.push(kind === 'block' ? 1 : kind === 'civic' ? 2 : 0);
@@ -188,7 +224,9 @@ export function standLone(kit: RaiseKit, job: RaiseJob): void {
     });
   }
   job.built.add(cellKey(lone, lone));
-  job.solids.push(solidOf(flat, loneAt, loneAt, loneYaw, 1, frame.base));
+  const solid = solidOf(flat, loneAt, loneAt, loneYaw, 1, frame.base);
+  asBuilding(job.standing[job.standing.length - 1]!, 1, footprintOf(smallest!), solid);
+  job.solids.push(solid);
   job.solidFlats.push(flat);
   job.solidKinds.push(0);
 }

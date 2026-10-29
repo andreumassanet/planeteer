@@ -74,6 +74,9 @@ export function createResidency(): Residency {
 }
 
 /** Takes some of a drawn tile's walls down, in one rebuild of its field. */
+/** A tile's walls once every one of them is down, kept for when they stand again. */
+const emptied = new WeakMap<Standing, NonNullable<Standing['walls']>>();
+
 export function dropTileSolids(r: StreamState, entry: Standing, gone: readonly Solid[]): void {
   const walls = entry.walls;
   if (walls === null || gone.length === 0) return;
@@ -81,9 +84,22 @@ export function dropTileSolids(r: StreamState, entry: Standing, gone: readonly S
   walls.solids = walls.solids.filter((solid) => !lost.has(solid));
   if (walls.solids.length > 0) walls.field = solidField(walls.solids);
   else {
+    emptied.set(entry, walls);
     entry.walls = null;
     r.walled.delete(entry);
   }
+}
+
+/** Walls taken down put back, as what stood there stands again. */
+export function restoreTileSolids(r: StreamState, entry: Standing, back: readonly Solid[]): void {
+  const walls = entry.walls ?? emptied.get(entry);
+  if (walls === undefined || back.length === 0) return;
+  const kept = new Set(walls.solids);
+  walls.solids = [...walls.solids, ...back.filter((solid) => !kept.has(solid))];
+  walls.field = solidField(walls.solids);
+  emptied.delete(entry);
+  entry.walls = walls;
+  r.walled.add(entry);
 }
 
 /** A drawn tile as a host of its trees for `breakables.ts`: each tree's wood and cards as runs of the tile's meshes. */
@@ -107,6 +123,7 @@ function hostOf(r: StreamState, entry: Standing): PropHost | null {
       solids: prop.solids,
     })),
     dropSolids: (gone) => dropTileSolids(r, entry, gone),
+    restoreSolids: (back) => restoreTileSolids(r, entry, back),
   };
 }
 

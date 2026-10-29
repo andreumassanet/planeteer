@@ -69,6 +69,12 @@ export interface Overhead {
   /** Where the poles and masts stand, as runs of `(x, z, radius)`, for what is laid on the paving after. */
   spots: number[];
   /**
+   * Every line strung (a span of bunting, a sail, a wire), as its first
+   * vertex in `position`, its vertex count and its two ends `(x, y, z)`:
+   * eight numbers each, so what hangs from a building goes down with it.
+   */
+  lines: number[];
+  /**
    * The street cells, main and side: how many there are (a cell's stretch of
    * a street with a floor under it) and how many carry a string across.
    */

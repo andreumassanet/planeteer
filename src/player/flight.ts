@@ -3,7 +3,10 @@
  * landing, and a knock against a wall.
  */
 import * as THREE from 'three';
-import { PLANE_CLIMB_MIN } from '../vehicles.ts';
+import { PLANET_RADIUS } from '../globe.ts';
+import { FOUNDER_DRAG, PLANE_CLIMB_MIN, WATERLINE, founderDepth } from '../vehicles.ts';
+import type { CraftModel } from '../craft/contract.ts';
+import { BREAK_SPEED, punchOf } from '../breakables/kinds.ts';
 import {
   ASSIST_GAIN_MAX,
   ASSIST_GAIN_MIN,
@@ -15,6 +18,7 @@ import {
   PLANE_BOUNCE,
   PLANE_GO_AROUND,
   REFUSAL_QUIET,
+  WRECK_INTO,
 } from './constants.ts';
 import { clamp } from './math.ts';
 import type { PlayerInput } from './types.ts';
@@ -97,17 +101,42 @@ export function createFlight(core: PlayerCore, frame: Frame) {
   }
 
   /**
-   * A plane in the air into a wall, `push` the way out of it: turned off the wall
-   * and slowed to `PLANE_BOUNCE` of its speed, climbing away as a refused landing
-   * does, and a `crashed` told with the speed lost.
+   * An aircraft sweeping from `from` to `to`, a body of `radius` going
+   * `velocity`: whatever breakable it meets at whatever height is knocked over
+   * (`PlayerOptions.strike`), its wall down before the walls are asked, so a
+   * tree is never what stops or wrecks it.
    */
-  function bounce(push: THREE.Vector3): void {
+  function smash(from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3, model: CraftModel): void {
+    if (options.strike === undefined || velocity.length() < BREAK_SPEED) return;
+    const jolt = options.strike(from, to, radius, velocity, punchOf(model.size[0], model.size[1]));
+    if (jolt > 0) options.onEvent?.('broke', jolt);
+  }
+
+  /** Wrecked: the explosion and the body thrown out are the controller's, at the end of this frame (`player.ts`). */
+  function wreck(strength: number): void {
+    s.wreck = Math.max(s.wreck, strength);
+  }
+
+  /**
+   * A plane in the air into a wall, `push` the way out of it, coming down at
+   * `sink` units a second. Into it faster than `WRECK_INTO`, along the wall's
+   * normal or straight down onto it (a dive onto a roof is met by a wall's
+   * push sideways), it is wrecked and this returns true; else it is turned
+   * off the wall and slowed to `PLANE_BOUNCE` of its speed, climbing away as a
+   * refused landing does, and a `crashed` told with the speed lost.
+   */
+  function bounce(push: THREE.Vector3, sink = 0): boolean {
     const depth = push.length();
-    if (depth < 1e-9) return;
+    if (depth < 1e-9) return false;
     direction.copy(push).divideScalar(depth);
+    const into = forward.dot(direction);
+    const impact = Math.max(-into * s.speed, sink);
+    if (impact >= WRECK_INTO) {
+      wreck(Math.max(impact, Math.hypot(s.speed, sink) * 0.5));
+      return true;
+    }
     // Out of the wall first, then the part of the heading into it turned back.
     advance(direction, depth / position.length());
-    const into = forward.dot(direction);
     if (into < 0) forward.addScaledVector(direction, -1.5 * into).projectOnPlane(up).normalize();
     const lost = s.speed * (1 - PLANE_BOUNCE);
     s.speed *= PLANE_BOUNCE;
@@ -117,9 +146,28 @@ export function createFlight(core: PlayerCore, frame: Frame) {
       s.sinceCrash = 0;
       options.onEvent?.('crashed', lost);
     }
+    return false;
   }
 
-  return { liftOf, pullOf, assistTurn, assistClimb, refuse, bounce };
+  /**
+   * An aircraft gone into the water (`founder` from 0, or from `FOUNDER_FLOAT`
+   * for a plunge), one frame: its way dying over `FOUNDER_DRAG`, going down
+   * by `founderDepth`, until `sunk` hands it to the fleet and the body swims.
+   */
+  function sink(dt: number): void {
+    s.founder += dt;
+    s.founderWay *= Math.exp(-dt / FOUNDER_DRAG);
+    s.speed = s.founderWay;
+    if (Math.abs(s.speed) > 1e-6) advance(forward, (s.speed * dt) / position.length());
+    s.height = PLANET_RADIUS + WATERLINE - founderDepth(s.founder);
+    position.setLength(s.height);
+    s.altitude = s.height - PLANET_RADIUS;
+    s.velocity = Math.abs(s.speed);
+    s.climbing = s.climbAccel = 0;
+    s.climbRate = s.climbRateRate = 0;
+  }
+
+  return { liftOf, pullOf, assistTurn, assistClimb, refuse, bounce, wreck, sink, smash };
 }
 
 export type Flight = ReturnType<typeof createFlight>;

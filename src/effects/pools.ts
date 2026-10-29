@@ -132,7 +132,7 @@ export function createPools() {
 
   const stats: EffectsStats = {
     enabled: true, puffs: 0, discs: 0, ribbonPoints: 0, ribbons: 0, foamVertices: 0, markVertices: 0,
-    debris: 0, dropped: 0, jumps: 0, tracked: 0, calls: 0, updateMs: 0,
+    debris: 0, fires: 0, dropped: 0, jumps: 0, tracked: 0, calls: 0, updateMs: 0,
   };
   /** Where the meshes are this frame: every particle is written relative to it. */
   const anchor = new THREE.Vector3();

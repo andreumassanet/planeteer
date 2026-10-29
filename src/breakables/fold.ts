@@ -69,26 +69,43 @@ export function unfoldRange(folded: Folded): void {
  * takes the same ramp, ink normals and weather as the host.
  */
 export function copyOf(folded: Folded, foot: THREE.Vector3): THREE.Mesh {
-  const { range, kept } = folded;
-  const source = range.mesh.geometry;
+  return copyOfRuns([folded], foot);
+}
+
+/** One mesh of several runs of the same host mesh, in order: a building and what hangs on its fronts. */
+export function copyOfRuns(runs: readonly Folded[], foot: THREE.Vector3): THREE.Mesh {
+  const first = runs[0]!.range;
+  const source = first.mesh.geometry;
+  let count = 0;
+  for (const run of runs) count += run.range.count;
   const geometry = new THREE.BufferGeometry();
   for (const [name, attribute] of Object.entries(source.attributes)) {
+    if (name === 'position') continue;
     const a = attribute as THREE.BufferAttribute;
     const size = a.itemSize;
-    const slice = (a.array as Float32Array).slice(range.start * size, (range.start + range.count) * size);
+    const array = a.array as Float32Array;
+    const slice = new (array.constructor as new (length: number) => Float32Array)(count * size);
+    let at = 0;
+    for (const { range } of runs) {
+      slice.set(array.subarray(range.start * size, (range.start + range.count) * size), at);
+      at += range.count * size;
+    }
     geometry.setAttribute(name, new THREE.BufferAttribute(slice, size, a.normalized));
   }
-  const position = new Float32Array(kept.length);
-  for (let i = 0; i < kept.length; i += 3) {
-    position[i] = kept[i]! - foot.x;
-    position[i + 1] = kept[i + 1]! - foot.y;
-    position[i + 2] = kept[i + 2]! - foot.z;
+  const position = new Float32Array(count * 3);
+  let o = 0;
+  for (const { kept } of runs) {
+    for (let i = 0; i < kept.length; i += 3, o += 3) {
+      position[o] = kept[i]! - foot.x;
+      position[o + 1] = kept[i + 1]! - foot.y;
+      position[o + 2] = kept[i + 2]! - foot.z;
+    }
   }
   geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
   geometry.computeBoundingSphere();
-  const mesh = new THREE.Mesh(geometry, range.material);
+  const mesh = new THREE.Mesh(geometry, first.material);
   mesh.castShadow = true;
   mesh.receiveShadow = false;
-  if (range.depth !== undefined) mesh.customDepthMaterial = range.depth;
+  if (first.depth !== undefined) mesh.customDepthMaterial = first.depth;
   return mesh;
 }

@@ -40,6 +40,15 @@ export interface StandingProp {
   solid: Solid | null;
   /** A near tree's leaf cards, whose run the leaves' merge records. */
   leaf?: LeafCard;
+  /** A building's box, for what clings to its fronts (`clingsIn`). */
+  box?: BuildingBox;
+}
+
+/** A building's own box: the town frame into its part's, and the part's bounds there. */
+export interface BuildingBox {
+  inverse: THREE.Matrix4;
+  min: THREE.Vector3;
+  max: THREE.Vector3;
 }
 
 /** A `StandingProp` placed in the town's buffer: its run's first vertex there. */
@@ -61,6 +70,10 @@ export interface Standing {
   bed?: number;
   /** What a building's walls are made of (`surfaces.ts`); absent on anything else. */
   surface?: Surface;
+  /** The street dressing's one item, whose run the merge records (`RaiseJob.dressRun`). */
+  dressing?: boolean;
+  /** The overhead's lines, eight numbers each (`Overhead.lines`), whose runs the merge records (`RaiseJob.lines`). */
+  lines?: number[];
 }
 
 /**
@@ -88,6 +101,10 @@ export interface RaiseJob {
   readonly standing: Standing[];
   /** Everything a vehicle may knock over, where the merge put it. */
   readonly props: TownProp[];
+  /** The street dressing's run in the buffer, once merged: what clings to a building is looked for in it. */
+  dressRun: { start: number; count: number } | null;
+  /** The overhead's lines in the buffer: first vertex, count and two ends, eight numbers each. */
+  lines: number[];
   /** Vertices of everything standing, which sizes the buffer. */
   vertices: number;
   drowned: number;

@@ -9,6 +9,9 @@ import type { Fleet } from '../fleet.ts';
 import { BODY_JOLT, MAX_JOLT } from '../breakables.ts';
 import type { App } from './context.ts';
 
+/** How hard a full blast flings a body, as a vehicle's speed would (`flingOf`). */
+const BLAST_BODY = 60;
+
 type Collide = (point: THREE.Vector3, radius: number, push: THREE.Vector3) => boolean;
 type FreeSpot = (point: THREE.Vector3, radius: number, out: THREE.Vector3) => boolean;
 
@@ -34,6 +37,13 @@ export interface Walls {
    * See `PlayerOptions.strike`.
    */
   strike(from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3, punch: number): number;
+  /**
+   * A blast of `power` 0 to 1 at `point` reaching `radius` units: the props
+   * and buildings in it brought down (`Breakables.blast`), the townsfolk, the
+   * walkers and the near animals knocked flying outwards. Monuments stand.
+   * How many went down comes back. This client's alone: nothing goes on the wire.
+   */
+  blast(point: THREE.Vector3, radius: number, power: number): number;
   /** Adds the fleet's vehicles as walls, once the fleet exists. */
   setFleet(fleet: Fleet): void;
 }
@@ -47,6 +57,7 @@ export function createWalls(app: App): Walls {
   const stillPush = new THREE.Vector3();
   const freeFrom = new THREE.Vector3();
   const freeTo = new THREE.Vector3();
+  const blastUp = new THREE.Vector3();
 
   return {
     madeHeightAt: (point) =>
@@ -124,6 +135,13 @@ export function createWalls(app: App): Walls {
     setFleet(fleet) {
       vehicleWalls = (point, radius, push) => fleet.collide(point, radius, push);
       vehicleSpot = (point, radius, out) => fleet.freeSpotNear(point, radius, out);
+    },
+
+    blast(point, radius, power) {
+      const down = breakables.blast(point, radius, power);
+      // Straight down at the blast leans, along each body's own ground, away from it: flung outwards.
+      blastUp.copy(point).normalize().multiplyScalar(-BLAST_BODY * power);
+      return down + townsfolk.knock(point, point, radius, blastUp) + life.knock(point, point, radius, blastUp);
     },
 
     strike(from, to, radius, velocity, punch) {

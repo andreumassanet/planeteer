@@ -120,7 +120,7 @@ export function createFramer(world: World, broken: string[]): Framer {
       const from = solids.length;
       placeShape(shape, item.matrix.elements, ground, solids);
       if (item.machine !== undefined) machineWalls.set(item.machine, solids.slice(from));
-      else if (kind === 'trunk' || item.flat.breaks !== undefined) propWalls.set(item, solids.slice(from));
+      else if (kind === 'trunk' || kind === 'boulder' || item.flat.breaks !== undefined) propWalls.set(item, solids.slice(from));
     }
     if (solids.length === 0) return null;
     return {

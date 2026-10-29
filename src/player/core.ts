@@ -74,8 +74,9 @@ export interface PlayerFields {
   aloft: number;
   /** Altitude above sea level, not above the ground. */
   altitude: number;
-  /** The plane's vertical speed, eased towards what the keys ask. */
+  /** The plane's vertical speed, eased towards what the keys ask, and how fast that is changing. */
   climbing: number;
+  climbAccel: number;
   /** Seconds of a go-around left after a refused landing, or of the climb-out. */
   goAround: number;
   /** A plane down from a landing, its take-off run shut until the throttle is let go. */
@@ -99,7 +100,11 @@ export interface PlayerFields {
   /** The control surfaces as the motion draws them, -1 to 1: nose up, roll right. */
   elevator: number;
   aileron: number;
+  /** The vertical speed the attitude is drawn from, and how fast it is changing (`PLANE_NOSE_SPRING`). */
   climbRate: number;
+  climbRateRate: number;
+  /** An aircraft wrecked this frame: how hard, for the explosion; -1 for none. */
+  wreck: number;
   swell: number;
   /** How hard a vehicle on wheels is pulling away, eased; and a motorbike's front wheel off the road for it. */
   surge: number;
@@ -242,6 +247,7 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     aloft: 0,
     altitude: 0,
     climbing: 0,
+    climbAccel: 0,
     goAround: 0,
     rolling: false,
     steering: 0,
@@ -256,6 +262,8 @@ export function createPlayerCore(world: World, options: PlayerOptions): PlayerCo
     elevator: 0,
     aileron: 0,
     climbRate: 0,
+    climbRateRate: 0,
+    wreck: -1,
     swell: 0,
     surge: 0,
     wheelie: 0,

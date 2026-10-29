@@ -94,6 +94,13 @@ export interface PlayerWorld {
   onStep?(weight: number): void;
   /** Down on the ground from a jump or a fall, at this speed, units a second. */
   onTouchdown?(speed: number): void;
+  /**
+   * A craft in the air wrecked on a wall at `strength` units a second, at
+   * `point`, `size` its larger side: the explosion is the caller's, as Earth's
+   * (`exploded`), and so is taking `craft` out of the world; the body has been
+   * thrown out of it.
+   */
+  onWreck?(point: THREE.Vector3, strength: number, size: number, craft: Craft): void;
 }
 
 export function createWorldPlayer(world: PlayerWorld, avatar: Avatar): WorldPlayer {

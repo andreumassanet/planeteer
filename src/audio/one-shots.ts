@@ -2,7 +2,7 @@
 import type { Honk } from '../../server/src/limits.ts';
 import { HORN_HELD } from '../horn.ts';
 import { HELD_CHORDS } from './horn-voices.ts';
-import { GAIN, HORN_LEVEL, KNOCK_LEVEL, LANDINGS, PAGES, STEP_LEVEL, THUNDER_LEVEL, VARIANTS, between, clamp01 } from './levels.ts';
+import { BOOM_LEVEL, GAIN, HORN_LEVEL, KNOCK_LEVEL, LANDINGS, PAGES, STEP_LEVEL, THUNDER_LEVEL, VARIANTS, between, clamp01 } from './levels.ts';
 import type { KnockVoice } from '../breakables/kinds.ts';
 import type { createSamples } from './samples.ts';
 import type { createSynth } from './synth.ts';
@@ -196,6 +196,65 @@ export function createOneShots(rt: Runtime, synth: ReturnType<typeof createSynth
     }
   }
 
+  /**
+   * An explosion, `loudness` 1 beside it: a crack of noise, a low thump falling
+   * from a punch to a growl, and a rumble rolling off under a closing low-pass.
+   */
+  function boom(loudness: number): void {
+    const ctx = rt.context;
+    const rumbleNoise = rt.loops?.rumbleNoise ?? null;
+    const crackNoise = rt.loops?.crackNoise ?? null;
+    if (ctx === null || rt.master === null || rumbleNoise === null || crackNoise === null) return;
+    const loud = clamp01(loudness);
+    if (loud < 0.02) return;
+    const at = ctx.currentTime + 0.005;
+    const peak = BOOM_LEVEL * loud;
+    const crack = ctx.createBufferSource();
+    crack.buffer = crackNoise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'lowpass';
+    band.frequency.setValueAtTime(5000, at);
+    band.frequency.exponentialRampToValueAtTime(400, at + 0.5);
+    const crackEnv = ctx.createGain();
+    crackEnv.gain.setValueAtTime(0, at);
+    crackEnv.gain.linearRampToValueAtTime(peak * 0.8, at + 0.006);
+    crackEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.6);
+    crack.connect(band).connect(crackEnv).connect(rt.master);
+    crack.start(at, Math.random() * 2);
+    crack.stop(at + 0.65);
+    rt.voices++;
+    crack.onended = () => rt.voices--;
+    const thump = ctx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(95, at);
+    thump.frequency.exponentialRampToValueAtTime(28, at + 0.7);
+    const thumpEnv = ctx.createGain();
+    thumpEnv.gain.setValueAtTime(0, at);
+    thumpEnv.gain.linearRampToValueAtTime(peak, at + 0.01);
+    thumpEnv.gain.exponentialRampToValueAtTime(0.0001, at + 0.9);
+    thump.connect(thumpEnv).connect(rt.master);
+    thump.start(at);
+    thump.stop(at + 0.95);
+    rt.voices++;
+    thump.onended = () => rt.voices--;
+    const roll = ctx.createBufferSource();
+    roll.buffer = rumbleNoise;
+    roll.loop = true;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.setValueAtTime(900, at);
+    low.frequency.exponentialRampToValueAtTime(60, at + 3);
+    const rollEnv = ctx.createGain();
+    rollEnv.gain.setValueAtTime(0, at);
+    rollEnv.gain.linearRampToValueAtTime(peak * 0.9, at + 0.04);
+    rollEnv.gain.exponentialRampToValueAtTime(0.0001, at + 3.2);
+    roll.connect(low).connect(rollEnv).connect(rt.master);
+    roll.start(at, Math.random() * 3);
+    roll.stop(at + 3.3);
+    rt.voices++;
+    roll.onended = () => rt.voices--;
+  }
+
   function cue(name: Cue): void {
     if (name === 'land') {
       play(`land-${Math.floor(Math.random() * LANDINGS)}`, GAIN.land, between(0.95, 1.05));
@@ -209,5 +268,5 @@ export function createOneShots(rt: Runtime, synth: ReturnType<typeof createSynth
     play(name, GAIN[name]);
   }
 
-  return { step, holdHorn, horn, thunder, cue, knock };
+  return { step, holdHorn, horn, thunder, boom, cue, knock };
 }

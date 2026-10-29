@@ -97,6 +97,7 @@ export function createPlayer(
   /** One frame, routed to the mode the player is in. */
   function update(dt: number, input: PlayerInput): void {
     s.sinceCrash += dt;
+    player.wrecked = false;
     const radiusBefore = position.length();
     if (input.climb !== undefined || input.dive !== undefined) {
       controls.lift = (input.climb === true ? 1 : 0) - (input.dive === true ? 1 : 0);
@@ -138,6 +139,17 @@ export function createPlayer(
       }
     } else onFoot(dt, input);
 
+    // Wrecked this frame: told while the body is still in it, then thrown out.
+    if (s.wreck >= 0) {
+      const strength = s.wreck;
+      s.wreck = -1;
+      if (s.ride !== null) {
+        options.onEvent?.('exploded', strength);
+        bail.eject();
+        player.wrecked = true;
+      }
+    }
+
     s.climb = dt > 0 ? (position.length() - radiusBefore) / dt : 0;
     published.publish();
     presentation.pose(dt, s.velocity);
@@ -159,6 +171,7 @@ export function createPlayer(
     canopy: false,
     airborne: false,
     sunk: false,
+    wrecked: false,
     foundering: -1,
     state: s.state,
     mode: 'foot',

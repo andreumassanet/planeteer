@@ -21,9 +21,10 @@
  * so float32 keeps millimetres. Other players' vehicles only emit inside
  * `REACH` of the camera.
  */
+import type * as THREE from 'three';
 import { PALETTE } from './theme.ts';
 import { createAdvance } from './effects/advance.ts';
-import { FALL, H, FOAM_RADIUS, REACH, crashStrength, dustOf } from './effects/constants.ts';
+import { FALL, H, FOAM_RADIUS, MAX_FIRES, REACH, crashStrength, dustOf } from './effects/constants.ts';
 import { createBursts } from './effects/bursts.ts';
 import { createEmitters } from './effects/emitters.ts';
 import { createFoam } from './effects/foam.ts';
@@ -34,7 +35,7 @@ import { createSpawners } from './effects/spawn.ts';
 import { createTracking } from './effects/tracking.ts';
 import type { Effects, EffectsEvent } from './effects/types.ts';
 
-export { MAX_DEBRIS, MAX_DISCS, MAX_PUFFS, MAX_RIBBONS, RIBBON_POINTS, crashStrength, dustOf } from './effects/constants.ts';
+export { MAX_DEBRIS, MAX_DISCS, MAX_FIRES, MAX_PUFFS, MAX_RIBBONS, RIBBON_POINTS, crashStrength, dustOf } from './effects/constants.ts';
 export type { EffectsEvent, EffectsStats, EffectsSubject, Effects, OtherVisitor, SmokeVisitor, WakeProbe } from './effects/types.ts';
 
 export function createEffects(): Effects {
@@ -42,7 +43,30 @@ export function createEffects(): Effects {
   const { group, puffs, foamGeo, foamAttribute, foamNormal, foamColor, foam, ribbonHead, ribbonCount, ribbonActive, ribbonBroken, debris, stats, anchor, eye, splashUp, mine, tracks, right, at, vel, fwdAt } = fx;
   const { spawnPuff, spawnDisc, addAcross } = createSpawners(fx);
   const { smoke } = createEmitters(fx);
-  const { plume, whirl, splash, dustBurst, crash } = createBursts(fx);
+  const { plume, whirl, splash, dustBurst, crash, explosion, burn, plunge } = createBursts(fx);
+  /** The wrecks burning: where, their up, seconds left and to begin with, and their emitters' counters. */
+  const fires: { base: THREE.Vector3; up: THREE.Vector3; left: number; total: number; carry: Float64Array }[] = [];
+
+  /** Every wreck burning for `dt`: its fire dying down over its time, and gone at the end of it. */
+  function burnFires(dt: number): void {
+    for (let i = fires.length - 1; i >= 0; i--) {
+      const fire = fires[i]!;
+      fire.left -= dt;
+      if (fire.left <= 0) {
+        fires.splice(i, 1);
+        continue;
+      }
+      // Full for the first half, then dying down.
+      burn(fire.carry, fire.base, fire.up, Math.min(1, (2 * fire.left) / fire.total), dt);
+    }
+    stats.fires = fires.length;
+  }
+
+  function startFire(point: THREE.Vector3, seconds: number): void {
+    if (!(seconds > 0)) return;
+    if (fires.length >= MAX_FIRES) fires.shift();
+    fires.push({ base: point.clone(), up: point.clone().normalize(), left: seconds, total: seconds, carry: new Float64Array(2) });
+  }
   const { playerMarks } = createPlayerMarks(fx);
   const { follow, release, forget } = createTracking(fx);
   const { advancePuffs, advanceDebris } = createAdvance(fx);
@@ -66,6 +90,8 @@ export function createEffects(): Effects {
     fx.hasLast = false;
     tracks.forEach(release);
     tracks.clear();
+    fires.length = 0;
+    stats.fires = 0;
   }
 
   /* --- the events -------------------------------------------------------- */
@@ -85,6 +111,12 @@ export function createEffects(): Effects {
     } else if (name === 'water-refused' && size !== undefined) {
       at.copy(s.up).multiplyScalar(FOAM_RADIUS);
       splash(at, s.up, Math.max(size[0], size[1]) * 0.6, 14);
+    } else if (name === 'plunged' && size !== undefined) {
+      at.copy(s.up).multiplyScalar(FOAM_RADIUS);
+      plunge(at, s.up, Math.max(size[0], size[1]), Math.min(1, strength / 120));
+    } else if (name === 'exploded' && size !== undefined) {
+      at.copy(s.position).addScaledVector(s.up, size[2] * 0.4);
+      explosion(at, s.up, s.position.length() - size[2], Math.max(size[0], size[1]), Math.min(1, strength / 80));
     } else if (name === 'foundered' && size !== undefined) {
       // Into the water on wheels: the bigger the vehicle, the bigger the splash.
       at.copy(s.up).multiplyScalar(FOAM_RADIUS);
@@ -125,6 +157,7 @@ export function createEffects(): Effects {
       playerMarks(dt, s);
       if (fx.others !== null) fx.others(follow);
       if (fx.smokers !== null) fx.smokers(smoke);
+      burnFires(dt);
       tracks.forEach(forget);
       stats.tracked = tracks.size;
       advancePuffs(dt);
@@ -224,6 +257,15 @@ export function createEffects(): Effects {
         const hex = Math.random() < 0.5 ? PALETTE.gold : PALETTE.white;
         spawnPuff(at, vel, splashUp, rand(0.25, 0.5), H * 0.04, H * 0.015, 0.1, hex, 1, 0.5, -FALL);
       }
+    },
+    explodeAt(point, size, strength, floor) {
+      if (!fx.enabled) return;
+      splashUp.copy(point).normalize();
+      explosion(point, splashUp, floor ?? point.length(), size, Math.max(0, Math.min(1, strength)));
+    },
+    burnAt(point, seconds) {
+      if (!fx.enabled) return;
+      startFire(point, seconds);
     },
     crashAt(point, facing, strength) {
       if (!fx.enabled) return;

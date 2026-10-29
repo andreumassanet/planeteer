@@ -56,7 +56,10 @@ export function createHeld(
       const model = entry.model;
       let settled: WirePose | null = state.heldSeat === 0 && isPose(lastPose) ? [...lastPose] : null;
       if (settled !== null) point.set(settled[0]!, settled[1]!, settled[2]!).normalize().multiplyScalar(PLANET_RADIUS);
-      if (settled !== null && founders(model.kind, model.medium) && isWater(groundRadius(world, point))) {
+      // Blown up, or gone under: out of the world, and back at its site as a sunk
+      // one is (`FleetLink.sink`), which every other client already follows.
+      const wrecked = state.heldSeat === 0 && player.wrecked;
+      if (wrecked || (settled !== null && founders(model.kind, model.medium) && isWater(groundRadius(world, point)))) {
         entry.site = null;
         retire(entry);
         link.sink(entry.id);

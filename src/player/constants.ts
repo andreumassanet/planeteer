@@ -12,6 +12,7 @@ import {
   BOAT_SPEED,
   BOAT_TURN,
   PLANE_CRUISE_HIGH,
+  PLANE_VERTICAL_TIME,
   PLANE_ROTATE,
   ROAD_HANDLING,
   WATER_HANDLING,
@@ -236,6 +237,40 @@ export const AIR_LOW = AVATAR_HEIGHT;
  */
 export const PLANE_BOUNCE = 0.35;
 export const PLANE_WALL = 0.3;
+/**
+ * An aircraft wrecked rather than knocked: into a wall faster than
+ * `WRECK_INTO` units a second along the wall's normal, or into the ground
+ * faster than that downwards, it explodes (`exploded`) and the body is thrown
+ * out (`EJECT_RISE` up, `EJECT_BACK` back from the impact). In travel the
+ * ground `WRECK_PROBE` ahead or more is asked: a face steeper than
+ * `WRECK_SLOPE` (rise over run) that the climb will not clear is the ground.
+ */
+export const WRECK_INTO = 25;
+export const WRECK_PROBE = 4;
+export const WRECK_SLOPE = 1;
+export const EJECT_RISE = JUMP_SPEED * 3;
+export const EJECT_BACK = JUMP_SPEED;
+/**
+ * An aircraft meeting the water harder than a ditching (sinking faster than
+ * `PLUNGE_SINK` units a second, or going faster than `PLUNGE_SPEED`, or at any
+ * attitude a ditching would not take) goes in nose first (`plunged`) and
+ * founders at once, its way gone over `FOUNDER_DRAG`.
+ */
+export const PLUNGE_SINK = 10;
+export const PLUNGE_SPEED = 120;
+/**
+ * Seconds of its flight ahead a plane in travel looks at the ground, so a
+ * ridge is climbed for before it arrives rather than snapped over.
+ */
+export const PLANE_LOOK_AHEAD = [0.4, 0.9, 1.6] as const;
+/**
+ * The vertical speed's critically damped spring in travel (`spring`), a
+ * second: two thirds of the way in `PLANE_VERTICAL_TIME`, with no kink in the
+ * nose as a key goes down. And the climb rate the nose is drawn from, eased
+ * by the same law, so the ground lifting the plane never jerks the nose.
+ */
+export const PLANE_VERTICAL_SPRING = 2.15 / PLANE_VERTICAL_TIME;
+export const PLANE_NOSE_SPRING = 9;
 
 // ---- full control (`aerobatics.ts`) ------------------------------------------
 //

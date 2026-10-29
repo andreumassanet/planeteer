@@ -1,6 +1,8 @@
 /** In a craft: the controls it is given, the walls it meets, the seat the body takes, getting in and getting out. */
 
+import * as THREE from 'three';
 import { AVATAR_HEIGHT } from '../../avatar.ts';
+import { EJECT_BACK, EJECT_RISE, WRECK_INTO } from '../../player/constants.ts';
 import type { InputState } from '../../input.ts';
 import type { Craft } from '../craft.ts';
 import { RIGHT, UP } from './frame.ts';
@@ -41,6 +43,11 @@ export function drive(s: PlayerState, dt: number, input: InputState): void {
   // loses its way into them; well clear of the ground nothing stands.
   const clear = c.position.length() - (s.world.radius + s.world.groundAt(c.position));
   if (clear < CRAFT_WALLS_UNDER && s.world.collide(c.position, c.radius * 0.8)) {
+    // Flown into it fast, it is a wreck, as Earth's aircraft are (`WRECK_INTO`).
+    if (c.airborne && Math.abs(c.speed) >= WRECK_INTO) {
+      wreck(s, Math.abs(c.speed));
+      return;
+    }
     c.speed *= -0.2;
     c.object.position.copy(c.position);
   }
@@ -54,6 +61,24 @@ export function drive(s: PlayerState, dt: number, input: InputState): void {
   s.avatar.group.position.copy(c.seat);
   s.avatar.group.quaternion.identity();
 }
+
+/** Wrecked: the body thrown up and back out of the craft, the explosion told, and the craft handed over to be taken away. */
+function wreck(s: PlayerState, strength: number): void {
+  const c = s.craft!;
+  wreckAt.copy(c.position);
+  const size = c.radius * 2;
+  c.speed = 0;
+  leave(s);
+  s.airborne = true;
+  s.chute = true;
+  s.canopy = 0;
+  s.spread = 0;
+  s.vertical = EJECT_RISE;
+  s.motion.copy(c.heading).multiplyScalar(-EJECT_BACK);
+  s.velocity.copy(s.motion);
+  s.world.onWreck?.(wreckAt, strength, size, c);
+}
+const wreckAt = new THREE.Vector3();
 
 /** Gets the body into `next`: whatever fall was under way is over, and the body is seated or standing in it. */
 export function board(s: PlayerState, next: Craft): void {

@@ -6,7 +6,7 @@ import type { TravelMode } from '../controls.ts';
 import { PLANET_RADIUS } from '../globe.ts';
 import { FOUNDER_TIME, ROAD_HANDLING } from '../vehicles.ts';
 import { MAX_NOSE, MODE_OF, PLANE_BANK, isAir } from './constants.ts';
-import { clamp } from './math.ts';
+import { noseOf } from './math.ts';
 import { tierOf } from './drift.ts';
 import type { PlayerCore } from './core.ts';
 
@@ -31,7 +31,7 @@ export function createPublish(core: PlayerCore) {
     if (kind === 'helicopter') into.setFromEuler(euler.set(s.nose, 0, s.lean));
     else if (s.aerobatic) into.copy(s.attitude);
     else {
-      const nose = clamp(Math.atan2(s.climbRate, Math.max(Math.abs(s.speed), 1)), -MAX_NOSE, MAX_NOSE);
+      const nose = noseOf(s.climbRate, s.speed, MAX_NOSE);
       into.setFromEuler(euler.set(-nose, 0, -s.roll * PLANE_BANK));
     }
   }

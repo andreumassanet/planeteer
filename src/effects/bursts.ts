@@ -125,5 +125,83 @@ export function createBursts(fx: Pools) {
     }
   }
 
-  return { whirl, plume, splash, dustBurst, crash };
+  /**
+   * An aircraft wrecked: a flash, a fireball rolling up and out, black smoke
+   * after it, the ground's dust thrown out low and chunky debris, all sized by
+   * `size` (the craft's larger side) and `strength` 0 to 1.
+   */
+  function explosion(point: THREE.Vector3, up: THREE.Vector3, floor: number, size: number, strength: number): void {
+    centre.copy(point);
+    const k = 0.6 + 0.4 * clamp(strength, 0, 1);
+    const big = Math.max(H, size * 0.5) * k;
+    for (let i = 0; i < 4; i++) {
+      at.copy(centre).addScaledVector(up, big * 0.3);
+      vel.copy(up).multiplyScalar(rand(1, 3));
+      spawnPuff(at, vel, up, rand(0.18, 0.3), big * 0.5, big * rand(1.3, 1.7), 0.2, PALETTE.white, 1, 4, 0);
+    }
+    for (let i = 0; i < 28; i++) {
+      at.copy(centre).addScaledVector(up, rand(0, big * 0.4));
+      addAcross(up, rand(0, big * 0.4), at);
+      vel.copy(up).multiplyScalar(rand(4, 12) * k);
+      addAcross(up, rand(6, 16) * k, vel);
+      const pick = Math.random();
+      const hex = pick < 0.2 ? PALETTE.white : pick < 0.45 ? PALETTE.gold : pick < 0.75 ? PALETTE.apricot : pick < 0.92 ? PALETTE.orange : PALETTE.red;
+      spawnPuff(at, vel, up, rand(0.5, 0.95), big * 0.2, big * rand(0.55, 0.9), 0.3, hex, 1, 3.2, 2.5);
+    }
+    for (let i = 0; i < 22; i++) {
+      at.copy(centre).addScaledVector(up, rand(big * 0.2, big * 0.8));
+      addAcross(up, rand(0, big * 0.5), at);
+      vel.copy(up).multiplyScalar(rand(3, 8));
+      addAcross(up, rand(2, 7) * k, vel);
+      const hex = Math.random() < 0.55 ? PALETTE.steel : Math.random() < 0.6 ? PALETTE.bark : PALETTE.slate;
+      spawnPuff(at, vel, up, rand(2.6, 4.6), big * 0.3, big * rand(0.9, 1.5), 0.45, hex, 0, 1.3, 1.4);
+    }
+    dustBurst(centre, up, big * 0.9, 12, fx.dust ?? PALETTE.bone, big * 0.45);
+    for (let i = 0; i < 14; i++) {
+      at.copy(centre).addScaledVector(up, H * 0.3);
+      vel.copy(up).multiplyScalar(rand(9, 20) * k);
+      addAcross(up, rand(5, 14) * k, vel);
+      const hex = i % 4 === 0 ? PALETTE.ink : i % 4 === 1 ? PALETTE.steel : i % 4 === 2 ? PALETTE.bark : PALETTE.orange;
+      spawnDebris(at, vel, up, floor, H * rand(0.08, 0.18), hex, rand(1.6, 2.6));
+    }
+  }
+
+  /** A wreck burning for `dt` at `power` 0 to 1: low flames licking up and a column of black smoke. `carry` is its own two counters. */
+  function burn(carry: Float64Array, base: THREE.Vector3, up: THREE.Vector3, power: number, dt: number): void {
+    if (power <= 0.01 || base.distanceToSquared(eye) > PLUME_REACH * PLUME_REACH) return;
+    const k = clamp(power, 0, 1);
+    for (let j = 0, n = owedIn(carry, 0, 9 * k, dt); j < n; j++) {
+      at.copy(base).addScaledVector(up, H * 0.2);
+      addAcross(up, rand(0, H * 0.5), at);
+      vel.copy(up).multiplyScalar(rand(2, 5));
+      addAcross(up, rand(0.2, 1), vel);
+      const hex = Math.random() < 0.4 ? PALETTE.gold : Math.random() < 0.6 ? PALETTE.apricot : PALETTE.orange;
+      spawnPuff(at, vel, up, rand(0.45, 0.8), H * 0.15, H * rand(0.3, 0.5) * (0.5 + 0.5 * k), 0.3, hex, 1, 2, 1.5);
+    }
+    for (let j = 0, n = owedIn(carry, 1, 3.5 * (0.3 + 0.7 * k), dt); j < n; j++) {
+      at.copy(base).addScaledVector(up, H * rand(0.5, 1));
+      addAcross(up, rand(0, H * 0.3), at);
+      vel.copy(up).multiplyScalar(rand(2.5, 4.5));
+      addAcross(up, rand(0.3, 1.2), vel);
+      const hex = Math.random() < 0.6 ? PALETTE.steel : PALETTE.bark;
+      spawnPuff(at, vel, up, rand(3.5, 5.5), H * 0.3, H * rand(1.1, 1.8) * (0.6 + 0.4 * k), 0.5, hex, 0, 0.8, 0.8);
+    }
+  }
+
+  /** Into the water hard: a wide splash, a second ring and a tall column of spray. */
+  function plunge(point: THREE.Vector3, up: THREE.Vector3, size: number, strength: number): void {
+    const k = 0.6 + 0.4 * clamp(strength, 0, 1);
+    splash(point, up, size * 1.2 * k, 30);
+    splash(point, up, size * 0.6 * k, 10);
+    centre.copy(point);
+    for (let i = 0; i < 26; i++) {
+      at.copy(centre);
+      addAcross(up, rand(0, size * 0.3), at);
+      vel.copy(up).multiplyScalar(rand(14, 24) * k);
+      addAcross(up, rand(1, 5), vel);
+      spawnPuff(at, vel, up, rand(0.9, 1.4), H * 0.12, H * rand(0.3, 0.5), 0.4, FOAM_COLOR, 0, 0.8, -FALL);
+    }
+  }
+
+  return { whirl, plume, splash, dustBurst, crash, explosion, burn, plunge };
 }

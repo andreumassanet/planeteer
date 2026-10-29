@@ -4,6 +4,7 @@
 import type { CraftModel } from '../craft/contract.ts';
 import { PLANET_RADIUS } from '../globe.ts';
 import {
+  FOUNDER_FLOAT,
   HELI_ACCELERATION_TIME,
   HELI_CEILING,
   HELI_CLIMB,
@@ -19,7 +20,7 @@ import {
   WATERLINE,
   isWater,
 } from '../vehicles.ts';
-import { AIR_LOW, HELI_ASSIST_TURN, HELI_WATER_FLOOR, RUDDER_TIME } from './constants.ts';
+import { AIR_LOW, HELI_ASSIST_TURN, HELI_WATER_FLOOR, RUDDER_TIME, WRECK_INTO } from './constants.ts';
 import { approach, clamp, levers } from './math.ts';
 import type { PlayerInput } from './types.ts';
 import type { PlayerCore } from './core.ts';
@@ -47,7 +48,7 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
   const s = core.fields;
   const { pointAhead, travel } = frame;
   const { airWalls, throughWalls } = wallSet;
-  const { assistClimb, assistTurn, liftOf, pullOf, refuse } = flight;
+  const { assistClimb, assistTurn, liftOf, pullOf, refuse, sink, smash, wreck } = flight;
   const { craftSplash, spray } = ring;
 
   /**
@@ -55,12 +56,17 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
    * hovers where it is let go, flies forward and back on `W` and `S`, sideways
    * on `J` and `L`, turns on its tail rotor with `A` and `D`, and comes down on
    * the descend key, setting down on any land flatter than `HELI_LANDING_GRADE`
-   * and holding its skids clear of water. A course's ring turns it and lifts it
-   * while the pedals and the collective are left alone. Buildings are walls at
-   * its skids' height and at its rotor's.
+   * and holding its skids clear of water: brought down onto it, it goes in and
+   * founders. A course's ring turns it and lifts it while the pedals and the
+   * collective are left alone. Buildings are walls at its skids' height and at
+   * its rotor's, and flown into faster than `WRECK_INTO` it is wrecked.
    */
   function hover(dt: number, input: PlayerInput, model: CraftModel): void {
     s.sinceRefusal += dt;
+    if (s.founder >= 0) {
+      sink(dt);
+      return;
+    }
     levers(input.move, stick);
     const lift = liftOf(input);
     const strafe = clamp(input.attitude?.roll ?? 0, -1, 1);
@@ -121,7 +127,15 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
       s.airLow = s.height - ground < AIR_LOW;
       s.airEnvelope = model.size[1] * 0.4;
       s.airEnvelopeHeight = s.height + model.size[2] * 0.85;
+      const was = motion.length();
+      probe.copy(position).add(moved);
+      smash(position, probe, Math.max(model.size[0], model.size[1]) * 0.3, motion, model);
       if (throughWalls(dt, airWalls, Math.min(model.size[0], model.size[1]) * 0.2)) {
+        const lost = was - motion.length();
+        if (lost >= WRECK_INTO) {
+          wreck(lost);
+          return;
+        }
         s.speed = motion.dot(forward);
         s.sway = -motion.dot(side);
       }
@@ -154,7 +168,11 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
         const front = standingRadius(probe);
         pointAhead(forward, -half / s.height, probe);
         const back = standingRadius(probe);
-        if (water || isWater(front) || isWater(back)) refuse('water-refused');
+        if (water) {
+          ditch(Math.max(0, -s.climbing));
+          return;
+        }
+        if (isWater(front) || isWater(back)) refuse('water-refused');
         else if (Math.abs(front - back) / (2 * half) > HELI_LANDING_GRADE) refuse('steep-refused');
         else {
           s.grounded = true;
@@ -181,6 +199,23 @@ export function createHelicopter(core: PlayerCore, frame: Frame, wallSet: WallCh
     s.velocity = Math.hypot(s.speed, s.sway);
     s.clearance = s.height - floor + (water ? HELI_WATER_FLOOR : 0);
     s.overWater = water;
+  }
+
+  /** Brought down onto the water: in, with a splash, and going down at once. */
+  function ditch(sinking: number): void {
+    const hit = Math.hypot(s.speed, s.sway, sinking);
+    s.grounded = true;
+    s.airborne = false;
+    s.climbing = 0;
+    s.spool = 0;
+    s.goAround = 0;
+    s.sway = 0;
+    s.founderWay = s.speed * 0.5;
+    s.founder = FOUNDER_FLOAT;
+    s.height = PLANET_RADIUS + WATERLINE;
+    position.setLength(s.height);
+    spray(s.height, craftSplash());
+    options.onEvent?.('plunged', hit);
   }
 
   return { hover };

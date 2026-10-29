@@ -111,6 +111,8 @@ function openRaise(kit: RaiseKit, slot: Slot, grid: TownGrid, placed: RaiseJob['
     parkedLayout: [],
     parkedGhosts: [],
     takenVertices: 0,
+    dressRun: null,
+    lines: [],
     overheadSpots: [],
   };
 }

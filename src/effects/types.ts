@@ -35,7 +35,7 @@ export type OtherVisitor = (object: THREE.Object3D, kind: CraftKind, model: Craf
 export type SmokeVisitor = (at: THREE.Vector3, up: THREE.Vector3) => void;
 
 /** What the player just did that leaves a mark: `player.ts`'s `PlayerEvent`s, and the two foot callbacks. */
-export type EffectsEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered' | 'broke' | 'boosted';
+export type EffectsEvent = 'travel' | 'aerobatics' | 'swim' | 'ashore' | 'took-off' | 'landed' | 'water-refused' | 'steep-refused' | 'crashed' | 'foundered' | 'plunged' | 'exploded' | 'broke' | 'boosted';
 
 export interface EffectsStats {
   enabled: boolean;
@@ -49,6 +49,8 @@ export interface EffectsStats {
   foamVertices: number;
   markVertices: number;
   debris: number;
+  /** Wrecks burning. */
+  fires: number;
   /** Particles refused by a full pool since the page loaded. */
   dropped: number;
   /** Moves thrown away as jumps since the page loaded: boarding, teleports, late poses. */
@@ -101,6 +103,14 @@ export interface Effects {
    * while the effects are off.
    */
   crashAt(point: THREE.Vector3, facing: THREE.Vector3, strength: number): void;
+  /**
+   * An explosion at `point`: a flash, a fireball, smoke, the ground's dust and
+   * debris that bounces on `floor` (a radius; the point's own if absent),
+   * sized by `size` units and `strength` 0 to 1. Nothing while the effects are off.
+   */
+  explodeAt(point: THREE.Vector3, size: number, strength: number, floor?: number): void;
+  /** A wreck burning at `point` for `seconds`: flames and a column of smoke, dying down over the second half (at most `MAX_FIRES`). */
+  burnAt(point: THREE.Vector3, seconds: number): void;
   /**
    * Dust kicked up off the ground at `point`, spread over `reach` units, in
    * `count` puffs of the ground's dust (`setDust`, else the bone of Earth's

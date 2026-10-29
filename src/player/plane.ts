@@ -1,9 +1,11 @@
 /**
- * The plane: taxiing, the take-off run, flight, landing, and knocks against walls.
+ * The plane: taxiing, the take-off run, flight, landing, knocks against walls, and wrecks on them and on the ground.
  */
+import type * as THREE from 'three';
 import type { CraftModel } from '../craft/contract.ts';
 import { PLANET_RADIUS } from '../globe.ts';
 import {
+  FOUNDER_FLOAT,
   PLANE_ACCELERATION_TIME,
   PLANE_CEILING,
   PLANE_CLIMB_MIN,
@@ -20,12 +22,27 @@ import {
   PLANE_THROTTLE_UP,
   PLANE_TOUCHDOWN,
   PLANE_TURN,
-  PLANE_VERTICAL_TIME,
   WATERLINE,
   isWater,
   planeCruiseAt,
 } from '../vehicles.ts';
-import { AIR_LOW, ASSIST_BANK, PLANE_AIR_CLEARANCE, PLANE_APPROACH, PLANE_ROLL_SPRING, PLANE_ROLL_TIME, PLANE_WALL } from './constants.ts';
+import {
+  AIR_LOW,
+  ASSIST_BANK,
+  MAX_NOSE,
+  PLANE_AIR_CLEARANCE,
+  PLANE_APPROACH,
+  PLANE_LOOK_AHEAD,
+  PLANE_NOSE_SPRING,
+  PLANE_ROLL_SPRING,
+  PLANE_ROLL_TIME,
+  PLANE_VERTICAL_SPRING,
+  PLANE_WALL,
+  PLUNGE_SINK,
+  PLUNGE_SPEED,
+  WRECK_PROBE,
+  WRECK_SLOPE,
+} from './constants.ts';
 import { approach, clamp, levers, spring } from './math.ts';
 import type { PlayerInput } from './types.ts';
 import type { PlayerCore } from './core.ts';
@@ -37,6 +54,10 @@ import type { Splash } from './splash.ts';
 import { createAerobatics } from './aerobatics.ts';
 import type { Touchdown } from './aerobatics.ts';
 
+/** How far over the ground here the ground ahead must rise before the plane climbs for it, units; and the most height over it the climb keeps. */
+const LOOK_MARGIN = 2;
+const LOOK_KEEP = 20;
+
 export function createPlane(
   core: PlayerCore,
   frame: Frame,
@@ -45,14 +66,55 @@ export function createPlane(
   flight: Flight,
   ring: Splash,
 ) {
-  const { forward, landAt, options, position, probe, pushed, standingRadius, stick, up } = core;
+  const { forward, landAt, motion, options, position, probe, pushed, standingRadius, stick, up } = core;
   const s = core.fields;
   const { advance, pointAhead } = frame;
   const { airHit, airWalls } = wallSet;
   const { taxi } = runway;
-  const { assistClimb, assistTurn, bounce, liftOf, pullOf, refuse } = flight;
+  const { assistClimb, assistTurn, bounce, liftOf, pullOf, refuse, smash, wreck } = flight;
   const { craftSplash, spray } = ring;
   const rolled: [number, number] = [0, 0];
+
+  /** What the plane flies over: the land, or the water's surface over the sea, never the sea floor under it. */
+  function surfaceAt(at: THREE.Vector3): number {
+    const ground = landAt(at);
+    return isWater(ground) ? PLANET_RADIUS + WATERLINE : ground;
+  }
+
+  /**
+   * The climb the ground ahead asks for, units a second, or -Infinity: where
+   * it rises more than `LOOK_MARGIN` over the ground here, the vertical speed
+   * that keeps the height the plane has over the ground here (within
+   * `LOOK_KEEP`) over it too, in the seconds of `PLANE_LOOK_AHEAD` it is away.
+   */
+  function riseAhead(before: number, here: number): number {
+    const keep = Math.min(LOOK_KEEP, Math.max(LOOK_MARGIN + PLANE_AIR_CLEARANCE, before - here));
+    let rise = -Infinity;
+    for (const ahead of PLANE_LOOK_AHEAD) {
+      pointAhead(forward, (s.speed * ahead) / before, probe);
+      const there = surfaceAt(probe);
+      if (there - here < LOOK_MARGIN) continue;
+      rise = Math.max(rise, (there + keep - before) / ahead);
+    }
+    return rise;
+  }
+
+  /**
+   * Flying into the ground: the land `WRECK_PROBE` ahead (or a frame's flight,
+   * if longer) rising steeper than `WRECK_SLOPE` from the ground here, over
+   * where the climb takes the plane by then. The speed into it, or 0.
+   */
+  function intoGround(radius: number, beneath: number, dt: number): number {
+    if (s.speed <= 1) return 0;
+    const reach = Math.max(WRECK_PROBE, s.speed * dt);
+    pointAhead(forward, reach / radius, probe);
+    const there = landAt(probe);
+    if (isWater(there)) return 0;
+    const slope = (there - beneath) / reach;
+    const arrives = radius + (s.climbing * reach) / s.speed;
+    if (slope <= WRECK_SLOPE || arrives >= there + PLANE_AIR_CLEARANCE) return 0;
+    return s.speed * Math.min(1, slope / Math.hypot(1, slope));
+  }
 
   /**
    * One frame of a plane in travel: the stick rolls it and the roll turns it,
@@ -106,7 +168,8 @@ export function createPlane(
     s.aileron = -s.roll;
     s.steering += (stick.x * 0.4 - s.steering) * approach(1 / PLANE_ROLL_TIME, dt);
     const before = position.length();
-    const aboveGround = Math.max(0, before - landAt(position));
+    const here = surfaceAt(position);
+    const aboveGround = Math.max(0, before - here);
     // Speed rides altitude: see `PLANE_CRUISE_LOW` in `vehicles.ts`. Low is
     // scenic, high is how an ocean gets crossed; and coming down low the
     // throttle closes to an approach speed, so a landing is aimable.
@@ -134,7 +197,12 @@ export function createPlane(
     } else if (pull !== null) {
       asked = assistClimb(s.speed, pull, -authority, Math.min(authority, headroom));
     }
-    s.climbing += (asked - s.climbing) * approach(1 / PLANE_VERTICAL_TIME, dt);
+    // A ridge ahead is climbed for before it arrives, never past what the nose shows.
+    const rise = riseAhead(before, here);
+    if (rise > asked) asked = Math.min(rise, s.speed * Math.tan(MAX_NOSE), Math.max(asked, headroom));
+    spring(s.climbing, s.climbAccel, asked, PLANE_VERTICAL_SPRING, dt, rolled);
+    s.climbing = rolled[0];
+    s.climbAccel = rolled[1];
 
     let radius = Math.min(PLANET_RADIUS + PLANE_CEILING, before + s.climbing * dt);
     if (airWalls !== null) {
@@ -144,6 +212,10 @@ export function createPlane(
       const wide = Math.max(model.size[0], model.size[1]) * PLANE_WALL;
       const way = s.speed * dt;
       const steps = Math.min(6, Math.max(1, Math.ceil(way / wide)));
+      pointAhead(forward, (way + model.size[0] / 2) / before, probe);
+      probe.setLength(radius);
+      motion.copy(forward).multiplyScalar(s.speed);
+      smash(position, probe, wide, motion, model);
       s.airHeight = radius;
       s.airLow = aboveGround < AIR_LOW;
       s.airEnvelope = 0;
@@ -154,21 +226,32 @@ export function createPlane(
       }
       if (struck > 0) {
         advance(forward, (way * (struck - 1)) / steps / before);
-        bounce(pushed);
+        if (bounce(pushed, Math.max(0, -s.climbing))) return;
       } else advance(forward, way / before);
     } else advance(forward, (s.speed * dt) / before);
 
-    const beneath = landAt(position);
+    const beneath = surfaceAt(position);
     const floor = beneath + PLANE_AIR_CLEARANCE;
-    // The ground has the last word. That is what makes flying into the planet
-    // impossible: a ridge rising under the plane lifts it, and the climb it
-    // was asked for is kept, so the far side is level flight rather than a
-    // fall off the edge.
+    // A face of ground too steep to climb, met low, is a crash.
+    const struckGround = s.goAround > 0 ? 0 : intoGround(radius, beneath, dt);
+    if (struckGround > 0) {
+      wreck(struckGround);
+      return;
+    }
+    // The ground has the last word: a rise the look ahead did not clear in
+    // time lifts the plane, and the climb it was asked for is kept, so the
+    // far side is level flight rather than a fall off the edge.
     if (radius < floor) {
       radius = floor;
-      if (!descending) s.climbing = Math.max(0, s.climbing);
+      if (!descending) {
+        s.climbing = Math.max(0, s.climbing);
+        s.climbAccel = Math.max(0, s.climbAccel);
+      }
     }
-    s.climbRate = dt > 0 ? (radius - before) / dt : 0;
+    // The nose is drawn from the climb rate, eased so a lift never jerks it.
+    spring(s.climbRate, s.climbRateRate, dt > 0 ? (radius - before) / dt : 0, PLANE_NOSE_SPRING, dt, rolled);
+    s.climbRate = rolled[0];
+    s.climbRateRate = rolled[1];
     position.setLength(radius);
     s.altitude = radius - PLANET_RADIUS;
     s.velocity = s.speed;
@@ -181,7 +264,7 @@ export function createPlane(
     if (s.goAround <= 0 && (descending || s.climbing < -0.2) && radius <= floor + 0.5) {
       // Let down onto the sea with the descend key held, it ditches; only
       // sinking onto it after the key was let go flies on over it.
-      const outcome = touchdown(model, descending);
+      const outcome = touchdown(model, descending, Math.max(0, -s.climbing));
       if (outcome === 'steep' && descending) refuse('steep-refused');
     }
   }
@@ -191,11 +274,17 @@ export function createPlane(
    * `PLANE_LANDING_GRADE` along the fuselage. On the sea, if `ditch` says so,
    * it comes down on the water at `PLANE_DITCH_SPEED` at most and skids on,
    * and `rollOn` founders it (`founders`): the splash, the sinking, the swim.
+   * Sinking at `sink` faster than `PLUNGE_SINK`, or faster than
+   * `PLUNGE_SPEED` along, it plunges instead.
    */
-  function touchdown(model: CraftModel, ditch = true): Touchdown {
+  function touchdown(model: CraftModel, ditch = true, sink = 0): Touchdown {
     const radius = position.length();
     if (isWater(landAt(position))) {
       if (!ditch) return 'water';
+      if (sink > PLUNGE_SINK || s.speed > PLUNGE_SPEED) {
+        plunge(sink);
+        return 'plunged';
+      }
       settleOn(PLANET_RADIUS + WATERLINE);
       s.speed = Math.min(s.speed, PLANE_DITCH_SPEED);
       return 'ditched';
@@ -215,14 +304,29 @@ export function createPlane(
     return 'landed';
   }
 
+  /**
+   * Into the water harder than a ditching: on the surface with what is left
+   * of its way, going down at once (`FOUNDER_FLOAT` skipped), told as
+   * `plunged` with how hard it went in.
+   */
+  function plunge(sink: number): void {
+    const hit = Math.hypot(s.speed, sink);
+    settleOn(PLANET_RADIUS + WATERLINE);
+    s.speed = Math.min(s.speed, PLANE_DITCH_SPEED) * 0.5;
+    s.founderWay = s.speed;
+    s.founder = FOUNDER_FLOAT;
+    spray(s.height, craftSplash());
+    options.onEvent?.('plunged', hit);
+  }
+
   /** On its wheels, or its belly, at `height`: level, still in the vertical, and rolling out. */
   function settleOn(height: number): void {
     s.grounded = true;
     s.airborne = false;
     s.vertical = 0;
     s.roll = s.rollRate = 0;
-    s.climbRate = 0;
-    s.climbing = 0;
+    s.climbRate = s.climbRateRate = 0;
+    s.climbing = s.climbAccel = 0;
     s.height = height;
     position.setLength(s.height);
     s.rolling = true;

@@ -2,6 +2,11 @@
 
 export const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 export const mix = (a: number, b: number, t: number): number => a + (b - a) * t;
+/** `value` held within `max` either way by a smooth saturation, never a kink: as itself near 0. */
+export const softClamp = (value: number, max: number): number => max * Math.tanh(value / max);
+/** An aircraft's nose off its climb in travel, within `max` either way: the flight path, eased into its limit. */
+export const noseOf = (climbRate: number, speed: number, max: number): number =>
+  softClamp(Math.atan2(climbRate, Math.max(Math.abs(speed), 1)), max);
 /** Frame-rate independent version of `x += (target - x) * rate`. */
 export const approach = (rate: number, dt: number): number => 1 - Math.exp(-rate * dt);
 

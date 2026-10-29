@@ -213,7 +213,7 @@ console.log('\nthe ride, headless:');
 
   // Full control: the stick pitches and rolls the plane, through a loop and
   // upside down, a stall drops the nose, the mode key hands it back, and the
-  // ground takes a fair touchdown and knocks off a bad one.
+  // ground takes a fair touchdown and is wrecked by a bad one.
   {
     board(plane);
     const radial = (): Vector3 => player.position.clone().normalize();
@@ -274,7 +274,10 @@ console.log('\nthe ride, headless:');
       `${slowest.toFixed(0)} units/s at the slowest, the nose from ${peak.toFixed(2)} to ${lowestNose.toFixed(2)}, from ${stallFrom.toFixed(0)} up`);
     step(1, { flightMode: true });
     step(10, {});
-    // Upside down into the ground: a knock, told, and still flying over it.
+    for (seconds = 0; seconds < 180 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
+    check(!player.aerobatic && player.grounded && player.leave() !== null, 'levelled, it lands in travel and is left', `after ${seconds} s`);
+    // Upside down into the ground: a wreck, the body thrown out, nothing ever under the ground.
+    board(plane);
     events.length = 0;
     climbTo(450);
     step(1, { flightMode: true });
@@ -282,16 +285,13 @@ console.log('\nthe ride, headless:');
     // On its back the pull takes the nose to the ground; then let go.
     step(1, { pitch: 1 });
     let lowest = Infinity;
-    for (let t = 0; t < 40 && !events.includes('crashed'); t += 1 / 60) {
+    for (let t = 0; t < 40 && !events.includes('exploded'); t += 1 / 60) {
       step(1 / 60, {});
       lowest = Math.min(lowest, player.position.length() - ground(radial()));
     }
-    check(events.includes('crashed') && player.airborne && !player.grounded && lowest > -0.01,
-      'flown into the ground upside down it knocks off it, and is never under it', `${events.join(', ')}; lowest ${lowest.toFixed(2)}`);
-    step(1, { flightMode: true });
-    step(10, {});
-    for (seconds = 0; seconds < 180 && !player.grounded; seconds += 0.5) step(0.5, { dive: true });
-    check(!player.aerobatic && player.grounded && player.leave() !== null, 'levelled, it lands in travel and is left', `after ${seconds} s`);
+    check(events.includes('exploded') && !events.includes('crashed') && player.ride === null && player.parachute && lowest > -0.01,
+      'flown into the ground upside down it explodes, the body thrown out, and is never under it', `${events.join(', ')}; lowest ${lowest.toFixed(2)}`);
+    step(40, {});
   }
 
   // Out of a plane in flight: a fall, a canopy near the ground, and down.
@@ -514,7 +514,7 @@ console.log('\nthe ride, headless:');
         `${(-across).toFixed(1)} units past the wall, lowest ${(lowest - roof).toFixed(2)} over the roof, ${over.grounded ? 'landed' : 'aloft'}`);
     }
 
-    // A plane flown low into a tower knocks off it, says so, and is not through it.
+    // A plane flown low into a tower is wrecked on it, and is not through it.
     {
       const planeModel = craft.get(plane.model)!;
       const floorAt = ground(plane.at);
@@ -528,10 +528,10 @@ console.log('\nthe ride, headless:');
       fly(pilot, 8, { climb: true });
       let nearest = Infinity;
       fly(pilot, 25, {}, () => { nearest = Math.min(nearest, wall.gap(pilot.position)); });
-      const crash = hits.find((hit) => hit.event === 'crashed');
-      check(crash !== undefined && crash.strength > 0 && nearest > 0 && pilot.airborne,
-        'a plane flown into a tower knocks off it, still flying, and never through it',
-        crash === undefined ? `${hits.map((hit) => hit.event).join(', ')}; ${nearest.toFixed(1)} off it` : `${crash.strength.toFixed(0)} units/s lost, ${nearest.toFixed(2)} off it at the nearest`);
+      const wreck = hits.find((hit) => hit.event === 'exploded');
+      check(wreck !== undefined && wreck.strength > 0 && nearest > 0 && pilot.ride === null,
+        'a plane flown into a tower explodes on it, the body thrown out, and is never through it',
+        wreck === undefined ? `${hits.map((hit) => hit.event).join(', ')}; ${nearest.toFixed(1)} off it` : `${wreck.strength.toFixed(0)} units/s into it, ${nearest.toFixed(2)} off it at the nearest`);
     }
   }
 

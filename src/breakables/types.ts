@@ -27,6 +27,11 @@ export interface Prop {
   ranges: PropRange[];
   /** Its walls among the host's solids; empty when it was never one. */
   solids: readonly Solid[];
+  /**
+   * Runs of the host's first range's mesh that go down with it and come back
+   * with it, asked at the knock: what hangs on a building's fronts.
+   */
+  clings?: () => PropRange[];
 }
 
 /**
@@ -40,6 +45,8 @@ export interface PropHost {
   props: Prop[];
   /** Takes these walls down, in one rebuild of the host's field. */
   dropSolids(solids: readonly Solid[]): void;
+  /** Puts walls taken down back, as a prop stands again; without it a regrown prop stays walked through. */
+  restoreSolids?(solids: readonly Solid[]): void;
 }
 
 /** What a knock reports, for the sound, the dust and the camera. */
@@ -53,6 +60,8 @@ export interface Knock {
   hex: number;
   /** How tall it stood, units. */
   height: number;
+  /** Knocked down by a blast rather than a vehicle: one of many at once. */
+  blasted: boolean;
 }
 
 export interface BreakablesOptions {
@@ -72,6 +81,8 @@ export interface BreakablesStats {
   thrown: number;
   lying: number;
   returning: number;
+  /** Buildings down right now. */
+  collapsed: number;
   /** Knocks since the world loaded. */
   broken: number;
 }
@@ -89,6 +100,13 @@ export interface Breakables {
    * the knocks are felt, at most `MAX_JOLT`, 0 for nothing hit.
    */
   strike(from: THREE.Vector3, to: THREE.Vector3, radius: number, velocity: THREE.Vector3, punch: number): number;
+  /**
+   * A blast of `power` 0 to 1 at `point` reaching `radius` units: everything
+   * breakable in it knocked down and thrown outwards (`blown`), a building
+   * near enough brought down, its wall dropped, until it stands again.
+   * Returns how many went down.
+   */
+  blast(point: THREE.Vector3, radius: number, power: number): number;
   /** Once a frame: the thrown copies fall, bounce and lie; the old ones go; the regrown return. `dt` in seconds. */
   update(dt: number): void;
   /** Everything thrown swept away and every folded prop put back at once. */

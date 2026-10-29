@@ -12,7 +12,7 @@
  */
 import { InstancedMesh, Matrix4, Mesh, Object3D, PerspectiveCamera, Vector3 } from 'three';
 import type { BufferAttribute } from 'three';
-import { MAX_DEBRIS, MAX_DISCS, MAX_PUFFS, MAX_RIBBONS, RIBBON_POINTS, createEffects, dustOf } from '../src/effects.ts';
+import { MAX_DEBRIS, MAX_DISCS, MAX_FIRES, MAX_PUFFS, MAX_RIBBONS, RIBBON_POINTS, createEffects, dustOf } from '../src/effects.ts';
 import type { Effects, EffectsSubject } from '../src/effects.ts';
 import type { CraftKind, CraftModel, PlayerState } from '../src/craft/contract.ts';
 import { PLANET_RADIUS } from '../src/globe.ts';
@@ -424,6 +424,41 @@ console.log('a drift');
   const slow = drift(10, 2).effects.stats.ribbonPoints;
   const fast = drift(120, 2).effects.stats.ribbonPoints;
   check(Math.abs(slow - fast) <= Math.max(4, fast * 0.08), 'a skid mark at 10 fps holds as many points as at 120', `${slow} against ${fast}`);
+}
+
+console.log('a wreck');
+{
+  // A plane wrecked: a fireball, smoke and debris in the pools, the wreck
+  // burning for its time and then out; a plane into the sea, a wide splash.
+  const effects = createEffects();
+  const s = stand(42.7, 0.6, 60);
+  s.state = 'seated';
+  s.ride = { model: PLANE };
+  frames(effects, s, DT);
+  effects.event('exploded', 80);
+  frames(effects, s, DT);
+  const glowing = (): number => {
+    const puffs = effects.group.getObjectByName('effects-puffs') as InstancedMesh | undefined;
+    return puffs === undefined ? effects.stats.puffs : puffs.count;
+  };
+  check(effects.stats.puffs >= 50 && effects.stats.debris >= 10 && glowing() > 0, 'an explosion throws a fireball, smoke and debris', `${effects.stats.puffs} puffs, ${effects.stats.debris} debris`);
+  check(effects.stats.calls <= 4, 'in no more than four draw calls', `${effects.stats.calls}`);
+  const ground = s.position.clone().setLength(PLANET_RADIUS + 60);
+  effects.burnAt(ground, 4);
+  frames(effects, s, 1);
+  check(effects.stats.fires === 1 && effects.stats.puffs > 0, 'the wreck burns', `${effects.stats.fires} fire, ${effects.stats.puffs} puffs`);
+  for (let i = 0; i < 6; i++) effects.burnAt(ground, 4);
+  frames(effects, s, DT);
+  check(effects.stats.fires <= MAX_FIRES, 'no more fires than the cap', `${effects.stats.fires}`);
+  frames(effects, s, 12);
+  check(effects.stats.fires === 0 && effects.stats.puffs === 0 && effects.stats.debris === 0, 'and goes out, every pool empty again', `${effects.stats.fires} / ${effects.stats.puffs} / ${effects.stats.debris}`);
+  const sea = stand(39.4, 2.9, 0.5);
+  sea.state = 'seated';
+  sea.ride = { model: PLANE };
+  frames(effects, sea, DT);
+  effects.event('plunged', 150);
+  frames(effects, sea, DT);
+  check(effects.stats.discs >= 4 && effects.stats.puffs >= 40, 'into the sea hard, a wide splash and a column of spray', `${effects.stats.discs} discs, ${effects.stats.puffs} puffs`);
 }
 
 console.log('the ground');

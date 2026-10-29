@@ -90,6 +90,8 @@ export interface WorldHost {
   cue?(name: Cue): void;
   /** The traveller's creator (`traveller.ts`), the page's one card. */
   traveller?: { show(options?: { relock?: boolean }): void; readonly open: boolean };
+  /** An explosion through Earth's mix (`Audio.boom`), `loudness` 1 beside it. */
+  boom?(loudness: number): void;
   /** One footfall through Earth's mix (`Audio.step`); `weight` is 1 for a walk, more for a run. */
   step?(weight: number): void;
   /** Earth's countries, for the passport's Earth pages, which list every country stamped or not. */

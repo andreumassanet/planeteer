@@ -7,7 +7,7 @@ import { LAMP_HEAD } from '../rules.ts';
 import { SIGNAL_HEAD } from './furniture.ts';
 import { unpublish } from '../registry.ts';
 import { writeSurface } from '../surfaces.ts';
-import type { RaiseJob, RaiseKit, TownProp } from './job.ts';
+import type { BuildingBox, RaiseJob, RaiseKit, TownProp } from './job.ts';
 import type { Slot } from '../types.ts';
 import type { Prop, PropHost, PropRange } from '../../breakables/types.ts';
 import { solidField } from '../../scenery/solids.ts';
@@ -111,6 +111,10 @@ export function* mergeSteps(job: RaiseJob, ground: Ground): Generator<void, Town
     color.set(source.color, cursor - count);
     const written = count / 3;
     if (item.props !== undefined) for (const prop of item.props) job.props.push({ ...prop, start: vertex + prop.first });
+    if (item.dressing === true) job.dressRun = { start: vertex, count: written };
+    if (item.lines !== undefined) {
+      for (let i = 0; i + 7 < item.lines.length; i += 8) job.lines.push(vertex + item.lines[i]!, ...item.lines.slice(i + 1, i + 8));
+    }
     if (item.surface !== undefined) writeSurface(surface, pane, vertex, source, item.surface);
     if (item.bay !== undefined) {
       item.bay.start = vertex;
@@ -239,7 +243,9 @@ export function commitTown(kit: RaiseKit, job: RaiseJob, ground: Ground, town: T
   if (glassMesh !== null) registry.fader.in(glassMesh);
   publish(kit, job, ground, mesh);
   if (kit.breakables !== null && job.props.length > 0) {
-    slot.host = hostOf(kit, slot, mesh, leafMesh, job.props);
+    slot.host = hostOf(kit, slot, mesh, leafMesh, job.props, job.dressRun, job.lines);
+    // What is strung between its buildings, for the review and the checks.
+    mesh.userData.lines = job.lines;
     kit.breakables.register(slot.host);
   }
 
@@ -256,15 +262,36 @@ export function commitTown(kit: RaiseKit, job: RaiseJob, ground: Ground, town: T
  * prop's run in the town's buffer and, for a near tree, in its leaves' mesh;
  * a prop's wall comes down out of the floor's own field.
  */
-function hostOf(kit: RaiseKit, slot: Slot, mesh: THREE.Mesh, leafMesh: THREE.Mesh | null, props: readonly TownProp[]): PropHost {
+function hostOf(
+  kit: RaiseKit,
+  slot: Slot,
+  mesh: THREE.Mesh,
+  leafMesh: THREE.Mesh | null,
+  props: readonly TownProp[],
+  dressRun: { start: number; count: number } | null,
+  lines: readonly number[],
+): PropHost {
   const list: Prop[] = [];
+  // The dressing's own props, which go over on their own and never with a building.
+  const skip: number[] = [];
+  if (dressRun !== null) {
+    for (const prop of props) {
+      if (prop.start >= dressRun.start && prop.start < dressRun.start + dressRun.count) skip.push(prop.start, prop.start + prop.count);
+    }
+  }
+  const owned = sortedPairs(skip);
   for (const prop of props) {
     const ranges: PropRange[] = [{ mesh, start: prop.start, count: prop.count, material: kit.material }];
     const leaf = prop.leaf;
     if (leafMesh !== null && leaf?.first !== undefined && leaf.count !== undefined) {
       ranges.push({ mesh: leafMesh, start: leaf.first, count: leaf.count, material: kit.leaves, depth: leafMesh.customDepthMaterial });
     }
-    list.push({ kind: prop.kind, x: prop.x, y: prop.y, z: prop.z, radius: prop.radius, height: prop.height, ranges, solids: prop.solid === null ? [] : [prop.solid] });
+    const box = prop.box;
+    const clings = box === undefined ? undefined : () => [
+      ...(dressRun === null ? [] : clingsIn(mesh, kit.material, dressRun, box, owned)),
+      ...linesFrom(mesh, kit.material, lines, box),
+    ];
+    list.push({ kind: prop.kind, x: prop.x, y: prop.y, z: prop.z, radius: prop.radius, height: prop.height, ranges, solids: prop.solid === null ? [] : [prop.solid], clings });
   }
   return {
     mesh,
@@ -276,7 +303,82 @@ function hostOf(kit: RaiseKit, slot: Slot, mesh: THREE.Mesh, leafMesh: THREE.Mes
       const rest = floor.solids.solids.filter((solid) => !lost.has(solid));
       floor.solids = rest.length > 0 ? solidField(rest) : null;
     },
+    restoreSolids(back) {
+      const floor = slot.floor;
+      if (floor === null || back.length === 0) return;
+      const standing = floor.solids?.solids ?? [];
+      const kept = new Set(standing);
+      floor.solids = solidField([...standing, ...back.filter((solid) => !kept.has(solid))]);
+    },
   };
+}
+
+/** The overhead's lines tied to a building's walls: either end inside its box, widened by `CLING_REACH`. */
+function linesFrom(mesh: THREE.Mesh, material: THREE.Material, lines: readonly number[], box: BuildingBox): PropRange[] {
+  const ranges: PropRange[] = [];
+  for (let i = 0; i + 7 < lines.length; i += 8) {
+    if (tiedTo(box, lines[i + 2]!, lines[i + 3]!, lines[i + 4]!) || tiedTo(box, lines[i + 5]!, lines[i + 6]!, lines[i + 7]!)) {
+      ranges.push({ mesh, start: lines[i]!, count: lines[i + 1]!, material });
+    }
+  }
+  return ranges;
+}
+
+/** Whether a point of the town's frame is on (or in) a building's box. */
+function tiedTo(box: BuildingBox, x: number, y: number, z: number): boolean {
+  clingAt.set(x, y, z).applyMatrix4(box.inverse);
+  const { min, max } = box;
+  return clingAt.x >= min.x - CLING_REACH && clingAt.x <= max.x + CLING_REACH && clingAt.z >= min.z - CLING_REACH && clingAt.z <= max.z + CLING_REACH &&
+    clingAt.y >= min.y - CLING_OVER && clingAt.y <= max.y + CLING_OVER;
+}
+
+/** Pairs of `[start, end)` sorted by their start, flat. */
+function sortedPairs(flat: number[]): Int32Array {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i + 1 < flat.length; i += 2) pairs.push([flat[i]!, flat[i + 1]!]);
+  pairs.sort((a, b) => a[0] - b[0]);
+  return Int32Array.from(pairs.flat());
+}
+
+/** How far past a building's box what hangs on its fronts may reach, across and up, units; and how high off its base it starts. */
+const CLING_REACH = 2;
+const CLING_OVER = 1.5;
+const CLING_BASE = 0.3;
+const clingAt = new THREE.Vector3();
+
+/**
+ * The dressing's triangles on a building's fronts: awnings, signs, shutters,
+ * boxes on the walls, as runs of the town's buffer. A triangle is the
+ * building's if its middle is inside the building's box widened by
+ * `CLING_REACH`, over its base, and in none of the dressing's own props.
+ */
+function clingsIn(
+  mesh: THREE.Mesh,
+  material: THREE.Material,
+  run: { start: number; count: number },
+  box: BuildingBox,
+  owned: Int32Array,
+): PropRange[] {
+  const p = mesh.geometry.getAttribute('position').array as Float32Array;
+  const ranges: PropRange[] = [];
+  const { inverse, min, max } = box;
+  let k = 0;
+  const end = run.start + run.count;
+  for (let v = run.start; v + 2 < end; v += 3) {
+    while (k < owned.length && owned[k + 1]! <= v) k += 2;
+    if (k < owned.length && owned[k]! <= v) continue;
+    const o = v * 3;
+    clingAt.set((p[o]! + p[o + 3]! + p[o + 6]!) / 3, (p[o + 1]! + p[o + 4]! + p[o + 7]!) / 3, (p[o + 2]! + p[o + 5]! + p[o + 8]!) / 3).applyMatrix4(inverse);
+    if (
+      clingAt.x < min.x - CLING_REACH || clingAt.x > max.x + CLING_REACH ||
+      clingAt.z < min.z - CLING_REACH || clingAt.z > max.z + CLING_REACH ||
+      clingAt.y < min.y + CLING_BASE || clingAt.y > max.y + CLING_OVER
+    ) continue;
+    const last = ranges[ranges.length - 1];
+    if (last !== undefined && last.start + last.count === v) last.count += 3;
+    else ranges.push({ mesh, start: v, count: 3, material });
+  }
+  return ranges;
 }
 
 /** Moves the town's people, lamps, bays, benches and racks into the world's frame, and registers the town for each. */

@@ -49,8 +49,9 @@ export function createStance(core: PlayerCore) {
     s.attitude.identity();
     s.elevator = 0;
     s.aileron = 0;
-    s.climbRate = 0;
-    s.climbing = 0;
+    s.climbRate = s.climbRateRate = 0;
+    s.climbing = s.climbAccel = 0;
+    s.wreck = -1;
     s.goAround = 0;
     s.rolling = false;
     s.steering = 0;

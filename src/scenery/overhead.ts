@@ -81,5 +81,6 @@ export function* hangOverheadSteps(site: OverheadSite): Generator<void, Overhead
     wires: h.wires,
     cells: h.cells,
     spots: h.taken.flatMap(([x, z]) => [x, z, POLE_WIDTH * 0.5 + 0.5]),
+    lines: h.lines,
   };
 }
