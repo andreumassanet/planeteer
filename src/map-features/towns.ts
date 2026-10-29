@@ -7,8 +7,9 @@ import type { TileView } from '../map-tiles.ts';
 import { type Raster, bytesOf } from '../raster.ts';
 import { unitAt } from '../sphere.ts';
 import { PALETTE } from '../theme.ts';
-import { INK, INKED_FROM, PLANS_FROM, RAILS_FROM, YARD_TREE, inkWidth } from './constants.ts';
+import { BUILDING_SHADE, INK, INKED_FROM, PLANS_FROM, RAILS_FROM, SHADE_MAX, SHADE_MIN, SHADE_UNITS, TOWN_CORE, TOWN_HALO, YARD_TREE, inkWidth } from './constants.ts';
 import { type FeatureCtx, frameAt, localBox, localCorners } from './context.ts';
+import type { Affine } from '../map-tiles.ts';
 import { townsIn } from './index.ts';
 
 /**
@@ -65,6 +66,7 @@ export function paintTownCells(f: FeatureCtx, view: TileView, raster: Raster, in
   const n = grid.cells;
   const half = grid.pitch / 2;
   const style = groundStyleFor(regionOf(place).id);
+  haloCells(raster, affine, grid, (col, row) => cells[row * n + col] !== 0, view.unitsPerPixel);
   for (let row = 0; row < n; row++) {
     for (let col = 0; col < n; col++) {
       if (cells[row * n + col] === 0) continue;
@@ -73,6 +75,24 @@ export function paintTownCells(f: FeatureCtx, view: TileView, raster: Raster, in
   }
   raster.fill(...bytesOf(tone(style.walk, 0.86)));
   inkCells(f, raster, grid, (col, row) => cells[row * n + col] !== 0, inkWidth(view.z));
+}
+
+/**
+ * A soft shade round a town's cells, in rings of ink widening outwards
+ * (`TOWN_HALO`): the town sits on the land rather than being printed on it.
+ */
+function haloCells(raster: Raster, affine: Affine, grid: ReturnType<typeof townGrid>, standing: (col: number, row: number) => boolean, unitsPerPixel: number): void {
+  const n = grid.cells;
+  const half = grid.pitch / 2;
+  for (const [pixels, alpha] of TOWN_HALO) {
+    const grow = half + pixels * unitsPerPixel;
+    for (let row = 0; row < n; row++) {
+      for (let col = 0; col < n; col++) {
+        if (standing(col, row)) localBox(raster, affine, cellCentre(grid, col), cellCentre(grid, row), 1, 0, grow, grow);
+      }
+    }
+    raster.fill(...INK, alpha);
+  }
 }
 
 /** The ink round the cells that stand: every side whose neighbour does not. */
@@ -114,6 +134,7 @@ export function* paintPlan(f: FeatureCtx, view: TileView, raster: Raster, plan: 
   const half = grid.pitch / 2;
   view.frame(plan.up, plan.across, plan.north, affine);
   const colours = [0, plan.colours.yard, plan.colours.walk, plan.colours.land, plan.colours.plaza];
+  haloCells(raster, affine, grid, (col, row) => cells[row * n + col] !== 0, view.unitsPerPixel);
   // The floor, a colour at a time.
   for (let code = 1; code <= 4; code++) {
     let any = false;
@@ -171,6 +192,16 @@ export function* paintPlan(f: FeatureCtx, view: TileView, raster: Raster, plan: 
   const b = plan.buildings;
   const count = b.length / 6;
   const ink = view.z >= INKED_FROM ? inkWidth(view.z) : 0.45;
+  // The shade each throws to the south-east of the tile, under its ink.
+  const shade = Math.min(SHADE_MAX, Math.max(SHADE_MIN, SHADE_UNITS / view.unitsPerPixel));
+  for (let k = 0; k < count; k++) {
+    localCorners(f, affine, b[k * 6]!, b[k * 6 + 1]!, b[k * 6 + 2]!, b[k * 6 + 3]!, b[k * 6 + 4]!, b[k * 6 + 5]!);
+    raster.moveTo(xs[0]! + shade, ys[0]! + shade * 1.2);
+    for (let c = 1; c < 4; c++) raster.lineTo(xs[c]! + shade, ys[c]! + shade * 1.2);
+    raster.close();
+  }
+  raster.fill(...INK, BUILDING_SHADE);
+  yield;
   for (let k = 0; k < count; k++) {
     localCorners(f, affine, b[k * 6]!, b[k * 6 + 1]!, b[k * 6 + 2]!, b[k * 6 + 3]!, b[k * 6 + 4]!, b[k * 6 + 5]!);
     raster.outline(xs, ys, 4, ink);
@@ -199,14 +230,25 @@ export function* paintTowns(f: FeatureCtx, view: TileView, raster: Raster): Gene
   });
   if (indices.length === 0) return;
   if (view.z < RAILS_FROM) {
-    // A square each, in its region's paving.
+    // A square each, cased in ink, in its region's paving.
+    for (const ring of [0.7, 0]) {
+      for (const index of indices) {
+        const place = places[index]!;
+        view.px(place.lat, place.lon, p);
+        const side = (radiusOf(place) * Math.SQRT1_2) / view.unitsPerPixel + ring;
+        raster.rect(p.x - side, p.y - side, side * 2, side * 2);
+      }
+      if (ring > 0) raster.fill(...INK, 0.75);
+      else raster.fill(...bytesOf(tone(PALETTE.blush, 0.9)));
+    }
+    // And its middle in a darker roof, so a city reads as built up to its core.
     for (const index of indices) {
       const place = places[index]!;
       view.px(place.lat, place.lon, p);
-      const side = (radiusOf(place) * Math.SQRT1_2) / view.unitsPerPixel;
-      raster.rect(p.x - side, p.y - side, side * 2, side * 2);
+      const side = (radiusOf(place) * Math.SQRT1_2 * TOWN_CORE) / view.unitsPerPixel;
+      if (side >= 1) raster.rect(p.x - side, p.y - side, side * 2, side * 2);
     }
-    raster.fill(...bytesOf(tone(PALETTE.blush, 0.9)));
+    raster.fill(...bytesOf(tone(PALETTE.salmon, 0.8)));
     return;
   }
   if (view.z < PLANS_FROM || sources.plans === undefined) {

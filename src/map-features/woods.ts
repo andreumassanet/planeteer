@@ -4,14 +4,15 @@ import type { TileView } from '../map-tiles.ts';
 import type { Raster } from '../raster.ts';
 import { reliefAt } from '../terrain.ts';
 import { unitAt } from '../sphere.ts';
-import { CANOPY, CANOPY_DARK, CROWN_BATCH, DEG, GROVE, INKED_FROM, WOOD_PITCH, inkWidth } from './constants.ts';
+import { CANOPY, CANOPY_DARK, CANOPY_LIGHT, CANOPY_SHADE, CROWN_BATCH, DEG, GROVE, INKED_CROWN, INKED_FROM, WOOD_PITCH, inkWidth } from './constants.ts';
 import { type FeatureCtx, latAt } from './context.ts';
 import { groveNoise, hash2 } from './noise.ts';
 
 /**
  * Woods as a symbol: a crown every `WOOD_PITCH` units of a lattice fixed to
  * the sheet, kept where the biome's `cover` says a wood is, in its canopy's
- * colour; inked from level 8.
+ * colour, shaded to the south-east and lit to the north-west; inked close
+ * enough.
  */
 export function* paintWoods(f: FeatureCtx, view: TileView, raster: Raster): Generator<undefined, void, void> {
   const { world, unit, sample } = f;
@@ -43,11 +44,11 @@ export function* paintWoods(f: FeatureCtx, view: TileView, raster: Raster): Gene
   const columns = Math.ceil(256 / step) + 2;
   const originX = Math.floor((view.u0 * view.scale) / step);
   const originY = Math.floor((view.v0 * view.scale) / step);
-  // A crown its own size from level 8, inked; at level 7, where it is two
-  // pixels, a blot wide enough to run into its neighbours, so a wood reads
-  // as a wood and not as a scatter of specks.
-  const r = view.z >= INKED_FROM ? Math.max(0.9, (WOOD_PITCH * 0.42) / atLevel) : step * 0.62;
-  const inked = view.z >= INKED_FROM;
+  // Crowns wide enough to run into their neighbours, so a wood reads as a
+  // canopy with an edge and not as a scatter of specks; inked once a crown
+  // is wide enough for its rim not to be all there is of it.
+  const r = view.z >= INKED_FROM ? Math.max(0.9, (WOOD_PITCH * 0.7) / atLevel) : step * 0.8;
+  const inked = view.z >= INKED_FROM && r >= INKED_CROWN;
   const dots: number[] = [];
   for (let row = -1; row < columns; row++) {
     for (let col = -1; col < columns; col++) {
@@ -77,16 +78,23 @@ export function* paintWoods(f: FeatureCtx, view: TileView, raster: Raster): Gene
     }
     if ((row & 3) === 3) yield;
   }
-  // A batch of crowns at a time: each batch's rims, then its canopies, so
-  // a crown overlapping one of the batch before is drawn over it whole.
-  for (let at = 0; at < dots.length; at += CROWN_BATCH * 2) {
-    const end = Math.min(dots.length, at + CROWN_BATCH * 2);
-    if (inked) {
-      for (let k = at; k < end; k += 2) raster.circle(dots[k]!, dots[k + 1]!, r + inkWidth(view.z));
-      raster.fill(...CANOPY_DARK, 0.9);
+  // In four passes over every crown, a batch at a time: the shade each
+  // crown throws to the south-east, its rim, its canopy and the light on
+  // its north-west shoulder. A wood is one mass with a shaded edge and a
+  // textured top, not a scatter of discs.
+  const shadeX = Math.max(0.6, r * 0.32);
+  const shadeY = Math.max(0.7, r * 0.4);
+  const lit = r >= INKED_CROWN;
+  const passes: [number, number, number, [number, number, number], number][] = [[shadeX, shadeY, r, CANOPY_SHADE, inked ? 0.65 : 0.5]];
+  if (inked) passes.push([0, 0, r + inkWidth(view.z), CANOPY_DARK, 0.75]);
+  passes.push([0, 0, r, CANOPY, 1]);
+  if (lit) passes.push([-r * 0.24, -r * 0.3, r * 0.55, CANOPY_LIGHT, 0.6]);
+  for (const [dx, dy, radius, colour, alpha] of passes) {
+    for (let at = 0; at < dots.length; at += CROWN_BATCH * 2) {
+      const end = Math.min(dots.length, at + CROWN_BATCH * 2);
+      for (let k = at; k < end; k += 2) raster.circle(dots[k]! + dx, dots[k + 1]! + dy, radius);
+      raster.fill(...colour, alpha);
+      yield;
     }
-    for (let k = at; k < end; k += 2) raster.circle(dots[k]!, dots[k + 1]!, r);
-    raster.fill(...CANOPY);
-    yield;
   }
 }
