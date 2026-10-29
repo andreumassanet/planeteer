@@ -13,6 +13,7 @@ import type { RegionStyle } from '../scenery/index.ts';
 import type { Solid, SolidField } from '../scenery/solids.ts';
 import type { Breakables, PropHost } from '../breakables/types.ts';
 import type { PlanShape } from '../landmark-ground.ts';
+import type { SkylineStats } from './skyline.ts';
 
 /** The public and internal records the settlement modules share. */
 
@@ -40,6 +41,8 @@ export interface SettlementStats {
 export interface Settlements {
   group: THREE.Group;
   stats: SettlementStats;
+  /** The far towns as boxes (`skyline.ts`): tiles, towns, folded, triangles, reach. */
+  skyline: SkylineStats;
   /**
    * Where every place stands, as `places.length * 3` floats on the ground.
    * Shared with `lights.ts` so a city's light hangs over the same point.

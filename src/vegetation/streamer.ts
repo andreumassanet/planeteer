@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { prominenceVersion } from '../places.ts';
 import type { ViewCone } from '../view.ts';
 import { detailBuild, detailVersion, mayBuild, NEAR_BUILD } from '../view.ts';
-import { BUILD_BUDGET_MS, RESCAN_MOVE, RESCAN_TURN, SHARE_OF, maxTiles, triangleBudget } from './budget.ts';
+import { BUILD_BUDGET_MS, RESCAN_MOVE, RESCAN_TURN, levelBudget, maxTiles, totalBudget } from './budget.ts';
 import { GROVE_FROM, GROVE_PLANTS, groveSpacing, pitchOf, rangeFor, reachFor, visibleTo } from './levels.ts';
 import { admit, createResidency, drop, release, retire, settle } from './residency.ts';
 import type { StreamState } from './residency.ts';
@@ -82,7 +82,7 @@ export function createStreamer(deps: StreamerDeps): Streamer {
     found.sort((a, b) => a.distance - b.distance);
 
     const wanted: Tile[] = [];
-    const budget = triangleBudget();
+    const budget = totalBudget();
     const tileCap = maxTiles();
     let triangles = 0;
     for (const tile of found) {
@@ -118,7 +118,7 @@ export function createStreamer(deps: StreamerDeps): Streamer {
    * stops at the first far tile. Returns how many it built.
    */
   function buildTiles(began: number, nearOnly: boolean): number {
-    const budget = triangleBudget();
+    const budget = totalBudget();
     const allowance = detailBuild(BUILD_BUDGET_MS);
     let built = 0;
     while (queue.length > 0) {
@@ -132,7 +132,7 @@ export function createStreamer(deps: StreamerDeps): Streamer {
       if (standing.has(tile.key)) continue;
       // This level has had its share. The tile is dropped rather than deferred:
       // behind it is the coarser ring the share exists to protect.
-      if (r.residentByLevel[tile.level]! >= budget * SHARE_OF[tile.level]!) {
+      if (r.residentByLevel[tile.level]! >= levelBudget(tile.level)) {
         refused.add(tile.key);
         continue;
       }

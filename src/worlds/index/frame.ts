@@ -11,7 +11,7 @@ import type { NightSources } from '../night.ts';
 import type { Input } from '../../input.ts';
 import type { EffectsSubject } from '../../effects.ts';
 import type { PassingSound } from '../../passing-sound.ts';
-import { beginFrameBuild, detailScale, endFrameBuild, sampleFrame, skipFrame } from '../../view.ts';
+import { beginFrameBuild, detailScale, endFrameBuild, sampleFrame, sightAt, skipFrame } from '../../view.ts';
 import type { CraftStream } from './craft-stream.ts';
 import type { Dust } from './effects-feed.ts';
 import type { Parts } from './parts.ts';
@@ -68,7 +68,8 @@ export function createFrame(deps: FrameDeps): { frame(now: number): void; restar
     // Earth's render distance (`view.ts`), one knob for every world: how
     // finely the ground splits, how far the towns are built and the pads
     // stand, and how far the haze opens.
-    const reachScale = detailScale();
+    // The far sight on the ground, let go in the air, as Earth's (`sightAt`).
+    const reachScale = detailScale() * sightAt(rig.altitude);
     ground.detail = Math.min(GROUND_DETAIL_MAX, Math.max(0.5, reachScale));
     settlements.reach = reachScale;
     // Counted per frame by hand (`autoReset` off), for `atlasWorld.stats()`.

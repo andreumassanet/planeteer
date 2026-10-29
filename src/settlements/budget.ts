@@ -80,7 +80,7 @@ export const maxResident = (): number => detailCount(MAX_RESIDENT);
 
 /**
  * The radius inside which every town is built whatever the camera faces, so a
- * fast turn finds them standing: the on-foot haze closes at about 1,430 units.
+ * fast turn finds them standing: past it the far towns' boxes stand (`skyline.ts`).
  * Not scaled with the detail knob, or it would become a frustum-free range.
  */
 export const KEEP_ALL_WITHIN = 1450;

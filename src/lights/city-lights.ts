@@ -18,9 +18,10 @@ const LIGHT_LIFT = 32;
  * distance from the camera. The two overlap without coinciding: in a town its
  * own windows and lamps are what you see and a soft disc pasted over them would
  * be a lens flare; from the plane's ceiling the towns do not exist and the discs
- * are the whole picture. The near end is the on-foot fog at detail 1 (about
- * 1,430 units), so on the ground the field is behind the haze whatever the knob
- * says, and it is fully in by four thousand, where a median town is a smudge.
+ * are the whole picture. The near end is past the real towns' reach on foot,
+ * so a town walked in is its own windows; on the ground the field is the
+ * night glow of the far towns, whose boxes (`settlements/skyline.ts`) are
+ * unlit, and it is fully in by four thousand, where a median town is a smudge.
  */
 const FADE_NEAR = 1500;
 const FADE_FAR = 4000;

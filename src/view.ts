@@ -631,6 +631,24 @@ export function mayBuild(began: number, share: number, near: boolean, who?: stri
 export const detailFog = (spread: number): number => spread * Math.SQRT1_2 * detailScale();
 
 /**
+ * How much further than the near streamers' tuning the haze opens near the
+ * ground. The land and the sea are whole and cost nothing to see further;
+ * what stands on the far band is cheap: each town as a few boxes
+ * (`settlements/skyline.ts`), the wood's coarsest level, the landmarks.
+ */
+export const FAR_SIGHT = 2.5;
+
+/**
+ * `FAR_SIGHT` at an altitude: whole on foot and in a car, let go with the
+ * square root of the height, where the horizon already opens the haze. The
+ * haze it multiplies still grows with altitude: `sqrt(h) * (1 + k sqrt(20 / h))`
+ * is `sqrt(h) + k sqrt(20)`.
+ */
+export function sightAt(altitude: number): number {
+  return 1 + (FAR_SIGHT - 1) * Math.sqrt(FOOT_ALTITUDE / Math.max(FOOT_ALTITUDE, altitude));
+}
+
+/**
  * The knob as a multiple of its default, which is the one curve every world
  * reads: Earth's haze above, and another world's reach and haze
  * (`worlds/index.ts`).
@@ -647,7 +665,7 @@ export function detailScale(): number {
  */
 export function fogFar(altitude: number, planetRadius: number): number {
   const horizon = horizonAt(altitude, planetRadius);
-  return horizon * detailFog(1.35 + (altitude / planetRadius) * 6) * weatherHazeAt(altitude);
+  return horizon * detailFog(1.35 + (altitude / planetRadius) * 6) * sightAt(altitude) * weatherHazeAt(altitude);
 }
 
 /**
@@ -656,7 +674,7 @@ export function fogFar(altitude: number, planetRadius: number): number {
  */
 export function clearHazeAt(value: number, planetRadius: number): number {
   const knob = clampDetail(value);
-  return horizonAt(FOOT_ALTITUDE, planetRadius) * (1.35 + (FOOT_ALTITUDE / planetRadius) * 6) * Math.SQRT1_2 * (knob / DETAIL_DEFAULT);
+  return horizonAt(FOOT_ALTITUDE, planetRadius) * (1.35 + (FOOT_ALTITUDE / planetRadius) * 6) * Math.SQRT1_2 * (knob / DETAIL_DEFAULT) * FAR_SIGHT;
 }
 /** The altitude the streamers are handed on foot: `STREAM_FLOOR` in `main.ts`. */
 const FOOT_ALTITUDE = 20;

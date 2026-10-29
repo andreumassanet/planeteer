@@ -28,6 +28,7 @@ import { createRaiseScratch } from './settlements/raise/job.ts';
 import type { RaiseKit } from './settlements/raise/job.ts';
 import { raiseSteps } from './settlements/raise/raise.ts';
 import { createRegistry } from './settlements/registry.ts';
+import { createSkyline } from './settlements/skyline.ts';
 import { createStyleFor } from './settlements/rules.ts';
 import { squareSteps } from './settlements/square.ts';
 import { createStreamer } from './settlements/streamer.ts';
@@ -119,10 +120,14 @@ export function createSettlements(
   const queries = createTownQueries(world, registry);
   const near = createNearTowns(registry, slots);
   const streamer = createStreamer(slots, anchors, registry, life, plans, landProbe);
+  // The far towns as boxes, out to the haze; folded wherever the real town stands.
+  const skyline = createSkyline(world, slots, monumentSites.map((site) => ({ direction: site.direction, clear: site.shape.radius + site.radius })));
+  registry.group.add(skyline.group);
 
   return {
     group: registry.group,
     stats: streamer.stats,
+    skyline: skyline.stats,
     anchors,
     missing,
     broken,
@@ -146,13 +151,17 @@ export function createSettlements(
     setParkedTaken(test) {
       registry.parkedTaken = test;
     },
-    update: streamer.update,
+    update(viewer, altitude, camera) {
+      streamer.update(viewer, altitude, camera);
+      // After the real towns, so a town published this frame folds its boxes on the same clock.
+      skyline.update(viewer, altitude, camera);
+    },
     madeHeightAt: queries.madeHeightAt,
     swardAt: createSward(registry),
     recordSeats(into) {
       registry.seatLog = into;
     },
-    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material))],
+    proxies: () => [proxyOf(material), proxyOf(fadeTwin(material)), proxyOf(skyline.material), proxyOf(fadeTwin(skyline.material))],
     townPlan: plans.townPlan,
     townPlanNow: plans.townPlanNow,
     floorChanges: registry.floorChanges,

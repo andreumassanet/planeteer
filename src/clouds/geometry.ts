@@ -8,7 +8,7 @@ import { CLOUD_ORDER } from './types.ts';
 /**
  * How far into the haze a cloud is. It is not the fog the land is in: `main.ts`
  * closes the fog at about `1.35 * sqrt(2 R h)`, the distance to the land's
- * horizon, which on the ground is 1,430 units, and a cloud 1,000 units overhead
+ * horizon (before the knob and the far sight), and a cloud 1,000 units overhead
  * is 65% of the way into it, so the whole deck would come out one flat wash.
  * Haze is a path length through air, and the path to something overhead
  * leaves the atmosphere immediately.

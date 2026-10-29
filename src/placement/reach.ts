@@ -1,14 +1,18 @@
 /** How far a landmark is built from the viewer, and which are worth building at all. */
 import { HAZE_RADIUS } from '../globe.ts';
-import { detailReach, fogFar, horizonAt, slantRange } from '../view.ts';
+import { detailReach, fogFar, horizonAt, sightAt, slantRange } from '../view.ts';
 
 /**
  * How far along the ground a monument is built, in world units: tied to the
- * horizon (about 930 units from the ground), capped at 24,000. A size test
- * (`MIN_APPARENT_PIXELS`) keeps the small ones from being built that far out.
+ * horizon, capped at 24,000, and opened with the far haze near the ground
+ * (`sightAt`), since a landmark is what a far view is looked at for. A size
+ * test (`MIN_APPARENT_PIXELS`) keeps the small ones from being built that far out.
  */
 export function reachFor(altitude: number): number {
-  return Math.min(fogFar(altitude, HAZE_RADIUS) * 1.1, detailReach(Math.min(24000, Math.max(1500, horizonAt(altitude, HAZE_RADIUS) * 2))));
+  return Math.min(
+    fogFar(altitude, HAZE_RADIUS) * 1.1,
+    detailReach(Math.min(24000, Math.max(1500, horizonAt(altitude, HAZE_RADIUS) * 2)) * sightAt(altitude)),
+  );
 }
 
 /** `reachFor` along the slant, because a monument is on the ground and the viewer may not be. */

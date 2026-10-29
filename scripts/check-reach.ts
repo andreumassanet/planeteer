@@ -4,6 +4,9 @@
  * the haze, at the altitudes the world is seen from (on foot, over a town, at
  * the cloud base, at cruise and at the ceiling). A clamp applied after the
  * knob, or a ceiling that binds everywhere, would make the setting do nothing.
+ * Near the ground the haze opens `FAR_SIGHT` past the near streamers' tuning,
+ * and the far towns (`settlements/skyline.ts`) reach it: never less than twice
+ * as far as the real towns on foot, at any setting.
  *
  * Also: the automatic knob (`sampleFrame`) moves only while it is on, and far
  * work is shared between streamers so none starves, and the grass's fields
@@ -16,7 +19,7 @@ import { readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DETAIL_DEFAULT, DETAIL_MAX, DETAIL_MIN, autoDetail, beginFrameBuild, clearHazeAt, detail, detailVersion, endFrameBuild, fogFar, horizonAt, mayBuild, sampleFrame, setAutoDetail, setDetail } from '../src/view.ts';
+import { DETAIL_DEFAULT, DETAIL_MAX, DETAIL_MIN, FAR_SIGHT, autoDetail, beginFrameBuild, clearHazeAt, detail, detailVersion, endFrameBuild, fogFar, horizonAt, mayBuild, sampleFrame, setAutoDetail, setDetail, sightAt } from '../src/view.ts';
 import { HAZE_RADIUS } from '../src/globe.ts';
 import { ROAD_CLASSES, classReaches, reachFor as roadReach } from '../src/roads.ts';
 import { reachFor as landmarkReach } from '../src/placement.ts';
@@ -49,6 +52,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 }
 const { reachFor: townReach } = await import('../src/settlements.ts');
 const { reachFor: woodReach, budgetCapped: woodCapped } = await import('../src/vegetation.ts');
+const { skylineReach } = await import('../src/settlements/skyline.ts');
 
 let failures = 0;
 const check = (ok: boolean, label: string, note = ''): void => {
@@ -78,6 +82,7 @@ function sweep(altitude: number): Series {
     setDetail(d);
     put('haze', fogFar(altitude, HAZE_RADIUS));
     put('towns', townReach(altitude));
+    put('skyline', skylineReach(altitude));
     put('wood', woodReach(altitude));
     put('roads', roadReach(altitude));
     classReaches(classes);
@@ -121,10 +126,32 @@ for (const altitude of ALTITUDES) {
     check(worst < 1e-6, `the haze at ${altitude} follows the knob in proportion`, `worst ${(worst * 100).toFixed(4)}%`);
     setDetail(DETAIL_DEFAULT);
     const atDefault = fogFar(altitude, HAZE_RADIUS);
-    const tuned = horizonAt(altitude, HAZE_RADIUS) * (1.35 + (altitude / HAZE_RADIUS) * 6) * Math.sqrt(DETAIL_DEFAULT);
-    check(Math.abs(atDefault - tuned) < 1e-6 * tuned, `the haze at ${altitude} at the default is the one the world was tuned under`, `${atDefault.toFixed(0)} against ${tuned.toFixed(0)}`);
+    const tuned = horizonAt(altitude, HAZE_RADIUS) * (1.35 + (altitude / HAZE_RADIUS) * 6) * Math.sqrt(DETAIL_DEFAULT) * sightAt(altitude);
+    check(Math.abs(atDefault - tuned) < 1e-6 * tuned, `the haze at ${altitude} at the default is the one the world was tuned under, opened by the far sight`, `${atDefault.toFixed(0)} against ${tuned.toFixed(0)}`);
+  }
+  // The far towns on foot and in a car: the haze's band past the real towns is theirs.
+  if (altitude === ALTITUDES[0]) {
+    const short = series.skyline!.findIndex((v, k) => v < series.towns![k]! * 2);
+    check(short < 0, `the far towns at ${altitude} reach twice as far as the real ones`, short < 0 ? '' : `${series.skyline![short]!.toFixed(0)} against ${series.towns![short]!.toFixed(0)} at ${steps[short]!.toFixed(2)}`);
   }
   if (process.argv.includes('--table')) console.log(`    altitude ${altitude}\n      ${lines.join('\n      ')}`);
+}
+
+console.log('the far sight:');
+{
+  // Climbing never closes the haze: the far sight lets go no faster than the horizon opens.
+  let closes = '';
+  for (const d of steps) {
+    setDetail(d);
+    let last = 0;
+    for (let altitude = 20; altitude <= 4000; altitude *= 1.1) {
+      const haze = fogFar(altitude, HAZE_RADIUS);
+      if (haze < last - 1e-6 && closes === '') closes = `${last.toFixed(0)} -> ${haze.toFixed(0)} at ${altitude.toFixed(0)}, ${d.toFixed(2)}x`;
+      last = haze;
+    }
+  }
+  check(closes === '', 'the haze opens with altitude at every setting', closes);
+  check(sightAt(20) === FAR_SIGHT && sightAt(3000) < 1.2, 'the far sight is whole on foot and let go in the air', `${sightAt(20)} on foot, ${sightAt(3000).toFixed(2)} at 3,000`);
 }
 
 console.log('the top of the knob:');
@@ -182,13 +209,14 @@ console.log('the hand on the knob:');
 
 console.log('the far work, from a plane:');
 {
-  // Three streamers with endless far work, in frame order, as seen from a
-  // plane: expensive town builds (10 ms), cheap roads, wood in between, each
-  // under its own slice. Turn-taking must let all three build.
+  // Four streamers with endless far work, in frame order, as seen from a
+  // plane: expensive town builds (10 ms), the far towns' boxes and roads
+  // cheap, wood in between, each under its own slice. Turn-taking must let
+  // all four build.
   let clock = 0;
   const realNow = performance.now.bind(performance);
   performance.now = (): number => clock;
-  const built = { towns: 0, roads: 0, wood: 0 };
+  const built = { towns: 0, skyline: 0, roads: 0, wood: 0 };
   let spent = 0;
   const FRAMES = 600;
   try {
@@ -205,6 +233,7 @@ console.log('the far work, from a plane:');
       const began = clock;
       beginFrameBuild();
       serve('towns', 3.5, 10);
+      serve('skyline', 2, 1.2);
       serve('roads', 3, 1.5);
       serve('wood', 2.5, 3);
       endFrameBuild();
@@ -214,7 +243,7 @@ console.log('the far work, from a plane:');
     performance.now = realNow;
   }
   const counts = Object.values(built);
-  check(built.roads > 0 && built.wood > 0, 'every streamer with far work builds some', `towns ${built.towns}, roads ${built.roads}, wood ${built.wood}`);
+  check(built.skyline > 0 && built.roads > 0 && built.wood > 0, 'every streamer with far work builds some', JSON.stringify(built));
   // Turns, not equal shares: a cheap build fits more of them into a turn.
   check(Math.min(...counts) * 20 >= Math.max(...counts), 'and none is starved by another', JSON.stringify(built));
   check(spent / FRAMES < 9, 'and the frame pays about its far share on average', `${(spent / FRAMES).toFixed(1)} ms a frame`);

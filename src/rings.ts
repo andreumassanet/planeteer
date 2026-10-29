@@ -37,7 +37,7 @@ import type { RingRecord, RingStorage } from './rings/store.ts';
 export type { Ring } from './rings/layout.ts';
 export type { CourseKind, CourseSite } from './rings/courses.ts';
 
-/** How near a landmark's ring is drawn, units: past the haze on foot, inside it from the air. */
+/** How near a landmark's ring is drawn, units: past the haze on foot at the default knob, inside it from the air. */
 const LANDMARK_SHOW = 6000;
 /** Seconds out of a craft of the course's kind, or past `COURSE_ABANDON` of its next ring, before a run is let go. */
 const COURSE_LETGO = 6;

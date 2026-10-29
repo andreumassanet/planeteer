@@ -3,7 +3,7 @@
  * worth building, and how small a plant may be before it is not worth drawing.
  */
 import { HAZE_RADIUS, UNITS_PER_DEGREE } from '../globe.ts';
-import { detailPixels, detailReach, fogFar, horizonAt, slantRange } from '../view.ts';
+import { detailPixels, detailReach, fogFar, horizonAt, sightAt, slantRange } from '../view.ts';
 import { LEVELS, stepOf } from '../tile-grid.ts';
 
 export const DEG = Math.PI / 180;
@@ -82,9 +82,17 @@ export function visibleTo(level: number): number {
   return (PIXELS_PER_RADIAN * TALLEST_PLANT * SCALE_OF[level]!) / minPixels();
 }
 
-/** How far along the ground vegetation is built from this altitude. */
+/**
+ * How far along the ground vegetation is built from this altitude. The far
+ * haze near the ground (`sightAt`) opens it too; the levels' switch distances
+ * (`refine`) do not move with it, so what is added is the coarse levels' band.
+ */
 export function reachFor(altitude: number): number {
-  return Math.min(visibleTo(LEVELS - 1), fogFar(altitude, HAZE_RADIUS) * 1.1, detailReach(Math.max(1150, horizonAt(altitude, HAZE_RADIUS) * 1.3)));
+  return Math.min(
+    visibleTo(LEVELS - 1),
+    fogFar(altitude, HAZE_RADIUS) * 1.1,
+    detailReach(Math.max(1150, horizonAt(altitude, HAZE_RADIUS) * 1.3)) * sightAt(altitude),
+  );
 }
 
 /** `reachFor` as a slant distance, which is what the tile test compares. */
