@@ -18,6 +18,9 @@ const HAZE_ELEVATION = 0.25;
  * which would close the haze to a third.
  */
 export const STREAM_FLOOR = 20;
+/** Under this height of the eye over the ground, units, the near plane is held to `LOW_NEAR`. */
+const LOW_EYE = 60;
+const LOW_NEAR = 0.5;
 
 /** Sets the fog and the near plane; returns the altitude for the streamers. */
 export function updateHaze(app: App, tick: Tick): number {
@@ -34,7 +37,10 @@ export function updateHaze(app: App, tick: Tick): number {
   // precision for coastlines from orbit. Inside a cab in first person it is
   // `COCKPIT_NEAR`, or the cabin's lining over the head would be clipped; in
   // the head on foot too, or the shoulders and the chest under the eye would be.
-  const near = rig.firstPerson ? COCKPIT_NEAR : Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
+  // Near the ground it stays short whatever the distance, or on a slope its
+  // corners reach into the hillside the lens is kept clear of.
+  const far = Math.min(500, Math.max(0.25, rig.camera.position.distanceTo(player.position) * 0.15));
+  const near = rig.firstPerson ? COCKPIT_NEAR : tick.eyeOverGround < LOW_EYE ? Math.min(far, LOW_NEAR) : far;
   if (Math.abs(near - rig.camera.near) > near * 0.1) {
     rig.camera.near = near;
     rig.camera.updateProjectionMatrix();

@@ -4,6 +4,9 @@
 import * as THREE from 'three';
 import {
   CLEARANCE,
+  NEAR_CLEAR,
+  GRASS_CLEAR,
+  GROUND_RISE,
   COLLISION_STEPS,
   LENS_ROOM,
   MAX_ELEVATION,
@@ -63,10 +66,31 @@ export function createPlacement(core: CameraCore) {
    */
   function unclip(point: THREE.Vector3, groundRadiusAt: (p: THREE.Vector3) => number, walls: boolean): number {
     let lift = 0;
-    const floor = groundRadiusAt(point) + CLEARANCE;
+    // The near plane's corners stand off the lens too, and a slope reaches them first.
+    const clearance = Math.max(CLEARANCE, GRASS_CLEAR, camera.near * NEAR_CLEAR);
+    const floor = groundRadiusAt(point) + clearance;
     if (point.length() < floor) {
       lift = floor - point.length();
       point.setLength(floor);
+    }
+    // A rise between the pivot and the lens lifts the lens over it, as far as
+    // `GROUND_RISE` of its distance, before it would pull it in: looking down
+    // over a crest shows the land, low in the grass shows nothing.
+    offset.copy(point).sub(pivot);
+    const reach = offset.length();
+    if (reach > MIN_DISTANCE) {
+      let need = 0;
+      for (let i = 1; i < COLLISION_STEPS; i++) {
+        const t = i / COLLISION_STEPS;
+        sample.copy(pivot).addScaledVector(offset, t);
+        need = Math.max(need, (groundRadiusAt(sample) + clearance * t - sample.length()) / t);
+      }
+      need = Math.min(need, reach * GROUND_RISE);
+      if (need > 0) {
+        sample.copy(pivot).normalize();
+        // Not added to `lift`: the lens looks down at the player over the rise.
+        point.addScaledVector(sample, need);
+      }
     }
 
     offset.copy(point).sub(pivot);
@@ -90,7 +114,7 @@ export function createPlacement(core: CameraCore) {
       // The margin grows from nothing at the pivot to the full lens clearance
       // at the far end; full clearance the whole way would read every low
       // camera as blocked.
-      if (ground && sample.length() < groundRadiusAt(sample) + CLEARANCE * t) {
+      if (ground && sample.length() < groundRadiusAt(sample) + clearance * t) {
         allowed = ((i - 1) / COLLISION_STEPS) * distance;
         break;
       }

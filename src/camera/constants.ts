@@ -99,6 +99,12 @@ export const ROLL_FADE_TO = 0.985;
 
 /** Never let the ground come closer to the lens than this. */
 export const CLEARANCE = 0.45;
+/** The ground's clearance as a multiple of the near plane's distance, past `CLEARANCE`: its corners are about that far off the lens. */
+export const NEAR_CLEAR = 1.6;
+/** The lens kept over the tallest grass (`grass/shaders.ts`: about 1.7 at the most). */
+export const GRASS_CLEAR = 1.8;
+/** How far a rise between the pivot and the lens may lift the lens, as a share of their distance, before it pulls it in. */
+export const GROUND_RISE = 0.8;
 export const MIN_DISTANCE = 1.6;
 /** Samples along the player-to-camera segment when testing for ground. */
 export const COLLISION_STEPS = 6;
