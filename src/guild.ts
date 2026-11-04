@@ -42,6 +42,8 @@ export const GUILD_TALK_REACH = AVATAR_HEIGHT * 1.35;
 const BOARD_REACH = AVATAR_HEIGHT * 1.6;
 /** How far from a square's middle still counts as standing in it, units. */
 const IN_SQUARE = 40;
+/** How near a guild person their mark shows, units: across their square, not the town. */
+const MARK_REACH = 90;
 /** How often the marks are asked again, s: the quests behind them change only on an event. */
 const MARKS_EVERY = 0.5;
 
@@ -201,7 +203,7 @@ export function createGuild(options: GuildOptions): Guild {
       tagList.length = 0;
       for (const person of people.standing) {
         const kind = markByRole.get(person.role) ?? null;
-        if (kind !== null && person.key !== speaking) wantedMarks.push({ key: person.key, kind, crown: person.crown });
+        if (kind !== null && person.key !== speaking && person.position.distanceTo(frame.position) < MARK_REACH) wantedMarks.push({ key: person.key, kind, crown: person.crown });
         tagList.push({ role: person.role, name: services.nameOf(person.key), crown: person.crown });
       }
       marks.update(frame.now, wantedMarks, frame.camera.position);

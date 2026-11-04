@@ -56,17 +56,17 @@ export const STOPPED = 4;
 export const HOVER_LOW = 14;
 /** Seconds within which a second press of the jobs key gives the job up. */
 const GIVE_UP_WINDOW = 2.5;
-/** How far a tag is drawn over a pickup, units from the player; past this it is the beacon's. */
-const TAG_REACH = 900;
+/** How far a tag is drawn over a pickup, units from the player: only what is near; the one headed for is always tagged, and the rest are the minimap's. */
+const TAG_REACH = 130;
 /** Camera distances over which a tag fades to its floor. */
-const TAG_NEAR = 60;
-const TAG_FAR = 900;
+const TAG_NEAR = 40;
+const TAG_FAR = 130;
 /** Seconds a passenger or a load waits in a vehicle the player has left before the job is off. */
 export const LEFT_WAITING = 90;
 /** How long what the one who asked said stays on the card, ms. */
 const QUOTE_MS = 6000;
 /** How near a townsperson with an errand is tagged, units. */
-const ASKER_TAG_REACH = 140;
+const ASKER_TAG_REACH = 40;
 /** The most errand givers asked each frame. */
 const MAX_GIVERS = 40;
 
