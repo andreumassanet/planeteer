@@ -22,7 +22,8 @@ export type ProgressEvent =
   | { t: 'board'; kind: string }
   | { t: 'ring'; landmark: string }
   | { t: 'course'; id: string; kind: 'air' | 'land' | 'sea'; medal: number; ms: number }
-  | { t: 'job'; kind: 'errand' | 'taxi' | 'cargo' | 'rescue'; medal: number; points: number; iso: string }
+  /** A job done; a rescue says whether it was off a coast or up a hill. */
+  | { t: 'job'; kind: 'errand' | 'taxi' | 'cargo' | 'rescue'; medal: number; points: number; iso: string; site?: 'sea' | 'hill' }
   | { t: 'stamp'; iso: string }
   | { t: 'town'; key: string }
   | { t: 'visit'; landmark: string }

@@ -34,6 +34,9 @@ function pick<T>(list: readonly T[], seed: string): T {
   return list[(hash >>> 0) % list.length]!;
 }
 
+/** The commissions counted in metres, whose progress reads as a distance. */
+const DISTANCE_TEMPLATES: ReadonlySet<string> = new Set(['foot', 'drive', 'fly', 'sail', 'swim']);
+
 export function wearableName(item: Cosmetic): string {
   return `${item.name} (${SLOT_WORD[item.slot] ?? item.slot})`;
 }
@@ -96,6 +99,7 @@ export function createServices(deps: ServiceDeps): { services: GuildServices; fi
     unlocks: cosmetics.COSMETICS.filter((item) => item.unlock.kind === 'quest' && item.unlock.id === entry.quest.id).map((item) => item.name),
     // A quest waiting for its giver from the start is one to go and see.
     state: entry.status === 'active' && entry.quest.auto === true ? 'offered' : entry.status,
+    chain: entry.quest.contract === true ? 'contract' : 'path',
   });
 
   const topicView = (topic: (typeof lore.TOPICS)[number]): LoreTopicView => ({
@@ -117,6 +121,7 @@ export function createServices(deps: ServiceDeps): { services: GuildServices; fi
         count: entry.commission.target,
         complete: entry.complete,
         xp: entry.commission.xp,
+        metres: DISTANCE_TEMPLATES.has(entry.commission.template),
       })),
       bonus: today.bonus,
       streak: today.streak,
@@ -290,7 +295,8 @@ export function createServices(deps: ServiceDeps): { services: GuildServices; fi
     },
     nearestGuild() {
       const near = guilds.nearest(host.traveller().position);
-      return near === null ? null : bearingWords(near.index);
+      // Already in its town: nothing to lead to.
+      return near === null || near.units < 400 ? null : bearingWords(near.index);
     },
     headToGuild() {
       const near = guilds.nearest(host.traveller().position);

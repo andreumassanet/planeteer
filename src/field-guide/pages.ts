@@ -16,10 +16,23 @@ function waiting(quest: QuestView): string {
   return `Talk to the ${ROLE_INFO[quest.giver].title.toLowerCase()} at any Explorers’ Guild`;
 }
 
+/** A quest taken, or on offer with where to take it. */
+function questCards(quests: readonly QuestView[]): HTMLElement[] {
+  return [
+    ...quests.filter((quest) => quest.state === 'active' || quest.state === 'ready').map((quest) => questCard(quest)),
+    ...quests.filter((quest) => quest.state === 'offered').map((quest) => {
+      const card = questCard(quest);
+      card.classList.add('dim');
+      card.append(h('div', { class: 'atlas-fg-tile-text', text: waiting(quest) }));
+      return card;
+    }),
+  ];
+}
+
 export function journalPage(services: FieldGuideServices, signal: AbortSignal): HTMLElement[] {
   const quests = services.quests();
-  const doing = quests.filter((quest) => quest.state === 'active' || quest.state === 'ready');
-  const open = quests.filter((quest) => quest.state === 'offered');
+  const path = quests.filter((quest) => quest.chain === 'path');
+  const contracts = quests.filter((quest) => quest.chain === 'contract');
   const done = quests.filter((quest) => quest.state === 'done');
   const out: HTMLElement[] = [];
   const guild = services.nearestGuild();
@@ -35,21 +48,28 @@ export function journalPage(services: FieldGuideServices, signal: AbortSignal): 
             return button;
           })(),
         );
+  const pathDone = path.filter((quest) => quest.state === 'done').length;
   out.push(
     section(
       'The Explorer’s Path',
       'scroll',
-      h('p', { text: `${done.length} of ${quests.length} done. The guild’s people hand out each step: a gold ! over somebody means they have one for you, a ? that they are waiting for you to come back.` }),
-      ...doing.map((quest) => questCard(quest)),
-      ...open.map((quest) => {
-        const card = questCard(quest);
-        card.classList.add('dim');
-        card.append(h('div', { class: 'atlas-fg-tile-text', text: waiting(quest) }));
-        return card;
-      }),
+      h('p', { text: `${pathDone} of ${path.length} done. The guild’s people hand out each step: a gold ! over somebody means they have one for you, a ? that they are waiting for you to come back.` }),
+      ...questCards(path),
       guildLine,
     ),
   );
+  const contractCards = questCards(contracts);
+  const contractsDone = contracts.filter((quest) => quest.state === 'done').length;
+  if (contractCards.length > 0 || contractsDone > 0) {
+    out.push(
+      section(
+        'Guild contracts',
+        'hand',
+        h('p', { text: `${contractsDone} of ${contracts.length} done. After their step of the path, each of the guild’s people has a chain of contracts, one after another.` }),
+        ...contractCards,
+      ),
+    );
+  }
   const { list, bonus, streak } = services.commissions();
   out.push(
     section(

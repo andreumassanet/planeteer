@@ -36,6 +36,13 @@ const STYLE = `
 .gd-tiers i.t1 { background: #c98a52; } .gd-tiers i.t2 { background: #cfd4dc; } .gd-tiers i.t3 { background: var(--ui-gold); }
 `;
 
+/** Metres as the commissions write them: `850 m`, `12.4 km`. */
+function distanceOf(metres: number): string {
+  if (metres < 1000) return `${Math.floor(metres)} m`;
+  const km = metres / 1000;
+  return `${km < 10 ? km.toFixed(1).replace(/\.0$/, '') : Math.floor(km)} km`;
+}
+
 function style(): void {
   ensureStyle('atlas-guild-cards', STYLE);
 }
@@ -114,7 +121,7 @@ export function commissionsCard(list: readonly CommissionView[], bonus: number, 
           { class: `gd-row${commission.complete ? ' done' : ''}` },
           icon(commission.complete ? 'star' : 'chevron', 17),
           h('span', { class: 'gd-grow' }, commission.title, bar(commission.done / Math.max(1, commission.count))),
-          h('span', { class: 'gd-count', text: `${Math.min(commission.done, commission.count)} / ${commission.count}` }),
+          h('span', { class: 'gd-count', text: commission.metres === true ? `${distanceOf(Math.min(commission.done, commission.count))} / ${distanceOf(commission.count)}` : `${Math.min(commission.done, commission.count)} / ${commission.count}` }),
           h('span', { class: 'gd-chip', text: `${commission.xp} XP` }),
         ),
       ),

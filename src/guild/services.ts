@@ -19,6 +19,8 @@ export interface QuestView {
   /** The names of what it unlocks to wear, if anything. */
   unlocks: readonly string[];
   state: 'offered' | 'active' | 'ready' | 'done' | 'locked';
+  /** A step of the Explorer's Path, or a guild contract. */
+  chain: 'path' | 'contract';
 }
 
 export interface CommissionView {
@@ -28,6 +30,8 @@ export interface CommissionView {
   count: number;
   complete: boolean;
   xp: number;
+  /** Counted in metres: shown as a distance. */
+  metres?: boolean;
 }
 
 export interface LevelView {

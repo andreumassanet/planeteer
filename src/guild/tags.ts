@@ -52,7 +52,7 @@ export interface GuildTag {
 
 export interface GuildTags {
   /** Each frame, with the near people and the camera; `hide` names who is being talked to. */
-  update(tags: readonly GuildTag[], camera: THREE.Camera, width: number, height: number, hide: string | null): void;
+  update(tags: readonly GuildTag[], camera: THREE.Camera, width: number, height: number, hide: string | null, blocksSight?: (point: THREE.Vector3) => boolean): void;
   dispose(): void;
 }
 
@@ -85,10 +85,11 @@ export function createGuildTags(parent: HTMLElement): GuildTags {
     plates.push({ root, glyph, name, role, shown: '' });
   }
   const projected = new THREE.Vector3();
+  const sight = new THREE.Vector3();
   const order: { tag: GuildTag; distance: number }[] = [];
 
   return {
-    update(tags, camera, width, height, hide) {
+    update(tags, camera, width, height, hide, blocksSight) {
       order.length = 0;
       for (const tag of tags) {
         if (hide !== null && tag.name === hide) continue;
@@ -100,6 +101,8 @@ export function createGuildTags(parent: HTMLElement): GuildTags {
       let used = 0;
       for (const { tag, distance } of order) {
         if (used >= MAX_TAGS) break;
+        // Behind a building or a landmark, from where the camera is: not drawn.
+        if (blocksSight !== undefined && distance > TAG_NEAR * 0.5 && [0.4, 0.75].some((t) => blocksSight(sight.copy(camera.position).lerp(tag.crown, t)))) continue;
         projected.copy(tag.crown).project(camera);
         if (projected.z > 1 || projected.z < -1) continue;
         const x = (projected.x * 0.5 + 0.5) * width;

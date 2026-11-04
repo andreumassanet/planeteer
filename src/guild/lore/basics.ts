@@ -102,6 +102,32 @@ export const BASICS: readonly LoreTopic[] = [
     ],
   },
   {
+    id: 'guild-contracts',
+    title: 'Guild contracts',
+    icon: 'hand',
+    role: 'guide',
+    summary: 'What the guild’s people ask of you once their step of the path is done.',
+    pages: [
+      {
+        heading: 'Always something',
+        text:
+          'Once you have done somebody’s step of the Explorer’s Path, they have a chain of contracts for you, one after another. The Guide’s starts when the whole path is walked.\n\n' +
+          'A gold ! over somebody still means they have something new.',
+      },
+      {
+        heading: 'What they ask',
+        text:
+          'The dispatcher wants jobs done, the marshal medals on the courses, the outfitter a traveller worth looking at, the archivist a record worth keeping and the cartographer places nobody has been. ' +
+          'Some ask for a level or a count you may already have: those tick along by themselves.',
+      },
+      {
+        heading: 'What they pay',
+        text:
+          'Each contract pays more experience than the one before it, and every few give something to wear: a title, a trail or a canopy. The Journal in your Field Guide ({journal}) lists them under Guild contracts.',
+      },
+    ],
+  },
+  {
     id: 'starting',
     title: 'Choosing where to start',
     icon: 'play',

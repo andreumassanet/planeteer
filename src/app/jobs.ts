@@ -54,7 +54,7 @@ export async function createWorldJobs(app: App): Promise<Jobs> {
     announce: (text, iconName) => app.announce(text, iconName),
     cue: (name) => app.sound.audio.cue(name),
     countryName: (iso) => nameOf.get(iso) ?? iso,
-    done: (job, medal, points) => app.emit({ t: 'job', kind: job.kind, medal, points, iso: job.iso }),
+    done: (job, medal, points) => app.emit({ t: 'job', kind: job.kind, medal, points, iso: job.iso, site: job.site }),
   });
   app.scene.add(jobs.group);
   addEventListener('keydown', (event) => {

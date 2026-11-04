@@ -1,7 +1,7 @@
 /**
  * What the guild's people say, as nodes of the dialogue card (`dialogue.ts`):
- * a greeting, then the quests they have for you (a gold `!` to take, a `?` to
- * hand in), what their role is for, the topics they can teach, and goodbye.
+ * a greeting, then the quests and contracts they have for you (a gold `!` to
+ * take, a `?` to hand in), what their role is for, the topics they can teach, and goodbye.
  * Every node is built when it is shown, from the services' views, so an
  * answer always reflects what is true now.
  */
@@ -104,7 +104,7 @@ function questOptions(c: ConversationContext): DialogueOption[] {
     if (quest.state === 'ready') out.push({ label: `Hand in: ${quest.title}`, icon: 'scroll', badge: 'ready', tone: 'primary', run: () => questTurnIn(c, quest) });
   }
   for (const quest of c.services.quests(c.role)) {
-    if (quest.state === 'offered') out.push({ label: `New quest: ${quest.title}`, icon: 'scroll', badge: 'quest', run: () => questOffer(c, quest) });
+    if (quest.state === 'offered') out.push({ label: `${quest.chain === 'contract' ? 'New contract' : 'New quest'}: ${quest.title}`, icon: 'scroll', badge: 'quest', run: () => questOffer(c, quest) });
     else if (quest.state === 'active') out.push({ label: `How is “${quest.title}” going?`, icon: 'scroll', run: () => questProgress(c, quest) });
   }
   return out;
@@ -117,7 +117,7 @@ function guideOptions(c: ConversationContext): DialogueOption[] {
       icon: 'compass',
       run: () => {
         const next = c.services.quests(null).find((quest) => quest.state === 'offered' || quest.state === 'ready' || quest.state === 'active');
-        if (next === undefined) return { text: 'You have walked the whole Explorer’s Path. Now the world is yours: try today’s commissions with the dispatcher, a course with the marshal, or ask the cartographer where nobody has been yet.', options: [back(c), goodbye(c)] };
+        if (next === undefined) return { text: 'You have done everything the guild has asked of you. Now the world is yours: try today’s commissions with the dispatcher, a course with the marshal, or ask the cartographer where nobody has been yet.', options: [back(c), goodbye(c)] };
         const who = ROLE_INFO[next.giver].title.toLowerCase();
         const doing = next.state === 'active' ? `You are on “${next.title}”.` : next.state === 'ready' ? `“${next.title}” is done: hand it in to the ${who}.` : `The ${who} has “${next.title}” for you.`;
         return { text: `${doing} Every quest is in your Field Guide ({journal}), with how far you have come.`, extra: questCard(next), options: [back(c), goodbye(c)] };

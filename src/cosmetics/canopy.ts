@@ -25,6 +25,9 @@ const PATTERNS: Readonly<Record<string, Pattern>> = {
   'canopy-night': { mirrored: [PALETTE.gold, PALETTE.violet, PALETTE.slate, PALETTE.violet, PALETTE.slate] },
   'canopy-rainbow': { across: [PALETTE.red, PALETTE.orange, PALETTE.gold, PALETTE.olive, PALETTE.green, PALETTE.skyBlue, PALETTE.slate, PALETTE.violet, PALETTE.pink] },
   'canopy-royal': { mirrored: [PALETTE.gold, PALETTE.crimson, PALETTE.gold, PALETTE.crimson, PALETTE.gold] },
+  'canopy-lifebuoy': { mirrored: [PALETTE.white, PALETTE.orange, PALETTE.white, PALETTE.orange, PALETTE.white] },
+  'canopy-podium': { mirrored: [PALETTE.gold, PALETTE.white, PALETTE.bone, PALETTE.white, PALETTE.clay] },
+  'canopy-tartan': { across: [PALETTE.crimson, PALETTE.darkOlive, PALETTE.gold, PALETTE.crimson, PALETTE.green, PALETTE.darkOlive] },
 };
 
 /** The pattern of a look's `canopy`: 0, or one this build has not got, is the sunset. */

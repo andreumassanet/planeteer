@@ -50,6 +50,7 @@ export async function createWorldGuild(app: App): Promise<void> {
     }) as ProgressRecords,
     scene: app.scene,
     hudRoot: app.hud.root,
+    blocksSight: (point) => app.settlements.blocksSight(point) || app.monuments.blocksSight(point),
     lockTarget: app.renderer.domElement,
     folk: app.folk,
     rigs: app.rigs,

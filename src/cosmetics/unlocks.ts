@@ -84,6 +84,21 @@ export const QUEST_NAMES: Readonly<Record<string, string>> = {
   'path-complete': "The Explorer's Path",
 };
 
+/** The guild contracts that give something to wear, as a condition says them, by id. */
+export const CONTRACT_NAMES: Readonly<Record<string, string>> = {
+  'long-way-round': 'The long way round',
+  'old-hand': 'Old hand',
+  'lifeguard-duty': 'Lifeguard duty',
+  'local-hero': 'Local hero',
+  'three-ways': 'Land, sea and air',
+  'golden-hour': 'Golden hour',
+  'best-dressed': 'Best dressed',
+  'style-icon': 'Style icon',
+  'living-record': 'Living record',
+  'lift-off': 'Lift-off',
+  'edge-of-the-map': 'Edge of the map',
+};
+
 /** The quest that closes the path, which a condition names as the path itself. */
 export const PATH_COMPLETE = 'path-complete';
 
@@ -96,7 +111,7 @@ export interface ConditionNames {
 }
 
 const milestoneName = (id: string, names?: ConditionNames): string => names?.milestone?.(id) ?? MILESTONE_NAMES[id] ?? id;
-const questName = (id: string, names?: ConditionNames): string => names?.quest?.(id) ?? QUEST_NAMES[id] ?? id;
+const questName = (id: string, names?: ConditionNames): string => names?.quest?.(id) ?? QUEST_NAMES[id] ?? CONTRACT_NAMES[id] ?? id;
 
 /** What to do to earn it, as a sentence: "Reach level 8", "Gold in Globetrotter". */
 export function unlockText(unlock: Unlock, names?: ConditionNames): string {
@@ -108,7 +123,8 @@ export function unlockText(unlock: Unlock, names?: ConditionNames): string {
     case 'milestone':
       return `${TIERS[unlock.tier]} in ${milestoneName(unlock.id, names)}`;
     case 'quest':
-      return unlock.id === PATH_COMPLETE ? "Finish The Explorer's Path" : `Finish the quest “${questName(unlock.id, names)}”`;
+      if (unlock.id === PATH_COMPLETE) return "Finish The Explorer's Path";
+      return `Finish the ${CONTRACT_NAMES[unlock.id] === undefined ? 'quest' : 'contract'} “${questName(unlock.id, names)}”`;
     case 'streak':
       return `A ${unlock.days}-day commission streak`;
   }
@@ -124,7 +140,7 @@ export function unlockBadge(unlock: Unlock, names?: ConditionNames): string {
     case 'milestone':
       return `${TIERS[unlock.tier]} · ${milestoneName(unlock.id, names)}`;
     case 'quest':
-      return 'Quest';
+      return CONTRACT_NAMES[unlock.id] === undefined ? 'Quest' : 'Contract';
     case 'streak':
       return `${unlock.days}-day streak`;
   }

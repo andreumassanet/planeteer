@@ -10,7 +10,8 @@
  *
  * The level ladder gives something every level or two up to 15 and is
  * rarer after, to 50; the milestones give one title each at silver and a few
- * things at gold; The Explorer's Path gives the Guild's own pieces.
+ * things at gold; The Explorer's Path gives the Guild's own pieces, and the
+ * guild contracts a title, a trail or a canopy every few.
  */
 import type { Unlock } from './unlocks.ts';
 
@@ -80,6 +81,9 @@ export const TRAILS = table('trail', [
   ['trail-embers', 'Embers', level(22)],
   ['trail-confetti', 'Confetti', level(35)],
   ['trail-rainbow', 'Rainbow ribbon', milestone('racer', 3)],
+  ['trail-dust', "Wayfarer's dust", quest('long-way-round')],
+  ['trail-slipstream', 'Slipstream', quest('three-ways')],
+  ['trail-stardust', 'Stardust', quest('lift-off')],
 ]);
 
 /** Under the name over the head (`titles.ts`). Append-only. */
@@ -110,6 +114,11 @@ export const TITLES = table('title', [
   ['title-pathfinder', 'Pathfinder', level(18)],
   ['title-devoted', 'Devoted', streak(30)],
   ['title-postcards', 'Postcarder', milestone('postcards', 2)],
+  ['title-oldhand', 'Old hand', quest('old-hand')],
+  ['title-localhero', 'Local hero', quest('local-hero')],
+  ['title-styleicon', 'Style icon', quest('style-icon')],
+  ['title-chronicler', 'Chronicler', quest('living-record')],
+  ['title-mapmaker', 'Mapmaker', quest('edge-of-the-map')],
 ]);
 
 /** Parachute canopies: colour pairs over the cells (`canopy.ts`); 0 is the gold-to-crimson one. Append-only. */
@@ -122,6 +131,9 @@ export const CANOPIES = table('canopy', [
   ['canopy-night', 'Night', level(28)],
   ['canopy-rainbow', 'Rainbow', level(33)],
   ['canopy-royal', 'Royal', level(45)],
+  ['canopy-lifebuoy', 'Lifebuoy', quest('lifeguard-duty')],
+  ['canopy-podium', 'Podium', quest('golden-hour')],
+  ['canopy-tartan', 'Tartan', quest('best-dressed')],
 ]);
 
 /** A companion that trots after the traveller (`companions.ts`). Append-only. */

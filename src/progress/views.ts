@@ -113,6 +113,8 @@ export function questApi(core: Core): QuestApi {
       if (next === null) return false;
       core.setQuests(next);
       core.tell({ t: 'quest-taken', id: id as QuestId });
+      // Standing objectives start where the traveller already stands, and say so if that is enough.
+      core.check();
       if (isReady(next, id)) core.tell({ t: 'quest-ready', id: id as QuestId });
       core.tell({ t: 'change' });
       return true;

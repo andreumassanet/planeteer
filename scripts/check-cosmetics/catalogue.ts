@@ -16,7 +16,8 @@ import { MODELLED } from '../../src/cosmetics/worn.ts';
 import { TRAILED } from '../../src/cosmetics/trails.ts';
 import { PATTERNED } from '../../src/cosmetics/canopy.ts';
 import { COMPANIONED } from '../../src/cosmetics/companions.ts';
-import { MILESTONE_NAMES, QUEST_NAMES } from '../../src/cosmetics/unlocks.ts';
+import { CONTRACT_NAMES, MILESTONE_NAMES, QUEST_NAMES } from '../../src/cosmetics/unlocks.ts';
+import { QUEST_IDS, questById } from '../../src/progress.ts';
 import { fail } from './setup.ts';
 
 /**
@@ -27,19 +28,30 @@ import { fail } from './setup.ts';
 const LEDGER: Readonly<Record<string, readonly string[]>> = {
   hat: ['hat-pith', 'hat-cap', 'hat-beanie', 'hat-bucket', 'hat-straw', 'hat-top', 'hat-beret', 'hat-flat', 'hat-captain', 'hat-pilot', 'hat-crown', 'hat-horned', 'hat-flowers', 'hat-headphones', 'hat-party', 'hat-guild'],
   back: ['back-pennant', 'back-guitar', 'back-surfboard', 'back-maptube', 'back-jetpack', 'back-wings', 'back-kite', 'back-satchel'],
-  trail: ['trail-sparkles', 'trail-petals', 'trail-bubbles', 'trail-embers', 'trail-confetti', 'trail-rainbow'],
+  trail: ['trail-sparkles', 'trail-petals', 'trail-bubbles', 'trail-embers', 'trail-confetti', 'trail-rainbow', 'trail-dust', 'trail-slipstream', 'trail-stardust'],
   title: [
     'title-newcomer', 'title-explorer', 'title-globetrotter', 'title-wanderer', 'title-sightseer', 'title-ace', 'title-courier', 'title-lifeguard', 'title-hiker',
     'title-roadtripper', 'title-aviator', 'title-oldsalt', 'title-deepdiver', 'title-collector', 'title-socialite', 'title-astronaut', 'title-voyager',
     'title-photographer', 'title-regular', 'title-seasoned', 'title-veteran', 'title-legend', 'title-committed', 'title-pathfinder', 'title-devoted', 'title-postcards',
+    'title-oldhand', 'title-localhero', 'title-styleicon', 'title-chronicler', 'title-mapmaker',
   ],
-  canopy: ['canopy-sky', 'canopy-lagoon', 'canopy-meadow', 'canopy-chequer', 'canopy-candy', 'canopy-night', 'canopy-rainbow', 'canopy-royal'],
+  canopy: ['canopy-sky', 'canopy-lagoon', 'canopy-meadow', 'canopy-chequer', 'canopy-candy', 'canopy-night', 'canopy-rainbow', 'canopy-royal', 'canopy-lifebuoy', 'canopy-podium', 'canopy-tartan'],
   pet: ['pet-dog'],
 };
 
 /** The milestones and quests the progression defines; an unlock may name no other. */
 const MILESTONES = ['globetrotter', 'wanderer', 'sightseer', 'racer', 'courier', 'rescuer', 'hiker', 'driver', 'aviator', 'sailor', 'diver', 'collector', 'socialite', 'astronaut', 'voyager', 'photographer', 'regular', 'postcards'];
-const QUESTS = ['welcome', 'first-steps', 'say-hello', 'take-the-wheel', 'odd-job', 'on-course', 'ring-bearer', 'new-look', 'stamped', 'far-horizons', 'path-complete'];
+const QUESTS = [
+  'welcome', 'first-steps', 'say-hello', 'take-the-wheel', 'odd-job', 'on-course', 'ring-bearer', 'new-look', 'stamped', 'far-horizons', 'path-complete',
+  'know-the-guild', 'guild-hopper', 'long-way-round', 'old-hand',
+  'regular-round', 'lifeguard-duty', 'gold-standard', 'good-name', 'local-hero',
+  'silver-lining', 'three-ways', 'ring-collector', 'golden-hour', 'podium-regular',
+  'dressing-up', 'rising-star', 'best-dressed', 'style-icon',
+  'something-to-show', 'ink-and-paper', 'familiar-face', 'living-record',
+  'postcards-home', 'lift-off', 'another-sky', 'edge-of-the-map',
+];
+/** The longest a title may be, to fit under a name. */
+const MAX_TITLE = 16;
 /** How many base-36 digits each slot has on the wire. */
 const DIGITS: Readonly<Record<string, number>> = { hat: 1, back: 1, trail: 1, title: 2, canopy: 1, pet: 1 };
 
@@ -77,9 +89,13 @@ console.log('\nthe catalogue:');
     if (u.kind === 'milestone' && !MILESTONES.includes(u.id)) fail(`${item.id} asks for a milestone '${u.id}' the progression has not got`);
     if (u.kind === 'milestone' && MILESTONE_NAMES[u.id] === undefined) fail(`${item.id}: milestone '${u.id}' has no name`);
     if (u.kind === 'quest' && !QUESTS.includes(u.id)) fail(`${item.id} asks for a quest '${u.id}' the path has not got`);
-    if (u.kind === 'quest' && QUEST_NAMES[u.id] === undefined) fail(`${item.id}: quest '${u.id}' has no name`);
+    if (u.kind === 'quest' && QUEST_NAMES[u.id] === undefined && CONTRACT_NAMES[u.id] === undefined) fail(`${item.id}: quest '${u.id}' has no name`);
+    if (u.kind === 'quest' && CONTRACT_NAMES[u.id] !== undefined && CONTRACT_NAMES[u.id] !== questById(u.id)?.title) fail(`${item.id}: contract '${u.id}' is named '${CONTRACT_NAMES[u.id]}', not its title`);
+    if (item.slot === 'title' && item.name.length > MAX_TITLE) fail(`${item.id}: the title '${item.name}' is ${item.name.length} characters`);
     if (u.kind === 'level' && !(Number.isInteger(u.level) && u.level >= 2 && u.level <= 50)) fail(`${item.id} at level ${u.level}`);
   }
+  // The progression's quests are the ones listed here, in its order.
+  if (QUEST_IDS.join() !== QUESTS.join()) fail(`the quests listed here are not the progression's: ${QUEST_IDS.join(', ')}`);
   // One title for each milestone, at silver.
   for (const id of MILESTONES) {
     if (!BY_SLOT.title.some((item) => item.unlock.kind === 'milestone' && item.unlock.id === id && item.unlock.tier === 2)) fail(`no title for silver in ${id}`);
@@ -134,6 +150,7 @@ console.log('\nwhat earns what:');
     ['title-explorer', "Finish The Explorer's Path"],
     ['title-committed', 'A 7-day commission streak'],
     ['hat-guild', 'Finish the quest “Welcome”'],
+    ['title-mapmaker', 'Finish the contract “Edge of the map”'],
   ];
   for (const [id, text] of expect) if (said(id) !== text) fail(`${id} says "${said(id)}", not "${text}"`);
   const named = conditionText(cosmeticById('hat-guild')!, { quest: (id) => (id === 'welcome' ? 'Welcome to the Guild' : undefined) });

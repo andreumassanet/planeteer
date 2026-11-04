@@ -26,7 +26,7 @@ import { NO_PROGRESS, earned, unlockBadge, unlockText, type ConditionNames, type
 
 export { BACKS, BY_SLOT, CANOPIES, COSMETICS, COSMETIC_SLOTS, HATS, PETS, TITLES, TRAILS, cosmeticAt, cosmeticById } from './cosmetics/catalogue.ts';
 export type { Cosmetic, CosmeticSlot } from './cosmetics/catalogue.ts';
-export { MILESTONE_NAMES, NO_PROGRESS, QUEST_NAMES, earned, unlockBadge, unlockText } from './cosmetics/unlocks.ts';
+export { CONTRACT_NAMES, MILESTONE_NAMES, NO_PROGRESS, QUEST_NAMES, earned, unlockBadge, unlockText } from './cosmetics/unlocks.ts';
 export type { ConditionNames, Unlock, UnlockSummary } from './cosmetics/unlocks.ts';
 export { titleOf } from './cosmetics/titles.ts';
 export { canopyCell } from './cosmetics/canopy.ts';

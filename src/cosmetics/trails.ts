@@ -1,6 +1,7 @@
 /**
  * What follows a traveller about: sparkles at the feet, petals, bubbles,
- * embers, confetti, a rainbow ribbon behind a vehicle (`TRAILS` in
+ * embers, confetti, a rainbow ribbon behind a vehicle, road dust, a
+ * slipstream ribbon, stardust (`TRAILS` in
  * `catalogue.ts`).
  *
  * One pool and one draw call for every traveller near: an instanced
@@ -76,6 +77,18 @@ export const TRAIL_KINDS: Readonly<Record<string, TrailKind>> = {
   'trail-rainbow': {
     spacing: [0.7, 1.4], idle: 0, burst: 6, life: 1.0, size: [0.09, 0.2], stretch: [0.5, 1, 1],
     colours: [PALETTE.red, PALETTE.orange, PALETTE.gold, PALETTE.green, PALETTE.skyBlue, PALETTE.violet], glow: 0.35, rise: 0, scatter: 0, gravity: 0, drag: 0, spin: 0, spread: 0, ribbon: true,
+  },
+  'trail-dust': {
+    spacing: [0.7, 1.8], idle: 0, burst: 2, life: 1.3, size: [0.12, 0.26], stretch: [1, 0.6, 1],
+    colours: [PALETTE.sand, PALETTE.tan, PALETTE.bone, PALETTE.brown], glow: 0, rise: 0.4, scatter: 0.9, gravity: 0.25, drag: 2.2, spin: 1, spread: 0.55,
+  },
+  'trail-slipstream': {
+    spacing: [0.7, 1.4], idle: 0, burst: 3, life: 0.8, size: [0.07, 0.15], stretch: [0.5, 1, 1],
+    colours: [PALETTE.white, PALETTE.skyBlue, PALETTE.cream], glow: 0.3, rise: 0, scatter: 0, gravity: 0, drag: 0, spin: 0, spread: 0, ribbon: true,
+  },
+  'trail-stardust': {
+    spacing: [0.8, 2.2], idle: 2, burst: 1, life: 1.5, size: [0.06, 0.14], stretch: [0.6, 1.4, 0.6],
+    colours: [PALETTE.violet, PALETTE.white, PALETTE.skyBlue, PALETTE.pink], glow: 0.85, rise: 0.6, scatter: 0.5, gravity: -0.2, drag: 1.2, spin: 6, spread: 0.5,
   },
 };
 

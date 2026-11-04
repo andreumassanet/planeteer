@@ -70,6 +70,8 @@ export interface GuildOptions {
   /** The noticeboard and the Hall of Fame, read with `E`. */
   readBoard(kind: 'jobs' | 'fame', square: number): void;
   parent: HTMLElement;
+  /** Whether something solid stands at a point: a name plate it hides is not drawn. */
+  blocksSight?(point: THREE.Vector3): boolean;
   dialogue?: DialogueOptions;
 }
 
@@ -203,7 +205,7 @@ export function createGuild(options: GuildOptions): Guild {
         tagList.push({ role: person.role, name: services.nameOf(person.key), crown: person.crown });
       }
       marks.update(frame.now, wantedMarks, frame.camera.position);
-      tags.update(tagList, frame.camera, frame.width, frame.height, speaking === null ? null : services.nameOf(speaking));
+      tags.update(tagList, frame.camera, frame.width, frame.height, speaking === null ? null : services.nameOf(speaking), options.blocksSight);
       offer = frame.afoot && !dialogue.open ? nearestOffer(frame.position) : null;
       dialogue.update();
       stats.squares = people.stats.squares;

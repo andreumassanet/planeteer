@@ -3,9 +3,9 @@
  * associative and loses nothing; a hostile or damaged record reads as what
  * it can vouch for, inside every cap; the level only grows with XP and a
  * newcomer's first hour and a dedicated traveller's weeks land where they
- * should; every milestone's tiers; the whole Explorer's Path walked by
- * events; the day's commissions the same for everybody, never two of a
- * kind, inside their minutes; the day's turn and the streaks; the summary
+ * should; every milestone's tiers; the whole Explorer's Path and every
+ * guild contract walked by events the game emits; the day's commissions
+ * the same for everybody, never two of a kind, inside their minutes; the day's turn and the streaks; the summary
  * and the scores of a fixture; and a profile carrying a career through the
  * account's round trip.
  *
@@ -20,9 +20,10 @@ import type { JobRecord } from '../src/jobs/store.ts';
 import { pointsFor } from '../src/jobs/score.ts';
 import type { PassportData, Stamp } from '../src/passport.ts';
 import type { RingRecord } from '../src/rings/store.ts';
+import { GUILD_ROLES } from '../src/guild/roles.ts';
 import {
   ACHIEVEMENTS, ACHIEVEMENT_IDS, CAREER_KEY, DAILY_BONUS, DAILY_COUNT, DAY_MINUTES, DAY_MS, LEVEL_XP, MAX_COUNTS,
-  MAX_DAYS, MAX_HISTORY, MAX_QUESTS, MAX_SETS, MAX_SET_ITEMS, MOVE_MODES, QUESTS, QUEST_IDS, SCORE_KEYS, TEMPLATES,
+  CONTRACTS, MAX_DAYS, MAX_HISTORY, MAX_QUESTS, MAX_SETS, MAX_SET_ITEMS, MOVE_MODES, PATH, PATH_IDS, QUESTS, QUEST_IDS, SCORE_KEYS, TEMPLATES,
   TIER_XP, achievementsOf, applyEvent, careerDocument, careerOf, careerSignature, commissionsOf, createProgress,
   emptyCareer, levelInfo, mergeCareers, parseCareer, questById, scoresOf, serialiseCareer, summaryOf, tierOf,
   xpForLevel,
@@ -395,18 +396,167 @@ test('the Explorer\'s Path, walked by events from the first word to the last', (
   walk('new-look', [{ t: 'look' }]);
   walk('stamped', [{ t: 'town', key: 'a' }, { t: 'stamp', iso: 'FRA' }, { t: 'town', key: 'b' }]);
   walk('far-horizons', [{ t: 'map' }, { t: 'destination', landmark: 'x' }, { t: 'arrive', landmark: 'x' }]);
-  assert.deepEqual(q.available().map((x) => x.id), ['path-complete'], 'the last waits for all the rest');
+  assert.deepEqual(q.available().filter((x) => x.contract !== true).map((x) => x.id), ['path-complete'], 'the last waits for all the rest');
   assert.equal(q.marker('guide'), 'offer');
   assert.ok(q.accept('path-complete'));
   assert.ok(q.ready().some((x) => x.id === 'path-complete'), 'and asks nothing more');
   assert.equal(q.turnIn('path-complete')!.xp, 500);
-  assert.equal(progress.summary().quests.size, QUESTS.length);
-  assert.equal(progress.summary().xpParts.quests, QUESTS.reduce((n, x) => n + x.xp, 0));
-  for (const role of ['guide', 'dispatcher', 'marshal', 'outfitter', 'archivist', 'cartographer'] as const) assert.equal(q.marker(role), null);
+  assert.equal(progress.summary().quests.size, PATH.length);
+  assert.equal(progress.summary().xpParts.quests, PATH.reduce((n, x) => n + x.xp, 0));
+  for (const role of GUILD_ROLES) assert.equal(q.marker(role), 'offer', `${role} has a contract once the path is walked`);
   // Written as it went, and read back whole.
   const again = createProgress({ records: () => records(1, 0, 0, [], []), storage: store, now: () => at(DAY), writeDelayMs: 0 });
-  assert.equal(again.summary().quests.size, QUESTS.length);
+  assert.equal(again.summary().quests.size, PATH.length);
   assert.ok(again.known('guide') && again.known('marshal') === false);
+});
+
+/**
+ * Every event type the game emits, by where: `progress/traveller.ts` reads
+ * the moves, jumps, boardings, canopies, the map, benches, towns, the bests
+ * and rockets off the traveller; the rest are emitted where they happen.
+ */
+const EMITTED: ReadonlySet<ProgressEvent['t']> = new Set<ProgressEvent['t']>([
+  'move', 'jump', 'board', 'parachute', 'map', 'sit', 'town', 'depth', 'altitude', 'speed', 'rocket', // progress/traveller.ts
+  'talk', 'ring', 'course', 'job', 'stamp', 'visit', 'world', 'photo', 'postcard', 'emote', 'honk', 'chat', // app/, worlds/shell/, chat/
+  'guild', 'npc', 'topic', 'destination', 'look', 'arrive', // explorers/services.ts, app/world-map.ts, app/front-door.ts
+]);
+
+test('the guild contracts: every role\'s chain, its order, and every contract walked by events', () => {
+  // The chains' shape.
+  assert.equal(QUESTS.length, PATH.length + CONTRACTS.length);
+  assert.ok(QUESTS.length <= MAX_QUESTS, 'every quest fits the record');
+  assert.ok(CONTRACTS.length >= 20 && CONTRACTS.length <= 32, `${CONTRACTS.length} contracts`);
+  assert.equal(new Set(QUEST_IDS).size, QUEST_IDS.length, 'every id once');
+  assert.equal(new Set(QUESTS.map((x) => x.title)).size, QUESTS.length, 'every title once');
+  for (const id of QUEST_IDS) assert.match(id, /^[a-z][a-z0-9-]{0,31}$/, `${id} is a key the merge keeps`);
+  for (const role of GUILD_ROLES) {
+    const mine = CONTRACTS.filter((x) => x.giver === role);
+    assert.ok(mine.length >= 4 && mine.length <= 5, `${role} has ${mine.length} contracts`);
+    const opens = mine[0]!.after;
+    assert.equal(opens.length, 1);
+    assert.ok((PATH_IDS as readonly string[]).includes(opens[0]!), `${role}'s chain opens off the path`);
+    mine.forEach((x, i) => {
+      assert.equal(x.contract, true);
+      if (i > 0) {
+        assert.deepEqual(x.after, [mine[i - 1]!.id], `${x.id} follows the one before it`);
+        assert.ok(x.xp > mine[i - 1]!.xp, `${x.id} pays more than the one before it`);
+      }
+      assert.ok(x.objectives.length >= 1 && x.offer.length > 0 && x.thanks.length > 0 && x.brief.length > 0);
+      for (const o of x.objectives) assert.ok(o.target >= 1 && Number.isInteger(o.target), `${x.id}: ${o.label}`);
+    });
+  }
+
+  // A traveller who has walked the path, with records the check moves.
+  const held = { stamps: 1, towns: 2, landmarks: 1, medals: [1] as number[], jobs: [['e', 1]] as [string, number][] };
+  const recordsNow = () => records(held.stamps, held.towns, held.landmarks, held.medals, held.jobs);
+  const { progress, notices, send, set } = traveller(DAY, memory(), recordsNow);
+  const q = progress.quests;
+  const walked = emptyCareer();
+  walked.quests.done = new Set(PATH_IDS);
+  progress.absorb(walked);
+  const tallyNow = () => summaryOf({ ...recordsNow(), career: progress.career }).tally;
+  const medalsNow = () => summaryOf({ ...recordsNow(), career: progress.career }).milestones.reduce((n, m) => n + m.tier, 0);
+  const many = (n: number, event: (i: number) => ProgressEvent): ProgressEvent[] => Array.from({ length: n }, (_, i) => event(i));
+  const job = (kind: 'errand' | 'taxi' | 'cargo' | 'rescue', medal = 1, site?: 'sea' | 'hill'): ProgressEvent => ({ t: 'job', kind, medal, points: 6, iso: 'ESP', ...(site === undefined ? {} : { site }) });
+  const counts = progress.career.stats.counts;
+
+  /** Per contract: the events that finish it (the last one finishing it) and what moves where the traveller stands. */
+  const scripts: Record<string, { events: ProgressEvent[]; stand?: () => void }> = {
+    'know-the-guild': { events: [...many(6, (i) => ({ t: 'topic', id: `t${i}` })), { t: 'sit' }, { t: 'postcard', landmark: 'eiffel-tower' }] },
+    'guild-hopper': { events: [...many(3, (i) => ({ t: 'guild', place: `G${i}` })), { t: 'emote', e: 'wave' }, { t: 'emote', e: 'dance' }, { t: 'emote', e: 'cheer' }, ...many(5, (i) => ({ t: 'talk', key: `k${i}` }))] },
+    'long-way-round': { events: [...many(3, () => ({ t: 'stamp', iso: 'FRA' })), ...many(10, () => ({ t: 'move', mode: 'walk', metres: 1000 }))] },
+    'old-hand': { events: [...many(3, (i) => ({ t: 'guild', place: `G${i + 3}` })), ...many(14, (i) => ({ t: 'topic', id: `t${i + 6}` }))] },
+    'regular-round': { events: [job('errand'), job('taxi'), job('cargo')] },
+    'lifeguard-duty': { events: [job('rescue', 1, 'hill'), job('errand'), job('rescue', 1, 'sea')] },
+    'gold-standard': { events: [...many(4, () => job('errand')), job('taxi', 3)] },
+    'good-name': {
+      events: many(10, () => job('errand')),
+      stand: () => {
+        while (tallyNow().reputation < 200) held.jobs.push(['e', 1]);
+      },
+    },
+    'local-hero': {
+      events: [job('rescue'), job('errand', 3), job('errand', 3), job('rescue', 3)],
+      stand: () => {
+        while (tallyNow().reputation < 500) held.jobs.push(['r', 3]);
+      },
+    },
+    'silver-lining': { events: [{ t: 'course', id: 'a:x', kind: 'air', medal: 1, ms: 9 }, { t: 'course', id: 'a:x', kind: 'air', medal: 2, ms: 8 }] },
+    'three-ways': { events: (['air', 'land', 'sea'] as const).map((kind) => ({ t: 'course', id: `${kind}:x`, kind, medal: 1, ms: 9 })) },
+    'ring-collector': { events: [], stand: () => void (held.landmarks = 10) },
+    'golden-hour': { events: [{ t: 'course', id: 'a:x', kind: 'air', medal: 3, ms: 1 }, { t: 'course', id: 'l:x', kind: 'land', medal: 2, ms: 1 }, { t: 'course', id: 'l:x', kind: 'land', medal: 3, ms: 1 }, { t: 'course', id: 's:x', kind: 'sea', medal: 3, ms: 1 }] },
+    'podium-regular': { events: [], stand: () => Object.assign(held, { medals: Array(10).fill(3), landmarks: 30 }) },
+    'dressing-up': { events: many(3, () => ({ t: 'look' })) },
+    'rising-star': { events: many(3, () => ({ t: 'photo' })) },
+    'best-dressed': { events: [{ t: 'look' }, { t: 'postcard', landmark: 'big-ben' }] },
+    'style-icon': { events: [{ t: 'look' }], stand: () => void (held.towns = 3000) },
+    'something-to-show': { events: [] },
+    'ink-and-paper': { events: [...many(3, () => ({ t: 'stamp', iso: 'ITA' })), ...many(5, (i) => ({ t: 'town', key: `n${i}` }))] },
+    'familiar-face': {
+      events: [],
+      stand: () => {
+        for (let d = 1; d <= 5; d++) {
+          set(at(DAY + d));
+          progress.emit({ t: 'jump' });
+        }
+      },
+    },
+    'living-record': {
+      events: [],
+      stand: () => {
+        held.stamps = 15;
+        for (const [key, value] of [['walk', 250_000], ['drive', 1e6], ['fly', 4e7], ['sail', 500_000], ['depth', 80]] as const) counts.set(key, value);
+        assert.ok(medalsNow() >= 25, `${medalsNow()} medals`);
+      },
+    },
+    'postcards-home': { events: [{ t: 'arrive', landmark: 'x' }, ...many(3, (i) => ({ t: 'postcard', landmark: `p${i}` })), { t: 'arrive', landmark: 'y' }] },
+    'lift-off': { events: [{ t: 'rocket' }] },
+    'another-sky': { events: [{ t: 'world', id: 'earth' }, { t: 'world', id: 'mars' }] },
+    'edge-of-the-map': {
+      events: [...many(5, () => ({ t: 'arrive', landmark: 'z' })), ...many(10, (i) => ({ t: 'postcard', landmark: `q${i}` })), ...many(20, () => ({ t: 'move', mode: 'sail', metres: 1000 })), ...many(10, () => ({ t: 'move', mode: 'fly', metres: 50_000 }))],
+    },
+  };
+  assert.deepEqual(Object.keys(scripts).sort(), CONTRACTS.map((x) => x.id).sort(), 'every contract has a script');
+
+  for (const contract of CONTRACTS) {
+    const id = contract.id;
+    const script = scripts[id]!;
+    const status = () => q.list().find((e) => e.quest.id === id)!.status;
+    for (const event of script.events) assert.ok(EMITTED.has(event.t), `${id}: the game emits no '${event.t}'`);
+    // Every counted objective is moved by an event the game emits.
+    for (const objective of contract.objectives) {
+      if (objective.reach !== undefined) continue;
+      assert.ok(script.events.some((event) => objective.amount(event) > 0), `${id}: nothing emitted counts for “${objective.label}”`);
+    }
+    assert.equal(status(), 'offered', `${id} is on offer once the one before it is handed in`);
+    const next = CONTRACTS.find((x) => x.after.includes(id));
+    if (next !== undefined) assert.equal(q.list().find((e) => e.quest.id === next.id)!.status, 'locked', `${next.id} waits for ${id}`);
+    assert.equal(q.marker(contract.giver) === 'offer' || q.marker(contract.giver) === 'ready', true, `${contract.giver} shows a mark`);
+    assert.ok(q.accept(id), `${id} is taken`);
+    script.stand?.();
+    progress.refresh();
+    if (script.events.length > 0) {
+      send(script.events.slice(0, -1));
+      assert.notEqual(status(), 'ready', `${id}: not ready one event short`);
+      send(script.events.slice(-1));
+    }
+    assert.equal(status(), 'ready', `${id} is ready`);
+    assert.ok(notices.some((n) => n.t === 'quest-ready' && n.id === id), `${id} said it was ready`);
+    const before = progress.summary().quests.size;
+    assert.equal(q.turnIn(id)!.xp, contract.xp);
+    assert.equal(progress.summary().quests.size, before + 1);
+    assert.ok(q.list().find((e) => e.quest.id === id)!.objectives.every((o) => o.done === o.count));
+  }
+  assert.equal(progress.summary().quests.size, QUESTS.length, 'every quest handed in');
+  for (const role of GUILD_ROLES) assert.equal(q.marker(role), null, `${role} has nothing left`);
+
+  // A standing objective is kept as progress, so the merge's laws hold for it, and never goes down.
+  const taken = emptyCareer();
+  taken.quests.done = new Set(PATH_IDS);
+  const fresh = traveller(DAY, memory(), () => records(0, 0, 0, [], []));
+  fresh.progress.absorb(taken);
+  assert.ok(fresh.progress.quests.accept('something-to-show'));
+  assert.deepEqual(fresh.progress.career.quests.active.get('something-to-show'), [0]);
 });
 
 test('the day turns, the commissions follow it, and the streaks count', () => {

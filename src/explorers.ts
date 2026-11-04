@@ -109,6 +109,7 @@ export async function createExplorers(host: ExplorersHost): Promise<Explorers> {
       if (!guild.talkTo('dispatcher', square)) host.jobs?.cycle();
     },
     parent: host.hudRoot,
+    ...(host.blocksSight === undefined ? {} : { blocksSight: host.blocksSight }),
     dialogue: { voice: () => host.sound(), lockTarget: host.lockTarget, cue: (name) => host.cue(name) },
   });
   host.scene.add(guild.group);

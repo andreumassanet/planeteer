@@ -77,6 +77,8 @@ export interface ExplorersHost {
   scene: THREE.Scene;
   /** Where the banner and the guild's name tags go. */
   hudRoot: HTMLElement;
+  /** Whether something solid stands at a point, for the name plates: a plate behind a building is not drawn. */
+  blocksSight?(point: THREE.Vector3): boolean;
   lockTarget: HTMLElement;
   folk: Folk;
   rigs: RigSource;

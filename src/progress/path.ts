@@ -10,14 +10,29 @@
  * - `first-steps` opens `say-hello` and `take-the-wheel`; a vehicle opens
  *   the Marshal's `on-course`, and that opens `ring-bearer`.
  * - `path-complete` waits for all the rest and has nothing left to do.
+ *
+ * After it each role has a chain of guild contracts (`contracts.ts`), and
+ * `QUESTS` is the path and then the contracts.
  */
 import type { GuildRole } from '../guild/roles.ts';
-import type { MoveMode, ProgressEvent } from './events.ts';
-import { MAX_STEP_METRES } from './stats.ts';
+import { CONTRACTS } from './contracts.ts';
+import type { ContractId } from './contracts.ts';
+import type { ProgressEvent } from './events.ts';
+import { each, metres } from './objectives.ts';
+import type { Stats } from './stats.ts';
+import type { Summary } from './summary.ts';
 
-export type QuestId =
+export type PathId =
   | 'welcome' | 'first-steps' | 'say-hello' | 'take-the-wheel' | 'odd-job' | 'on-course' | 'ring-bearer'
   | 'new-look' | 'stamped' | 'far-horizons' | 'path-complete';
+
+export type QuestId = PathId | ContractId;
+
+/** Where the traveller stands, as an objective that reads it sees it. */
+export interface Standing {
+  summary: Summary;
+  stats: Stats;
+}
 
 export interface Objective {
   /** "Run 200 m". */
@@ -26,6 +41,8 @@ export interface Objective {
   target: number;
   /** How much one event counts towards it: metres, or one. */
   amount(event: ProgressEvent): number;
+  /** Where the traveller stands towards it, for an objective met by a standing rather than by events. */
+  reach?(at: Standing): number;
 }
 
 export interface Quest {
@@ -45,23 +62,16 @@ export interface Quest {
   level?: number;
   /** Taken from the start, without being offered. */
   auto?: boolean;
+  /** A guild contract, not a step of the path. */
+  contract?: boolean;
 }
 
-/** One for each event of type `t` that passes `test`. */
-function each<T extends ProgressEvent['t']>(t: T, test?: (event: Extract<ProgressEvent, { t: T }>) => boolean): (event: ProgressEvent) => number {
-  return (event) => (event.t === t && (test === undefined || test(event as Extract<ProgressEvent, { t: T }>)) ? 1 : 0);
-}
-
-/** The metres of a move in any of `modes`. */
-function metres(...modes: MoveMode[]): (event: ProgressEvent) => number {
-  return (event) => (event.t === 'move' && modes.includes(event.mode) && event.metres > 0 && Number.isFinite(event.metres) ? Math.min(MAX_STEP_METRES, event.metres) : 0);
-}
-
-const BEFORE_PATH: readonly QuestId[] = [
+const BEFORE_PATH: readonly PathId[] = [
   'welcome', 'first-steps', 'say-hello', 'take-the-wheel', 'odd-job', 'on-course', 'ring-bearer', 'new-look', 'stamped', 'far-horizons',
 ];
 
-export const QUESTS: readonly Quest[] = [
+/** The Explorer's Path, in the order it opens. */
+export const PATH: readonly Quest[] = [
   {
     id: 'welcome',
     giver: 'guide',
@@ -201,6 +211,11 @@ export const QUESTS: readonly Quest[] = [
     xp: 500,
   },
 ];
+
+/** The path, then every role's contracts. */
+export const QUESTS: readonly Quest[] = [...PATH, ...CONTRACTS];
+
+export const PATH_IDS: readonly PathId[] = PATH.map((q) => q.id as PathId);
 
 export const QUEST_IDS: readonly QuestId[] = QUESTS.map((q) => q.id);
 

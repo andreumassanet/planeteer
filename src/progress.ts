@@ -6,7 +6,7 @@
  * - `progress/events.ts`: what the game emits.
  * - `progress/stats.ts`: the counters, maxima, sets and days, and their merge.
  * - `progress/achievements.ts`: the seventeen milestones and their tiers.
- * - `progress/path.ts`, `progress/quests.ts`: the quests, and where a traveller stands on them.
+ * - `progress/path.ts`, `progress/contracts.ts`, `progress/quests.ts`: the path, the guild contracts, and where a traveller stands on them.
  * - `progress/commissions.ts`, `progress/daily.ts`: the day's three commissions and the streaks.
  * - `progress/xp.ts`: the one definition of XP and the level.
  * - `progress/summary.ts`: everything in one value, and the leaderboard's scores.
@@ -28,12 +28,14 @@ export type { Achievement, AchievementId, MilestoneState } from './progress/achi
 export {
   ACHIEVEMENTS, ACHIEVEMENT_IDS, TIER_NAMES, TIER_XP, achievementById, achievementsOf, milestoneXp, tierOf,
 } from './progress/achievements.ts';
-export type { Objective, Quest, QuestId } from './progress/path.ts';
-export { QUESTS, QUEST_IDS, questById } from './progress/path.ts';
+export type { Objective, PathId, Quest, QuestId, Standing } from './progress/path.ts';
+export { PATH, PATH_IDS, QUESTS, QUEST_IDS, questById } from './progress/path.ts';
+export type { ContractId } from './progress/contracts.ts';
+export { CONTRACTS } from './progress/contracts.ts';
 export type { QuestState, QuestStatus, QuestsDocument } from './progress/quests.ts';
 export {
   MAX_QUESTS, accept, advance, emptyQuests, isReady, mergeQuests, offerable, questXp, questsDocument, questsOf,
-  statusOf, turnIn, withAuto,
+  settle, statusOf, turnIn, withAuto,
 } from './progress/quests.ts';
 export type { CommissionKind, Template } from './progress/commissions.ts';
 export { DAILY_BONUS, TEMPLATES, XP_PER_MINUTE, distance, templateById } from './progress/commissions.ts';

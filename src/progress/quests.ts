@@ -14,7 +14,7 @@ import type { GuildRole } from '../guild/roles.ts';
 import type { ProgressEvent } from './events.ts';
 import { CELL_CAP, KEY, byCode, cellMax, cells, floored, objectOf, smallest, strings } from './lenient.ts';
 import { QUESTS, questById } from './path.ts';
-import type { Quest, QuestId } from './path.ts';
+import type { Quest, QuestId, Standing } from './path.ts';
 
 export interface QuestState {
   done: Set<string>;
@@ -101,6 +101,35 @@ export function advance(state: QuestState, event: ProgressEvent): { state: Quest
     if (!wasReady && isReady(next, id)) ready.push(quest.id);
   }
   return { state: next ?? base, ready };
+}
+
+/**
+ * Moves the taken quests' standing objectives up to where the traveller
+ * stands (never down): the new state, and the quests it made ready.
+ */
+export function settle(state: QuestState, at: Standing): { state: QuestState; ready: QuestId[] } {
+  let next: QuestState | null = null;
+  const ready: QuestId[] = [];
+  for (const [id, progress] of state.active) {
+    const quest = questById(id);
+    if (quest === undefined) continue;
+    let after: number[] | null = null;
+    quest.objectives.forEach((objective, i) => {
+      if (objective.reach === undefined) return;
+      const have = progress[i] ?? 0;
+      if (have >= objective.target) return;
+      const now = Math.min(objective.target, Math.floor(objective.reach(at)));
+      if (!(now > have)) return;
+      after ??= quest.objectives.map((_, j) => progress[j] ?? 0);
+      after[i] = now;
+    });
+    if (after === null) continue;
+    const wasReady = isReady(state, id);
+    next ??= copy(state);
+    next.active.set(id, after);
+    if (!wasReady && isReady(next, id)) ready.push(quest.id);
+  }
+  return { state: next ?? state, ready };
 }
 
 /** Hands a ready quest in: the new state and the XP it gives, or null when it is not ready. */

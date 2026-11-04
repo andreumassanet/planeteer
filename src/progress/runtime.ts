@@ -23,7 +23,8 @@ import { DAILY_BONUS } from './commissions.ts';
 import { advanceDaily, dayOf, rollDaily, streakOf } from './daily.ts';
 import { FREQUENT } from './events.ts';
 import type { ProgressEvent } from './events.ts';
-import { advance, withAuto } from './quests.ts';
+import type { QuestId } from './path.ts';
+import { advance, settle, withAuto } from './quests.ts';
 import { applyEvent, bump, hasIn } from './stats.ts';
 import { deviceCareerStore, emptyCareer, mergeCareers, readCareer, writeCareer } from './store.ts';
 import type { CareerRecord, CareerStorage } from './store.ts';
@@ -140,12 +141,24 @@ export function createProgress(options: ProgressOptions): Progress {
   const compute = (): Summary => summaryOf({ ...records(), career: record }, dayOf(now()));
   let last = compute();
   let checkedAt = now();
+  settled();
+
+  /** The standing objectives brought up to the summary; the quests that made ready. */
+  function settled(): readonly QuestId[] {
+    const moved = settle(record.quests, { summary: last, stats: record.stats });
+    if (moved.state === record.quests) return [];
+    record.quests = moved.state;
+    save();
+    return moved.ready;
+  }
 
   function check(quiet = false): Summary {
     const previous = last;
     last = compute();
     checkedAt = now();
+    const ready = settled();
     if (quiet) return last;
+    for (const id of ready) tell({ t: 'quest-ready', id });
     if (last.level > previous.level) tell({ t: 'level', level: last.level, previous: previous.level });
     for (const m of last.milestones) {
       if (m.tier > (previous.achievements.get(m.id) ?? 0)) tell({ t: 'milestone', id: m.id, tier: m.tier, title: m.title });
