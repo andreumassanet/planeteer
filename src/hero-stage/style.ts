@@ -76,6 +76,9 @@ export const STYLE = `
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
+.hs-names { display: flex; flex-direction: column; min-width: 0; line-height: 1.1; }
+.hs-title { font-size: 10.5px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ui-gold); }
+.hs-title[hidden] { display: none; }
 .hs-name { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; }
 .hs-name.empty { opacity: 0.45; }
 .hs-plate input {

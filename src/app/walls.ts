@@ -88,7 +88,8 @@ export function createWalls(app: App): Walls {
       const folkHit = townsfolk.collide(point, radius, push);
       if (folkHit) townsfolk.startle(point, false);
       const walkerHit = life.collide(point, radius, personRadius, push);
-      return hit || folkHit || walkerHit;
+      const guildHit = app.guild?.people.collide(point, radius, push) ?? false;
+      return hit || folkHit || walkerHit || guildHit;
     },
 
     collideAloft: (point, radius, push) => {

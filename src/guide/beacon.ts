@@ -19,6 +19,8 @@ export interface Beacon {
   readonly mesh: THREE.Mesh;
   /** Stands it on `anchor` (a point on the ground) or puts it away. */
   place(anchor: THREE.Vector3 | null, eye: THREE.Vector3, time: number): void;
+  /** The colour it is drawn in. */
+  tint(color: THREE.ColorRepresentation): void;
   dispose(): void;
 }
 
@@ -87,6 +89,9 @@ export function createBeacon(color: THREE.ColorRepresentation): Beacon {
       mesh.scale.set(radius, Math.max(BEACON_HEIGHT, distance * RAISE), radius);
       material.uniforms.uTime!.value = time;
       mesh.visible = true;
+    },
+    tint(color) {
+      (material.uniforms.uColor!.value as THREE.Color).set(color);
     },
     dispose() {
       geometry.dispose();

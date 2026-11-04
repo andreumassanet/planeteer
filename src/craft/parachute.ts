@@ -1,7 +1,8 @@
 /**
  * The parachute a body opens after jumping out of an aircraft in flight
- * (`player.ts`): a ram-air canopy over the head, its cells a gradient from a
- * gold centre to crimson tips, on fans of lines to the two hands.
+ * (`player.ts`): a ram-air canopy over the head, its cells in the canopy the
+ * traveller wears (`cosmetics/canopy.ts`; everyone starts with a gradient
+ * from a gold centre to crimson tips), on fans of lines to the two hands.
  *
  * Each cell is a closed shell through three ribs that stand on radii of the
  * arc the span is bent round, so neighbours share a rib exactly; the section is
@@ -19,9 +20,10 @@
  * +Z the way the body faces, and its chord runs along it.
  */
 import * as THREE from 'three';
+import { canopyCell } from '../cosmetics/canopy.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { PALETTE } from '../theme.ts';
-import { assemble, craftContext, signedVolume, soupOf } from './build.ts';
+import { assemble, craftContext, geometryOf, signedVolume, soupOf, type Soup } from './build.ts';
 
 const H = AVATAR_HEIGHT;
 /**
@@ -52,8 +54,6 @@ const PILLOW = 1.18;
 const LINE = 0.014 * H;
 /** Where along the chord the lines meet the canopy's underside, fore to aft, as shares of the chord. */
 const LINE_ROWS = [0.32, 0.02, -0.3] as const;
-/** Centre to tip: gold, apricot, orange, red, crimson. */
-const COLOURS = [PALETTE.gold, PALETTE.apricot, PALETTE.orange, PALETTE.red, PALETTE.crimson] as const;
 
 /**
  * The section, nose at +t: (along the chord, over the arc) in shares of the
@@ -133,20 +133,12 @@ function cell(a: number, b: number, color: number): THREE.Mesh {
   return new THREE.Mesh(geometry, craftContext().toon(color));
 }
 
-/**
- * A fresh canopy, with its lines, in the player's frame: a holder at the
- * grip's height with the canopy hung under it in its place, so that
- * `openCanopy` opens and swings it about the hands.
- */
-export function buildParachute(): THREE.Group {
+/** The canopy's cells in `canopy`'s colours and the lines under them, as one soup. */
+function shellSoup(canopy: number): Soup {
   const ctx = craftContext();
   const draft = new THREE.Group();
-  const half = Math.floor(CELLS / 2);
   const step = (2 * SPAN) / CELLS;
-  for (let i = 0; i < CELLS; i++) {
-    const colour = COLOURS[Math.min(COLOURS.length - 1, Math.abs(i - half))]!;
-    draft.add(cell(-SPAN + i * step, -SPAN + (i + 1) * step, colour));
-  }
+  for (let i = 0; i < CELLS; i++) draft.add(cell(-SPAN + i * step, -SPAN + (i + 1) * step, canopyCell(canopy, i, CELLS)));
   // The lines: from every rib's underside, three rows along the chord, to the
   // hand on its side.
   const under = new THREE.Vector3();
@@ -160,7 +152,28 @@ export function buildParachute(): THREE.Group {
       draft.add(ctx.strut((phi >= 0 ? left : right).clone(), under.clone(), LINE, PALETTE.ink));
     }
   }
-  const shell = assemble('parachute', [soupOf(draft)]);
+  const soup = soupOf(draft);
+  draft.traverse((object) => (object as THREE.Mesh).geometry?.dispose());
+  return soup;
+}
+
+/** The traveller's own canopies, which follow what they wear (`wearCanopy`). */
+const followers = new Set<WeakRef<THREE.Group>>();
+let worn = 0;
+
+/**
+ * A fresh canopy, with its lines, in the player's frame: a holder at the
+ * grip's height with the canopy hung under it in its place, so that
+ * `openCanopy` opens and swings it about the hands. In `canopy`'s colours,
+ * or, left out, in the traveller's own, and repainted when they change it.
+ */
+export function buildParachute(canopy?: number): THREE.Group {
+  const ctx = craftContext();
+  const pattern = canopy ?? worn;
+  const under = new THREE.Vector3();
+  const left = new THREE.Vector3(...CHUTE_GRIP);
+  const right = new THREE.Vector3(-CHUTE_GRIP[0], CHUTE_GRIP[1], CHUTE_GRIP[2]);
+  const shell = assemble('parachute', [shellSoup(pattern)]);
   // The steering lines, from each tip's trailing edge to its hand: what a
   // pull turns. Each its own mesh on a pivot at the canopy, laid down its -Y
   // and turned and stretched to wherever the hand has pulled it
@@ -185,7 +198,30 @@ export function buildParachute(): THREE.Group {
   holder.position.y = CHUTE_GRIP[1];
   shell.position.y = -CHUTE_GRIP[1];
   holder.add(shell);
+  holder.userData.canopy = pattern;
+  if (canopy === undefined) followers.add(new WeakRef(holder));
   return holder;
+}
+
+/** Repaints a canopy `buildParachute` made in `canopy`'s colours. Its geometry is its own. */
+export function paintCanopy(parachute: THREE.Object3D, canopy: number): void {
+  if (parachute.userData.canopy === canopy) return;
+  const body = parachute.getObjectByName('body') as THREE.Mesh | undefined;
+  if (body === undefined) return;
+  const old = body.geometry;
+  body.geometry = geometryOf([shellSoup(canopy)]);
+  old.dispose();
+  parachute.userData.canopy = canopy;
+}
+
+/** The canopy the traveller wears: every parachute built without colours of its own takes it. */
+export function wearCanopy(canopy: number): void {
+  worn = canopy;
+  for (const ref of followers) {
+    const parachute = ref.deref();
+    if (parachute === undefined) followers.delete(ref);
+    else paintCanopy(parachute, canopy);
+  }
 }
 
 /** A steering line: its pivot at the canopy, which side's hand it ends in, and its length at rest. */

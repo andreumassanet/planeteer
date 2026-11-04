@@ -50,6 +50,13 @@ export function createTownLamps(): TownLamps {
       return heads;
     }
     for (const lamp of town.lamps) push(lamp.x + Math.sin(lamp.yaw) * 1.15, site.floor + CARRIAGE_TOP + LAMP_HEIGHT - 0.5, lamp.z + Math.cos(lamp.yaw) * 1.15);
+    // The guild's square: its lamps reach in over it (Earth's lamp faces out), and its hall's door.
+    const guild = town.guild?.layout;
+    if (guild !== undefined) {
+      for (const lamp of guild.lamps) push(lamp.x - Math.sin(lamp.yaw) * 1.15, site.floor + LAMP_HEIGHT - 0.5, lamp.z - Math.cos(lamp.yaw) * 1.15);
+      const out1 = guild.hall.porch + 1;
+      push(guild.hall.x + Math.sin(guild.hall.yaw) * out1, site.floor + DOOR_LIGHT, guild.hall.z + Math.cos(guild.hall.yaw) * out1);
+    }
     for (const plot of town.plots) {
       if (plot.kind !== 'module' && plot.kind !== 'hub') continue;
       const deep = planOf(plot.form, plot.scale)[1];

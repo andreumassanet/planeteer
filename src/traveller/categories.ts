@@ -2,7 +2,7 @@
 import type { Slot } from '../appearance.ts';
 import type { PortraitFrame, StageShot } from '../hero-stage.ts';
 
-export type CategoryId = 'you' | 'skin' | 'hair' | 'top' | 'bottom' | 'feet' | 'pack';
+export type CategoryId = 'you' | 'skin' | 'hair' | 'hat' | 'top' | 'bottom' | 'feet' | 'pack' | 'trail' | 'title' | 'canopy' | 'pet';
 
 export interface Category {
   id: CategoryId;
@@ -32,6 +32,12 @@ export const CATEGORIES: readonly Category[] = [
     shot: 'head',
   },
   {
+    id: 'hat',
+    label: 'Hat',
+    glyph: '<path d="M3.5 17h17"/><path d="M6.8 17c0-5.4 2.3-9 5.2-9s5.2 3.6 5.2 9"/><path d="M7.3 13.6h9.4"/>',
+    shot: 'hat',
+  },
+  {
     id: 'top',
     label: 'Top',
     glyph: '<path d="M8.7 3.8 4.2 6.2 2.6 11l3 1.2 1.6-1.5v9.8h9.6v-9.8l1.6 1.5 3-1.2-1.6-4.8-4.5-2.4c-.5 1.5-1.8 2.4-3.3 2.4s-2.8-.9-3.3-2.4z"/>',
@@ -51,9 +57,33 @@ export const CATEGORIES: readonly Category[] = [
   },
   {
     id: 'pack',
-    label: 'Rucksack',
+    label: 'Back',
     glyph: '<rect x="5.5" y="6.5" width="13" height="14" rx="3.6"/><path d="M9 6.5V5.2a3 3 0 0 1 6 0v1.3"/><path d="M8.6 13.4h6.8v3.6H8.6z"/>',
-    shot: 'back',
+    shot: 'carry',
+  },
+  {
+    id: 'trail',
+    label: 'Trail',
+    glyph: '<path d="M10 4.5l1.6 4.4 4.4 1.6-4.4 1.6L10 16.5l-1.6-4.4L4 10.5l4.4-1.6z"/><circle cx="17.6" cy="16.4" r="1.5"/><circle cx="14.6" cy="20" r="0.9"/>',
+    shot: 'full',
+  },
+  {
+    id: 'title',
+    label: 'Title',
+    glyph: '<path d="M3.5 8h17v6.5h-17z"/><path d="M3.5 14.5 6 17.5l1.4-3M20.5 14.5 18 17.5l-1.4-3"/><path d="M7.5 11.2h9"/>',
+    shot: 'head',
+  },
+  {
+    id: 'canopy',
+    label: 'Canopy',
+    glyph: '<path d="M3.5 11.5a8.5 6.8 0 0 1 17 0z"/><path d="M3.5 11.5 12 19.5l8.5-8M9 11.5 12 19.5l3-8"/>',
+    shot: 'full',
+  },
+  {
+    id: 'pet',
+    label: 'Pet',
+    glyph: '<circle cx="12" cy="15.6" r="3.6"/><circle cx="6.6" cy="10.8" r="1.7"/><circle cx="9.9" cy="7" r="1.7"/><circle cx="14.1" cy="7" r="1.7"/><circle cx="17.4" cy="10.8" r="1.7"/>',
+    shot: 'full',
   },
 ];
 

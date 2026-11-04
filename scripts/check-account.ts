@@ -177,13 +177,13 @@ test('the device: a damaged store, a change dated when seen, a write that reache
   assert.equal(readLocalProfile(store, 3000).nameAt, 2000, 'and keeps that date');
 
   const written = writeLocalProfile(store, mergeProfiles(readLocalProfile(store, 4000), B));
-  assert.deepEqual(written, { name: false, look: true, passport: true, rings: true });
+  assert.deepEqual(written, { name: false, look: true, passport: true, rings: true, jobs: false, career: false });
   assert.equal(store.items[LOOK_KEY], LOOK_B);
   assert.deepEqual(parsePassport(store.items[PASSPORT_KEY]).stamps.map((s) => s.iso), ['FRA', 'JPN']);
   assert.deepEqual([...parseRecord(store.items[RINGS_KEY]).landmarks], ['tokyo-tower']);
   const again = readLocalProfile(store, 5000);
   assert.equal(again.lookAt, B.lookAt, 'a written look is not taken for a change');
-  assert.deepEqual(writeLocalProfile(store, again), { name: false, look: false, passport: false, rings: false });
+  assert.deepEqual(writeLocalProfile(store, again), { name: false, look: false, passport: false, rings: false, jobs: false, career: false });
 
   // A store that throws on every call costs the visit, not the page.
   const broken = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };

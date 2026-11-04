@@ -67,9 +67,13 @@ export interface ShellWorld {
   boardRocket(rocket: Rocket): void;
   /** Out of the rocket, if it has not left the pad. */
   leaveRocket(): void;
+  /** Another wall for the traveller's body (`index/collision.ts`), until the returned call takes it away. */
+  addWall(wall: (position: THREE.Vector3, radius: number) => boolean): () => void;
 }
 
 export interface Shell {
+  /** The guild and the progression on this world (`shell/explorers.ts`). */
+  readonly explorers: { readonly runtime: unknown };
   /** The world's clock: the host's real one, turned by the settings, `/time` and the time lapse. */
   date(): Date;
   /** Every frame, after the world has moved and before it is drawn. */

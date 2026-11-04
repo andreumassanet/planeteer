@@ -23,7 +23,18 @@ export async function createWorldNavigation(app: App): Promise<Navigation> {
       const id = world.countryAt(lat, lon);
       return id > 0 ? world.countries[id - 1]!.iso : null;
     },
+    onMark: (marker) => app.emit({ t: 'destination', landmark: markerKey(app, marker) }),
+    onArrive: (marker) => app.emit({ t: 'arrive', landmark: markerKey(app, marker) }),
   });
+}
+
+/** A marker as the progression names it: a landmark's id, else its place's name or where it is. */
+function markerKey(app: App, marker: { lat: number; lon: number; name: string | null; landmark: boolean }): string {
+  if (marker.landmark) {
+    const found = app.placements.find((placement) => placement.name === marker.name);
+    if (found !== undefined) return found.id;
+  }
+  return marker.name ?? `${marker.lat.toFixed(2)},${marker.lon.toFixed(2)}`;
 }
 
 export async function createPlanetMap(app: App): Promise<WorldMap> {
@@ -45,6 +56,7 @@ export async function createPlanetMap(app: App): Promise<WorldMap> {
     openSpan: () => app.minimap.span,
     // The rings come after the map at start-up, so they are asked for as the sheet needs them.
     courseSites: () => app.thrills?.rings.sites ?? [],
+    guilds: () => app.guildMarks ?? [],
     courseStart: (key) => app.thrills?.rings.course(key)?.[0]?.centre.clone().normalize() ?? null,
     courseBest: (key) => app.thrills?.rings.record.courses.get(key) ?? null,
     courseRing: () => app.thrills?.rings.active ?? null,

@@ -37,7 +37,7 @@ import type { Plan } from './landmark-ground.ts';
 import type { StripSite } from './craft/airstrip.ts';
 import type { MapFeatures } from './map-tiles.ts';
 import {
-  FIELDS_FROM, LANDMARKS_FROM, PADS_FROM, RAILS_FROM, ROADS_FROM, STRIPS_FROM, TOWNS_FROM, WOODS_FROM,
+  FEATURES_STYLE, FIELDS_FROM, LANDMARKS_FROM, PADS_FROM, RAILS_FROM, ROADS_FROM, STRIPS_FROM, TOWNS_FROM, WOODS_FROM,
 } from './map-features/constants.ts';
 import { createCtx } from './map-features/context.ts';
 import { paintCountry } from './map-features/country.ts';
@@ -86,7 +86,7 @@ export function createEarthFeatures(sources: EarthFeatureSources): MapFeatures {
   const f = createCtx(sources);
   const { places, roads } = sources;
   return {
-    stamp: `e${places.length}:${roads.length}:${sources.rails?.lines.length ?? 0}:${sources.landmarks?.length ?? 0}`,
+    stamp: `e${FEATURES_STYLE}:${places.length}:${roads.length}:${sources.rails?.lines.length ?? 0}:${sources.landmarks?.length ?? 0}`,
     fromLevel: ROADS_FROM,
     *paint(view, raster) {
       yield* ready(f);

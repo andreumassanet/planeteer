@@ -40,6 +40,8 @@ export interface HeroCtx extends StageDom {
   readonly queue: Map<HTMLCanvasElement, { key: string; look: Appearance; frame: PortraitFrame }>;
 
   editing: boolean;
+  /** A look tried on rather than worn (`HeroStage.preview`), or null. */
+  preview: Appearance | null;
   current: StageShot;
   behaviour: StageMode;
   /** The wheel: towards the face above zero, towards the whole body below it. */
@@ -108,6 +110,7 @@ export function createHeroCtx(options: HeroStageOptions): HeroCtx {
     portraits: new Map(),
     queue: new Map(),
     editing: false,
+    preview: null,
     current: 'title',
     behaviour: 'title',
     zoom: 0,

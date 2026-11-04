@@ -28,6 +28,7 @@ import type { Gear } from './gear.ts';
 import type { Overlay } from './overlay.ts';
 import type { Photo } from './gestures.ts';
 import type { Talking } from './talking.ts';
+import type { WorldExplorers } from './explorers.ts';
 import { WELCOME_KEY, readSetting, writeSetting } from './storage.ts';
 import { clockText } from './text.ts';
 import type { ShellWorld } from './types.ts';
@@ -65,14 +66,15 @@ export interface FrameDeps {
   places: Places;
   countries: Geography['countries'];
   cue: (name: Cue) => void;
+  explorers: WorldExplorers;
 }
 
 export function createShellFrame(deps: FrameDeps): ShellFrame {
-  const { world, clock, overlay, hud, names, minimap, map, nav, playerList, settings, gear, chat, passport, passportCard, moment, talking, photo, peers, self, places, countries, cue } = deps;
+  const { world, clock, overlay, hud, names, minimap, map, nav, playerList, settings, gear, chat, passport, passportCard, moment, talking, photo, peers, self, places, countries, cue, explorers } = deps;
   const { host, player, rig, sky, ground, frontiers, input } = world;
   const political = world.geography.world;
   const ear = createEar(world);
-  const interact = createInteraction({ world, hud, talking, cue });
+  const interact = createInteraction({ world, hud, talking, cue, explorers });
 
 
   /** Once per device, after the first arrival, on any world. */
@@ -120,7 +122,8 @@ export function createShellFrame(deps: FrameDeps): ShellFrame {
     hud.setMode(mode, player.craft?.airborne ?? false, rig.firstPerson);
     speedometer(dt);
     hud.setPaused(
-      !input.looking && !map.open && !settings.open && !(host.traveller?.open ?? false) && !chat.open && !passportCard.open,
+      !input.looking && !map.open && !settings.open && !(host.traveller?.open ?? false) && !chat.open && !passportCard.open &&
+        explorers.runtime?.guild.talking !== true && explorers.runtime?.fieldGuide.open !== true,
       input.dragging,
     );
     if (welcomePending && frames > 2) {
@@ -167,6 +170,7 @@ export function createShellFrame(deps: FrameDeps): ShellFrame {
       peers.update(dt, self);
     }
     talking.update(dt);
+    explorers.update(dt);
   }
 
   function drawn(updateMs: number, drawMs: number): void {

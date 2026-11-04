@@ -13,6 +13,8 @@ import { groundStyleFor } from './scenery/ground.ts';
 import { createSceneryContext, regionFor } from './scenery/index.ts';
 import type { Placed } from './scenery/index.ts';
 import { unitAt } from './sphere.ts';
+import { hasGuild } from './guild/sites.ts';
+import type { GuildSquare } from './guild/square.ts';
 import { proxyOf } from './warm.ts';
 import { countrysideSteps } from './settlements/country.ts';
 import { createTownFrame } from './settlements/frame.ts';
@@ -38,6 +40,7 @@ import type { SettlementOptions, Settlements, Slot } from './settlements/types.t
 import { createVariants } from './settlements/variants.ts';
 
 export { reachFor } from './settlements/budget.ts';
+export type { GuildSquare } from './guild/square.ts';
 export type {
   BikeSlot,
   ParkedCar,
@@ -81,6 +84,7 @@ export function createSettlements(
   const continentOf = new Map<string, string>(world.countries.map((country) => [country.iso, country.continent]));
   const slots = places.map((place, index) => slotOf(world, place, index, continentOf));
   const anchors = anchorsOf(slots);
+  const standingGuilds: GuildSquare[] = [];
   const monumentSites = (options.monuments ?? []).map((placement) => ({
     direction: unitAt(placement.lat, placement.lon, new THREE.Vector3()),
     shape: planShape(placement),
@@ -91,7 +95,7 @@ export function createSettlements(
   const variants = createVariants(ctx, slots, continentOf, styleFor, missing, broken);
   const frame = createTownFrame(world, monumentSites);
   const inTheCountry = new WeakSet<Placed>();
-  const squareOf = (slot: Slot) => squareSteps(frame, world, slot, roadGates, broken);
+  const squareOf = (slot: Slot) => squareSteps(frame, world, slot, roadGates, broken, (place) => hasGuild(place, places));
   const planner = createPlanner(frame, roadGates, styleFor, variants.variantOf, (slot, grid, style) =>
     countrysideSteps(frame, slots, roadGates, roadPaths, inTheCountry, slot, grid, style));
   // Bound once the lifecycle exists: a plan built now makes way for the town under way.
@@ -137,6 +141,7 @@ export function createSettlements(
     parkedNear: near.parkedNear,
     parkedPaint: (id) => variants.parkedPaintOf(id),
     benchesNear: near.benchesNear,
+    guilds: () => guildsStanding(registry, standingGuilds),
     bikeSlotsNear: near.bikeSlotsNear,
     signalsNear: near.signalsNear,
     hideParked: near.hideParked,
@@ -241,11 +246,21 @@ function slotOf(world: World, place: Place, index: number, continentOf: Readonly
     folk: [],
     lampHeads: null,
     signalHeads: null,
+    guild: null,
     parked: [],
     benches: [],
     bikeSlots: [],
     host: null,
   };
+}
+
+/** The guild squares of the towns standing near, written into `out`. */
+function guildsStanding(registry: ReturnType<typeof createRegistry>, out: GuildSquare[]): readonly GuildSquare[] {
+  out.length = 0;
+  for (const slot of registry.guildTowns) {
+    if (slot.guild !== null && slot.peopled && slot.builtPeopled) out.push(slot.guild);
+  }
+  return out;
 }
 
 /** Every slot's ground point as three floats, so the scan is a typed-array pass. */

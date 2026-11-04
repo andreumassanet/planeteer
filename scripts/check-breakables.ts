@@ -531,6 +531,12 @@ console.log(`a real town: ${name}`);
         await sleep(450);
         breakables.update(1);
         check(settlements.collide(at, 0.5, push), 'it stands again, a wall again');
+        // What the blast knocked down beside it (a lamp, a bench) comes back on its own clock.
+        for (let k = 0; k < 8 && breakables.stats.folded > 0; k++) {
+          for (let j = 0; j < 40; j++) breakables.update(0.25);
+          await sleep(400);
+          breakables.update(LIE_SECONDS);
+        }
         check(same(building.ranges[0]!.mesh.geometry.getAttribute('position').array as Float32Array, before), 'its run and what clung to it put back bit for bit', `${clinging.length} clinging runs`);
       }
       // A span strung from a building's wall (bunting, washing, a wire) goes down with it and comes back with it.

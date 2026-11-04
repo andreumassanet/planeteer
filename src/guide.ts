@@ -3,7 +3,7 @@
  * the player along the great circle towards it, laid by how the player is
  * travelling (`guide/layout.ts`), and a beacon of light standing on the place
  * itself (`guide/beacon.ts`). A ring course borrows the line for its next
- * ring, in green. One instanced mesh and one column; nothing when there is
+ * ring, in green, and a job for where it is collected or left, in orange. One instanced mesh and one column; nothing when there is
  * nowhere to go.
  */
 import * as THREE from 'three';
@@ -14,8 +14,11 @@ import type { GuideMedium } from './guide/layout.ts';
 
 export type { GuideMedium } from './guide/layout.ts';
 
-/** What the line is leading to: the marker (violet) or a course's next ring (green). */
-export type GuideTone = 'marker' | 'ring';
+/** What the line is leading to: the marker (violet), a course's next ring (green) or a job's pickup or drop (orange). */
+export type GuideTone = 'marker' | 'ring' | 'job';
+
+/** The beacon's colour by what it marks. */
+const BEACON_TONES: Readonly<Record<GuideTone, number>> = { marker: PALETTE.violet, ring: PALETTE.green, job: PALETTE.orange };
 
 export interface GuideFrame {
   from: THREE.Vector3;
@@ -69,6 +72,7 @@ export function createGuide(): Guide {
   const tones: Record<GuideTone, THREE.MeshToonMaterial> = {
     marker: chevronMaterial(PALETTE.violet),
     ring: chevronMaterial(PALETTE.green),
+    job: chevronMaterial(PALETTE.apricot),
   };
   const chevrons = new THREE.InstancedMesh(geometry, tones.marker, MAX_CHEVRONS);
   chevrons.name = 'guide:chevrons';
@@ -104,6 +108,7 @@ export function createGuide(): Guide {
       chevrons.count = count;
       chevrons.visible = count > 0;
       chevrons.instanceMatrix.needsUpdate = true;
+      beacon.tint(BEACON_TONES[frame.tone]);
       beacon.place(frame.beacon, frame.eye, time);
       stats.chevrons = count;
       stats.beacon = frame.beacon !== null;
@@ -113,6 +118,7 @@ export function createGuide(): Guide {
       geometry.dispose();
       tones.marker.dispose();
       tones.ring.dispose();
+      tones.job.dispose();
       chevrons.dispose();
       beacon.dispose();
     },

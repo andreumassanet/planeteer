@@ -8,6 +8,8 @@ import type { Hud } from '../hud.ts';
 import type { Passport, PassportMoment } from '../passport.ts';
 import type { PassportCard } from '../passport-card.ts';
 import type { App } from './context.ts';
+import { titleOf } from '../cosmetics/titles.ts';
+import { jobsForPassport } from '../jobs/book.ts';
 
 export async function createWorldHud(app: App): Promise<Hud> {
   const { createHud } = await app.deferred.hud;
@@ -31,6 +33,7 @@ export async function createWorldHud(app: App): Promise<Hud> {
       name: app.peersLink?.name ?? app.peersModule.storedName(),
       stamps: app.passport.data.stamps.length,
       towns: app.passport.data.towns.length,
+      title: titleOf(heroAppearance()),
     }),
   });
   document.body.appendChild(hud.root);
@@ -82,8 +85,17 @@ export async function createWorldPassport(app: App): Promise<WorldPassport> {
       for (const site of rings.catalogue) totals[site.kind]++;
       return { landmarks: app.placements, collected: rings.record.landmarks, courses: rings.record.courses, totals };
     },
+    // The jobs arrive later still, by their own import.
+    jobs: () => {
+      const jobs = app.jobs;
+      if (jobs === undefined) return null;
+      return jobsForPassport(jobs.record, (iso) => app.world.countries.find((country) => country.iso === iso)?.name ?? iso);
+    },
   });
   document.body.appendChild(passportCard.root);
-  passport.onStamp = (stamp) => passportCard.celebrate(stamp);
+  passport.onStamp = (stamp) => {
+    passportCard.celebrate(stamp);
+    app.emit({ t: 'stamp', iso: stamp.iso });
+  };
   return { passport, passportCard, passportMoment };
 }

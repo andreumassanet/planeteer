@@ -24,6 +24,8 @@ import { renderDistanceWords } from './render-distance.ts';
 import { createRockets } from './rockets.ts';
 import { createTrainRide } from './train-ride.ts';
 import { createThrills } from './thrills.ts';
+import { createWorldJobs } from './jobs.ts';
+import { createWorldGuild } from './guild.ts';
 import { createTimeOfDay } from './time-of-day.ts';
 import { createWalls } from './walls.ts';
 import { createWorldSettings } from './world-settings.ts';
@@ -59,15 +61,22 @@ export async function startSession(app: App): Promise<void> {
 
   app.overlay = createOverlay(app);
   app.thrills = createThrills(app);
+  // A module that fails to arrive (a flaky network, a chunk gone) leaves the world playable without it.
+  app.jobs = await createWorldJobs(app).catch((error: unknown) => {
+    console.warn('atlas: the jobs did not arrive', error);
+    return undefined;
+  });
   listenForSettingKeys(app);
   app.horns = createHorns(app);
   app.timeOfDay = createTimeOfDay(app);
   app.settings = await createWorldSettings(app);
   app.chat = await createWorldChat(app);
+  await createWorldGuild(app).catch((error: unknown) => console.warn('atlas: the guild did not arrive', error));
   // An account's progress reaches the book, the rings and the minimap as it arrives.
   app.account?.attach({
     passport: app.passport,
     rings: app.thrills.rings,
+    jobs: app.jobs,
     minimap: app.minimap,
     notice: (text) => app.announce(text, 'passport'),
   });

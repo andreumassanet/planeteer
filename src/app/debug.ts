@@ -17,6 +17,7 @@ import type { FeatureKind } from '../countryside.ts';
 import type { Rocket } from '../rocket.ts';
 import type { Stamp } from '../passport.ts';
 import type { App } from './context.ts';
+import { debugOf as guildDebug } from './guild.ts';
 
 const MUSIC_STYLES = ['iberia', 'latin', 'brazil', 'andes', 'north-america', 'atlantic-folk', 'nordic', 'east-europe', 'mediterranean', 'maghreb', 'middle-east', 'sub-saharan', 'south-asia', 'east-asia', 'japan', 'southeast-asia', 'oceania', 'polar', 'sea', 'sky'];
 
@@ -113,6 +114,14 @@ export function exposeDebug(app: App): void {
       nav: app.nav,
       /** The rings: `.stats`, `.record`, `.course()`, `.clear()`. */
       rings: app.thrills.rings,
+      /** The jobs: `.nearby`, `.active`, `.tracked`, `.record`, `.cycle()`, `.stats`. */
+      get jobs() {
+        return app.jobs;
+      },
+      /** The guild, the progression, the Field Guide and the Hall of Fame: `.progress.debug()`, `.guild.talkTo('guide')`. */
+      get guild() {
+        return guildDebug();
+      },
       /** The line to the marker: `.stats`. */
       guide: app.thrills.guide,
       /** The rush: `.rush`, `.pulse(1)`, `.speedLines.stats`. */

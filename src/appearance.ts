@@ -1,5 +1,6 @@
 import { castSkin } from './cast.ts';
 import type { BodyKind, Colours, OutfitId, PartName, Wardrobe, WornPart } from './cast.ts';
+import { BACKS, CANOPIES, HATS, PETS, TITLES, TRAILS } from './cosmetics/catalogue.ts';
 import { SKIN_TONES } from './scenery/dress.ts';
 import type { Rng } from './scenery/random.ts';
 import { PALETTE } from './theme.ts';
@@ -20,10 +21,18 @@ import { PALETTE } from './theme.ts';
  * head that is another's twin. The colours are the world's palette, and the
  * skins are the crowd's own eight (`SKIN_TONES`), drawn from the same ramp.
  *
- * ## On the wire it is thirteen characters
+ * ## What is earned is worn over it
  *
- * `encodeAppearance` writes a version letter and one base-36 digit a field,
- * which is what the relay passes on beside a name: it checks only that it is
+ * A hat and its colour, something on the back, a trail, a title, a
+ * parachute canopy and a companion (`cosmetics.ts`): each an index into its
+ * table in `cosmetics/catalogue.ts`, 0 for nothing worn. The tables say what
+ * earns each; the look only says what is worn.
+ *
+ * ## On the wire it is twenty-one characters
+ *
+ * `encodeAppearance` writes a version letter and one base-36 digit a field
+ * (the title two), the earned fields after the first twelve, which is what
+ * the relay passes on beside a name: it checks only that it is
  * a short run of lower-case letters and digits (`LOOK_PATTERN` in
  * `server/src/limits.ts`), and `decodeAppearance` is the one reader, so a
  * code from a newer client — a longer one, or an index past the end of a
@@ -200,6 +209,19 @@ export interface Appearance {
   feetColour: number;
   pack: boolean;
   packColour: number;
+  /** Index into `HATS`, 0 for none; its colour an index into `CLOTH`. */
+  hat: number;
+  hatColour: number;
+  /** Index into `BACKS`, 0 for none: worn beside or instead of the rucksack. */
+  back: number;
+  /** Index into `TRAILS`, 0 for none. */
+  trail: number;
+  /** Index into `TITLES`, 0 for none. */
+  title: number;
+  /** Index into `CANOPIES`, 0 for the gold-to-crimson canopy everyone starts with. */
+  canopy: number;
+  /** Index into `PETS`, 0 for none. */
+  pet: number;
 }
 
 const cloth = (color: number): number => CLOTH.indexOf(color);
@@ -207,7 +229,7 @@ const cloth = (color: number): number => CLOTH.indexOf(color);
 /**
  * The hero before anyone has chosen: the man in the crimson hoodie that
  * nobody else in the world wears, in jeans and dark trainers, with a gold
- * rucksack.
+ * rucksack, and nothing earned.
  */
 export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   body: 'man',
@@ -222,6 +244,13 @@ export const DEFAULT_APPEARANCE: Readonly<Appearance> = {
   feetColour: cloth(PALETTE.bark),
   pack: true,
   packColour: cloth(PALETTE.gold),
+  hat: 0,
+  hatColour: cloth(PALETTE.skyBlue),
+  back: 0,
+  trail: 0,
+  title: 0,
+  canopy: 0,
+  pet: 0,
 };
 
 /** Every index in range for its body and its table, the rest left as they are. */
@@ -242,6 +271,13 @@ export function fitAppearance(appearance: Appearance): Appearance {
     feetColour: within(appearance.feetColour, CLOTH.length, DEFAULT_APPEARANCE.feetColour),
     pack: appearance.pack,
     packColour: within(appearance.packColour, CLOTH.length, DEFAULT_APPEARANCE.packColour),
+    hat: within(appearance.hat, HATS.length + 1, 0),
+    hatColour: within(appearance.hatColour, CLOTH.length, DEFAULT_APPEARANCE.hatColour),
+    back: within(appearance.back, BACKS.length + 1, 0),
+    trail: within(appearance.trail, TRAILS.length + 1, 0),
+    title: within(appearance.title, TITLES.length + 1, 0),
+    canopy: within(appearance.canopy, CANOPIES.length + 1, 0),
+    pet: within(appearance.pet, PETS.length + 1, 0),
   };
 }
 
@@ -282,6 +318,7 @@ export function coloursOf(appearance: Appearance): Colours {
 /**
  * A traveller at random, and a plausible one: the skin from the crowd's
  * eight, the hair natural four times in five, and the clothes from anywhere.
+ * Nothing earned: the crowd wears none of it.
  */
 export function randomAppearance(rng: Rng): Appearance {
   const body: BodyKind = rng.chance(0.5) ? 'man' : 'woman';
@@ -299,6 +336,13 @@ export function randomAppearance(rng: Rng): Appearance {
     feetColour: rng.int(CLOTH.length),
     pack: rng.chance(0.5),
     packColour: rng.int(CLOTH.length),
+    hat: 0,
+    hatColour: DEFAULT_APPEARANCE.hatColour,
+    back: 0,
+    trail: 0,
+    title: 0,
+    canopy: 0,
+    pet: 0,
   };
 }
 
@@ -308,12 +352,33 @@ export function randomAppearance(rng: Rng): Appearance {
 
 /** The version letter; a code that does not start with it is not this format. */
 const VERSION = 'a';
-/** The fields after it, one base-36 digit each, in the order they are written. */
+/**
+ * The fields after it, one base-36 digit each, in the order they are written:
+ * the first twelve every build reads, which is the shortest code there is.
+ */
 const FIELDS = ['body', 'skin', 'head', 'hair', 'top', 'topColour', 'bottom', 'bottomColour', 'feet', 'feetColour', 'pack', 'packColour'] as const;
+/**
+ * What is earned, appended after them with its width in digits. A code
+ * written before these existed decodes with nothing worn; a build that
+ * predates them reads its twelve and ignores the rest. Append-only.
+ */
+const EXTRA = [
+  ['hat', 1],
+  ['hatColour', 1],
+  ['back', 1],
+  ['trail', 1],
+  ['title', 2],
+  ['canopy', 1],
+  ['pet', 1],
+] as const;
 /** The longest code this reads: room for fields a newer build appends, which it ignores. */
 export const LOOK_MAX = 24;
+/** The shortest: the version and the twelve fields every build has read. */
+export const LOOK_MIN = FIELDS.length + 1;
+/** How long this build writes a code. */
+export const LOOK_LENGTH = LOOK_MIN + EXTRA.reduce((sum, [, width]) => sum + width, 0);
 
-/** Thirteen lower-case characters. */
+/** Twenty-one lower-case characters. */
 export function encodeAppearance(appearance: Appearance): string {
   const fitted = fitAppearance(appearance);
   return (
@@ -321,20 +386,29 @@ export function encodeAppearance(appearance: Appearance): string {
     FIELDS.map((field) => {
       const value = field === 'body' ? (fitted.body === 'woman' ? 1 : 0) : field === 'pack' ? (fitted.pack ? 1 : 0) : fitted[field];
       return value.toString(36);
-    }).join('')
+    }).join('') +
+    EXTRA.map(([field, width]) => fitted[field].toString(36).padStart(width, '0')).join('')
   );
 }
 
 /**
  * The appearance a code describes, fitted to this build's tables, or `null`
  * for anything that is not a code of this format: the wrong type, a stranger
- * character, too short or too long.
+ * character, too short or too long. A field the code is too short to carry
+ * is nothing worn.
  */
 export function decodeAppearance(code: unknown): Appearance | null {
-  if (typeof code !== 'string' || code.length > LOOK_MAX || code.length < FIELDS.length + 1) return null;
+  if (typeof code !== 'string' || code.length > LOOK_MAX || code.length < LOOK_MIN) return null;
   if (!/^[0-9a-z]+$/.test(code) || code[0] !== VERSION) return null;
   const digit = (i: number): number => parseInt(code[i + 1]!, 36);
   const value = (field: (typeof FIELDS)[number]): number => digit(FIELDS.indexOf(field));
+  const extra: Record<(typeof EXTRA)[number][0], number> = { hat: 0, hatColour: 0, back: 0, trail: 0, title: 0, canopy: 0, pet: 0 };
+  let at = LOOK_MIN;
+  for (const [field, width] of EXTRA) {
+    const digits = code.slice(at, at + width);
+    extra[field] = digits.length === width ? parseInt(digits, 36) : NaN;
+    at += width;
+  }
   return fitAppearance({
     body: value('body') === 1 ? 'woman' : 'man',
     skin: value('skin'),
@@ -348,6 +422,7 @@ export function decodeAppearance(code: unknown): Appearance | null {
     feetColour: value('feetColour'),
     pack: value('pack') === 1,
     packColour: value('packColour'),
+    ...extra,
   });
 }
 

@@ -4,11 +4,11 @@ import type { PortraitFrame } from '../hero-stage.ts';
 import { h, hex } from '../ui.ts';
 import { SLOT_COLOUR, SLOT_FRAME, SLOT_WORD } from './categories.ts';
 import type { TravellerCtx } from './ctx.ts';
-import { CHECK, glyph, spoken } from './format.ts';
+import { CHECK, LOCK, glyph, spoken } from './format.ts';
 import { change } from './state.ts';
 import type { TileSpec } from './types.ts';
 
-function onRefresh(ctx: TravellerCtx, refresh: () => void): void {
+export function onRefresh(ctx: TravellerCtx, refresh: () => void): void {
   const list = ctx.refreshers.get(ctx.building) ?? [];
   list.push(refresh);
   ctx.refreshers.set(ctx.building, list);
@@ -31,7 +31,7 @@ export function tiles(ctx: TravellerCtx, frame: PortraitFrame, list: () => TileS
   const { stage } = ctx;
   const grid = h('div', { class: wide ? 'cr-tiles two' : 'cr-tiles', role: 'group' });
   let shape = '';
-  let made: { spec: TileSpec; button: HTMLButtonElement; canvas: HTMLCanvasElement }[] = [];
+  let made: { spec: TileSpec; button: HTMLButtonElement; canvas: HTMLCanvasElement; cond: HTMLElement }[] = [];
   onRefresh(ctx, () => {
     const specs = list();
     const now = specs.map((spec) => spec.key).join('|');
@@ -39,14 +39,18 @@ export function tiles(ctx: TravellerCtx, frame: PortraitFrame, list: () => TileS
       shape = now;
       made = specs.map((spec) => {
         const canvas = h('canvas', { width: 128, height: 128 });
+        const cond = h('span', { class: 'cr-cond' });
         const button = h(
           'button',
           { type: 'button', class: 'cr-tile', 'aria-pressed': 'false', title: spec.title ?? spec.label },
           canvas,
           h('span', { text: spec.label }),
+          cond,
           h('span', { class: 'cr-tick', html: glyph(CHECK) }),
+          h('span', { class: 'cr-lock', html: glyph(LOCK) }),
+          h('span', { class: 'cr-new', text: 'New' }),
         );
-        const tile = { spec, button, canvas };
+        const tile = { spec, button, canvas, cond };
         // The spec current at the time of the click, not the one it was made with.
         button.addEventListener('click', () => tile.spec.pick());
         return tile;
@@ -59,8 +63,16 @@ export function tiles(ctx: TravellerCtx, frame: PortraitFrame, list: () => TileS
       });
     }
     for (const tile of made) {
+      const locked = tile.spec.locked?.() ?? null;
       tile.button.setAttribute('aria-pressed', String(tile.spec.chosen()));
-      stage.portrait(tile.spec.look(), frame, tile.canvas);
+      tile.button.classList.toggle('locked', locked !== null);
+      tile.button.classList.toggle('fresh', tile.spec.fresh?.() === true);
+      tile.button.classList.toggle('trying', tile.spec.trying?.() === true);
+      tile.cond.textContent = locked ?? '';
+      if (tile.spec.paint !== undefined) {
+        tile.spec.paint(tile.canvas);
+        tile.canvas.classList.add('drawn');
+      } else stage.portrait(tile.spec.look(), frame, tile.canvas);
     }
   });
   return grid;

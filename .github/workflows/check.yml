@@ -59,6 +59,8 @@ jobs:
         run: pnpm scenery
       - name: people
         run: pnpm people
+      - name: cosmetics
+        run: pnpm cosmetics
       - name: life
         run: pnpm life
       - name: fauna
@@ -81,6 +83,8 @@ jobs:
         run: pnpm ground
       - name: country
         run: pnpm country
+      - name: guild
+        run: pnpm guild
       - name: seated
         run: pnpm seated
       - name: town-steps
@@ -99,8 +103,16 @@ jobs:
         run: pnpm passport
       - name: rings
         run: pnpm rings
+      - name: jobs
+        run: pnpm jobs
+      - name: progress
+        run: pnpm progress
+      - name: lore
+        run: pnpm lore
       - name: account
         run: pnpm account
+      - name: leaderboard
+        run: pnpm leaderboard
       - name: music
         run: pnpm music
       - name: maps

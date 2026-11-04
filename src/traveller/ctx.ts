@@ -18,6 +18,10 @@ export interface TravellerCtx extends TravellerDom {
 
   /** The appearance being edited, applied on every change. */
   look: Appearance;
+  /** A look with something not yet earned tried on: on the stage, never worn. */
+  trying: Appearance | null;
+  /** By page, the earned items it has shown as new: marked seen when the page is left. */
+  readonly shownFresh: Map<CategoryId, Set<string>>;
   /** The page being built, which `onRefresh` files its refresh under. */
   building: CategoryId;
   current: CategoryId;
@@ -39,6 +43,8 @@ export function createTravellerCtx(options: TravellerOptions): TravellerCtx {
     history: [],
     refreshers: new Map(),
     look: fitAppearance(options.appearance.get()),
+    trying: null,
+    shownFresh: new Map(),
     building: 'you',
     current: 'you',
     showing: false,

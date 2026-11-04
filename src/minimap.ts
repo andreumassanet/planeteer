@@ -46,6 +46,7 @@ export type {
   MinimapOptions,
   MinimapPad,
   MinimapStats,
+  MinimapSpot,
   CompassMark,
   CompassReading,
 } from './minimap/types.ts';
@@ -78,6 +79,7 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
       marks.length = 0;
       if (m.marked) mark('marker', m.markerPoint);
       if (m.coursed) mark('course', m.coursePoint);
+      for (const spot of m.spots) if (spot.rim === true) mark(spot.kind === 'guild' ? 'guild' : 'job', spot);
       const peersFrom = marks.length;
       for (const peer of m.peerMarks) mark('peer', peer);
       // The nearest few: a full server would fill the strip with dots.
@@ -133,6 +135,10 @@ export function createMinimap(world: World, options: MinimapOptions | number = {
     setPeers(marks) {
       if (marks.length > 0 || m.peerMarks.length > 0) m.overlayStale = true;
       m.peerMarks = marks;
+    },
+    setSpots(spots) {
+      if (spots.length > 0 || m.spots.length > 0) m.overlayStale = true;
+      m.spots = spots;
     },
     get stats() {
       const sorted = Array.from(m.samples.subarray(0, m.sampleCount)).sort((a, b) => a - b);

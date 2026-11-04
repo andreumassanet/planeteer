@@ -1,8 +1,9 @@
 /** One page of the creator for each category. */
-import { CLOTH, SKINS } from '../appearance.ts';
+import { SKINS } from '../appearance.ts';
 import { h } from '../ui.ts';
 import type { Category } from './categories.ts';
 import type { TravellerCtx } from './ctx.ts';
+import { backPage, hatPage, pictured } from './earned.ts';
 import { section, slotPage, swatches, tiles } from './parts.ts';
 import { change } from './state.ts';
 
@@ -45,27 +46,17 @@ export function page(ctx: TravellerCtx, category: Category): HTMLElement {
     case 'feet':
       body.push(...slotPage(ctx, category.id));
       break;
+    case 'hat':
+      body.push(...hatPage(ctx));
+      break;
     case 'pack':
-      body.push(
-        section(
-          'On your back',
-          null,
-          tiles(ctx, 
-            'pack',
-            () =>
-              [false, true].map((on) => ({
-                key: String(on),
-                label: on ? 'Rucksack' : 'Nothing',
-                look: () => ({ ...ctx.look, pack: on }),
-                chosen: () => ctx.look.pack === on,
-                pick: () => change(ctx, { ...ctx.look, pack: on }),
-              })),
-            true,
-          ),
-        ),
-        // A colour picked is a rucksack worn: nobody chooses the colour of nothing.
-        swatches(ctx, 'Colour', CLOTH, () => ctx.look.packColour, (packColour) => change(ctx, { ...ctx.look, packColour, pack: true })),
-      );
+      body.push(...backPage(ctx));
+      break;
+    case 'trail':
+    case 'title':
+    case 'canopy':
+    case 'pet':
+      body.push(...pictured(ctx, category.id));
       break;
   }
   return h(

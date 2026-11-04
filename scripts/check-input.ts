@@ -207,9 +207,9 @@ test('a key pressed for the controls page is bound there, and then moves the pla
 
     // A second key, on the cap beside the first.
     const stop = captureKey('forward', 1, (outcome) => outcomes.push(outcome));
-    key(keys, 'keydown', 'KeyY');
+    key(keys, 'keydown', 'KeyZ');
     stop();
-    assert.deepEqual(BINDINGS.forward, ['KeyI', 'KeyY']);
+    assert.deepEqual(BINDINGS.forward, ['KeyI', 'KeyZ']);
     assert.equal(actionOf('ArrowUp'), undefined, 'the second key it replaced is free');
   } finally {
     unregister();

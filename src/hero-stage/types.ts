@@ -3,13 +3,13 @@ import type { Appearance } from '../appearance.ts';
 import type { Cast } from '../cast.ts';
 
 /** How the camera frames the hero. */
-export type StageShot = 'title' | 'full' | 'head' | 'top' | 'legs' | 'feet' | 'back';
+export type StageShot = 'title' | 'full' | 'head' | 'hat' | 'top' | 'legs' | 'feet' | 'back' | 'carry';
 /** What shows behind the hero: the ship's bridge, nothing (the menu does), or the world dimmed. */
 export type StageBackdrop = 'bridge' | 'clear' | 'dim';
 /** Who is showing the hero: the title turns them to the pointer, the creator holds them still. */
 export type StageMode = 'title' | 'creator';
 /** What a creator's tile is a picture of. */
-export type PortraitFrame = 'body' | 'head' | 'top' | 'bottom' | 'feet' | 'pack';
+export type PortraitFrame = 'body' | 'head' | 'hat' | 'top' | 'bottom' | 'feet' | 'pack' | 'carry';
 
 export interface StageInsets {
   left: number;
@@ -59,6 +59,11 @@ export interface HeroStage {
   refreshName(): void;
   /** Called with the name kept whenever the plate changes it. Returns the unsubscribe. */
   onName(listener: (name: string) => void): () => void;
+  /**
+   * Shows the hero in `look` rather than as they are, until called with null:
+   * a locked cosmetic tried on from the creator. Nothing is kept or sent.
+   */
+  preview(look: Appearance | null): void;
   /** Draws the hero in `look` into `canvas`, now if it was drawn before, else within a few frames. */
   portrait(look: Appearance, frame: PortraitFrame, canvas: HTMLCanvasElement): void;
 }

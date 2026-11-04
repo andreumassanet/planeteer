@@ -57,6 +57,8 @@ async function start(): Promise<void> {
 
   await stage('reading the outlines');
   const app = { began, ...createGuard() } as App;
+  // Nothing is told the progression until it has arrived (`app/guild.ts`).
+  app.emit = () => undefined;
   app.account = account;
   Object.assign(app, await loadData());
   app.deferred = loadDeferred();

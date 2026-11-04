@@ -61,6 +61,7 @@ export function createConversation(app: App): Conversation {
   }
 
   function start(key: string): void {
+    app.emit({ t: 'talk', key });
     const at = toLatLon(player.position);
     const index = world.countryAtPoint(player.position);
     const country = index > 0 ? world.countries[index - 1]! : null;

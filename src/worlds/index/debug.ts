@@ -68,6 +68,10 @@ export function exposeWorld(deps: {
       frontiers,
       ground,
       hud: shell.hud,
+      /** The guild and the progression, once arrived: `.guild.stats`, `.progress.debug()`. */
+      get explorers() {
+        return shell.explorers.runtime;
+      },
       /** The maps' paper: `.stats` is what is painted, stored and baked. */
       mapTiles: shell.mapTiles,
       map: shell.map,

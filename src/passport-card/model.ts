@@ -10,6 +10,7 @@ import type { PassportChapter } from '../planet.ts';
 import { CONTINENT_INK, PER_PAGE, inked } from './constants.ts';
 import type { Nation } from './seal-svg.ts';
 import type { PassportRings } from './rings-model.ts';
+import type { PassportJobs } from './jobs-pages.ts';
 import type { PassportCardOptions } from '../passport-card.ts';
 
 export type Side = 'verso' | 'recto';
@@ -39,6 +40,8 @@ export interface BookModel {
   readonly ringVisas: Visa[];
   /** What the book holds of the rings, read when a page is laid; null with no rings to show. */
   readonly rings: (() => PassportRings | null) | null;
+  /** And of the jobs, the same way. */
+  readonly jobs: (() => PassportJobs | null) | null;
   /** Earth's visas, then the rings', then one per chapter. */
   visas: Visa[];
   /** The other worlds, once the caller has handed them over. */
@@ -100,12 +103,28 @@ export function createBookModel(options: PassportCardOptions): BookModel {
       },
     },
   ];
+  const jobs = options.jobs ?? null;
+  if (jobs !== null) {
+    ringVisas.push({
+      key: 'jobs',
+      chapter: 'earth',
+      title: 'Work',
+      ink: inked(PALETTE.orange, 0.4),
+      dye: inked(PALETTE.orange, 0.32),
+      entries: [],
+      tally: () => {
+        const done = readJobs(jobs)?.done ?? 0;
+        return [done, done];
+      },
+    });
+  }
   return {
     passport: options.passport,
     countryOf: new Map(options.countries.map((country) => [country.iso, country])),
     earthVisas,
     ringVisas,
     rings,
+    jobs,
     visas: [...earthVisas, ...ringVisas],
     chapters: [],
     nationOf: new Map(),
@@ -147,6 +166,15 @@ export function layoutModel(model: BookModel): void {
       if (chapter.script !== undefined) entry.script = chapter.script;
       model.nationOf.set(nation.iso, entry);
     }
+  }
+}
+
+/** The jobs as the caller has them now, or null when it has none yet (or asking throws). */
+export function readJobs(jobs: (() => PassportJobs | null) | null): PassportJobs | null {
+  try {
+    return jobs?.() ?? null;
+  } catch {
+    return null;
   }
 }
 

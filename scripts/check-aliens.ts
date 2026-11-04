@@ -24,6 +24,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import * as THREE from 'three';
+import { guildCut } from '../src/worlds/town-grid/guild.ts';
 
 const g = globalThis as Record<string, unknown>;
 g.ProgressEvent ??= class extends Event {
@@ -226,6 +227,10 @@ function checkTowns(spec: WorldSpec, terrain: import('../src/worlds/terrain.ts')
         for (const street of site.town.streets) {
           const across = Math.abs((street.axis === 'x' ? A.z : A.x) - street.at);
           const along = Math.abs(street.axis === 'x' ? A.x : A.z);
+          // The stretch the guild's square paves over is no carriageway any more.
+          const cut = guildCut(site.town.guild, street);
+          const at = street.axis === 'x' ? A.x : A.z;
+          if (cut !== null && at + A.radius > cut[0] && at - A.radius < cut[1]) continue;
           const carriage = street.half - street.walk;
           const kerbside = A.radius < 0.5 || (A.part ?? 0) >= 20000;
           if (!kerbside && along < site.town.grid.half && across + A.radius < carriage - 0.3) {

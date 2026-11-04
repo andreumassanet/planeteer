@@ -5,9 +5,20 @@ import { actionOf, inputBlocked, labelOf } from '../../controls.ts';
 import { DETAIL_MAX, DETAIL_MIN, detail, setDetail } from '../../view.ts';
 import type { Emote } from '../../../server/src/limits.ts';
 import type { Overlay } from './overlay.ts';
+import type { ProgressEvent } from '../../progress/events.ts';
 
-export function bindKeys(deps: { hud: Hud; overlay: Overlay; gesture: (name: Emote) => boolean; photo: () => void; signal: AbortSignal }): void {
-  const { hud, overlay, gesture, photo, signal } = deps;
+export function bindKeys(deps: {
+  hud: Hud;
+  overlay: Overlay;
+  gesture: (name: Emote) => boolean;
+  photo: () => void;
+  signal: AbortSignal;
+  /** Tells the progression a photo or a gesture. */
+  emit: (event: ProgressEvent) => void;
+  /** The Field Guide, open or shut. */
+  journal: () => void;
+}): void {
+  const { hud, overlay, gesture, photo, signal, emit, journal } = deps;
   addEventListener(
     'keydown',
     (event) => {
@@ -20,8 +31,18 @@ export function bindKeys(deps: { hud: Hud; overlay: Overlay; gesture: (name: Emo
       else if (event.repeat) return;
       else if (action === 'flags') hud.toast(overlay.set(!overlay.on) ? 'Nations and borders on' : 'Nations and borders off', 'flag');
       else if (action === 'hud') hud.toast(hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
-      else if (action === 'photo') photo();
-      else if ((action === 'wave' || action === 'dance') && !gesture(action)) hud.toast('Only standing on the ground', 'walk');
+      else if (action === 'photo') {
+        photo();
+        emit({ t: 'photo' });
+      } else if (action === 'journal') {
+        // Answered: the guide's own listener, which closes it on the same key, leaves this press alone.
+        event.preventDefault();
+        journal();
+      }
+      else if (action === 'wave' || action === 'dance') {
+        if (gesture(action)) emit({ t: 'emote', e: action });
+        else hud.toast('Only standing on the ground', 'walk');
+      }
     },
     { signal },
   );

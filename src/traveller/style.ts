@@ -151,6 +151,57 @@ export const STYLE = `
 }
 .cr-tile .cr-tick svg { width: 13px; height: 13px; }
 .cr-tile[aria-pressed='true'] .cr-tick { display: grid; }
+.cr-tile .cr-cond { display: none; font-size: 10.5px; font-weight: 800; opacity: 0.8; }
+.cr-tile .cr-lock {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  display: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: ${hex(PALETTE.white)};
+  background: rgba(30, 6, 3, 0.78);
+}
+.cr-tile .cr-lock svg { width: 14px; height: 14px; }
+/* Not earned: dimmed, a padlock, and what earns it under the name. */
+.cr-tile.locked canvas { filter: saturate(0.35) brightness(0.8); }
+.cr-tile.locked .cr-lock, .cr-tile.locked .cr-cond { display: grid; }
+.cr-tile.locked .cr-cond { display: block; }
+/* Tried on: on the stage, not worn. */
+.cr-tile.trying { border-style: dashed; border-color: var(--ui-gold); background: rgba(228, 169, 12, 0.16); }
+.cr-tile .cr-new {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  display: none;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: ${hex(PALETTE.ink)};
+  background: var(--ui-gold);
+  border: 2px solid ${hex(PALETTE.ink)};
+  border-radius: 999px;
+}
+.cr-tile.fresh .cr-new { display: block; }
+.cr-tab { position: relative; }
+.cr-tab.fresh::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ui-gold);
+  box-shadow: 0 0 0 2px ${hex(PALETTE.ink)};
+}
+.cr-lede { margin: 10px 0 0; font-size: 13px; font-weight: 700; line-height: 1.35; opacity: 0.8; }
+.cr-note { margin: 10px 0 0; font-size: 12.5px; font-weight: 800; line-height: 1.35; color: var(--ui-gold); }
+.cr-note[hidden], .cr-section[hidden] { display: none; }
 .cr-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
 .cr-swatch {
   width: 34px;

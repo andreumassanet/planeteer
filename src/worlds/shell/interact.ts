@@ -7,14 +7,15 @@ import type { Rocket } from '../../rocket.ts';
 import { ROCKET_KEYS } from './craft-hints.ts';
 import { ICON_OF } from './tables.ts';
 import type { Talking } from './talking.ts';
+import type { WorldExplorers } from './explorers.ts';
 import type { ShellWorld } from './types.ts';
 
 /** How near an alien has to be to be spoken to. */
 const TALK_REACH = 7.5;
 
 /** Returns `interact(state, inRocket)`, called every frame. */
-export function createInteraction(deps: { world: ShellWorld; hud: Hud; talking: Talking; cue: (name: Cue) => void }): (state: Input['state'], inRocket: Rocket | null) => void {
-  const { world, hud, talking, cue } = deps;
+export function createInteraction(deps: { world: ShellWorld; hud: Hud; talking: Talking; cue: (name: Cue) => void; explorers: WorldExplorers }): (state: Input['state'], inRocket: Rocket | null) => void {
+  const { world, hud, talking, cue, explorers } = deps;
   const { spec, player, crowd } = world;
   const civ = spec.civilisation;
   /** Whether the rocket's keys are up. */
@@ -47,7 +48,7 @@ export function createInteraction(deps: { world: ShellWorld; hud: Hud; talking: 
     }
   }
 
-  /** `E`: get out; else whoever is nearer, somebody to talk to, a seat or a rocket; and the prompt saying which. */
+  /** `E`: get out; else whoever is nearer, somebody to talk to (an alien or one of the guild's people), a seat or a rocket; and the prompt saying which. */
   function interact(state: Input['state'], inRocket: Rocket | null): void {
     const afoot = player.craft === null && !player.airborne && inRocket === null;
     const walker = civ === null || !afoot ? null : crowd.nearest(player.position, TALK_REACH);
@@ -56,8 +57,13 @@ export function createInteraction(deps: { world: ShellWorld; hud: Hud; talking: 
     const rocket = afoot ? world.rocketInReach() : null;
     const rocketAway = rocket === null ? Infinity : rocket.position.distanceTo(player.position) - 4;
     const craftAway = craft === null ? Infinity : craft.position.distanceTo(player.position);
-    const talkFirst = walker !== null && walker.mesh.position.distanceTo(player.position) < Math.min(craftAway, rocketAway);
-    const rocketFirst = rocket !== null && !talkFirst && rocketAway < craftAway;
+    const guild = explorers.runtime?.guild ?? null;
+    const guildOffer = afoot && talking.current === null ? guild?.offer ?? null : null;
+    const walkerAway = walker === null ? Infinity : walker.mesh.position.distanceTo(player.position);
+    const guildFirst = guildOffer !== null && guildOffer.gap < Math.min(walkerAway, craftAway, rocketAway);
+    if (guild !== null) guild.prompted = guildFirst;
+    const talkFirst = !guildFirst && walker !== null && walkerAway < Math.min(craftAway, rocketAway);
+    const rocketFirst = rocket !== null && !guildFirst && !talkFirst && rocketAway < craftAway;
     const talkingTo = talking.current;
     if (inRocket !== null) {
       // The keys above handle it.
@@ -66,7 +72,11 @@ export function createInteraction(deps: { world: ShellWorld; hud: Hud; talking: 
         player.leave();
         cue('ui-click');
       } else if (talkingTo !== null && (walker === null || walker === talkingTo)) talking.talkOn(talkingTo);
-      else if (talkFirst) talking.say(walker!);
+      else if (guildFirst) guild!.use();
+      else if (talkFirst) {
+        talking.say(walker!);
+        explorers.emit({ t: 'talk', key: `${world.spec.id}:${walker!.key}` });
+      }
       else if (rocketFirst) {
         talking.stop();
         world.boardRocket(rocket!);
@@ -82,7 +92,9 @@ export function createInteraction(deps: { world: ShellWorld; hud: Hud; talking: 
     if (inRocket !== null) {
       // Set above.
     } else if (player.craft !== null) hud.setPrompt('Get out', 'walk');
+    else if (guild?.talking === true) hud.setPrompt(null);
     else if (talking.current !== null) hud.setPrompt(talking.prompt(), 'talk');
+    else if (guildFirst) hud.setPrompt(guildOffer!.label, guildOffer!.kind === 'person' ? 'talk' : 'book');
     else if (talkFirst) hud.setPrompt('Talk', 'talk');
     else if (rocketFirst) hud.setPrompt('Board the rocket', 'sparkle');
     else if (craft !== null) hud.setPrompt('Drive', ICON_OF[craft.kind]);

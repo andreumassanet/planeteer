@@ -41,6 +41,10 @@ import { createOverlay } from './shell/overlay.ts';
 import { createPeerLink, createWorldPlayerList } from './shell/peer-link.ts';
 import { createPassportBook } from './shell/passport-book.ts';
 import { createTalking } from './shell/talking.ts';
+import { createWorldExplorers } from './shell/explorers.ts';
+import { createFolk } from '../folk.ts';
+import { titleOf } from '../cosmetics/titles.ts';
+import { worldGuildTowns } from './town-grid.ts';
 import type { Shell, ShellWorld } from './shell/types.ts';
 
 export { clockText, svgNode } from './shell/text.ts';
@@ -96,7 +100,7 @@ export function createShell(world: ShellWorld): Shell {
     },
     onPassport: () => book.card.toggle(),
     onStart: () => input.lock(),
-    profile: () => ({ name: travellerName(), stamps: book.passport.data.stamps.length, towns: book.passport.data.towns.length }),
+    profile: () => ({ name: travellerName(), stamps: book.passport.data.stamps.length, towns: book.passport.data.towns.length, title: titleOf(host.appearance()) }),
   });
   document.body.appendChild(hud.root);
 
@@ -108,7 +112,9 @@ export function createShell(world: ShellWorld): Shell {
 
   const paper = createMapPaper(world, { spec, geography, surface, settlements: world.settlements, political, radius: R });
 
-  const { peers, online, self, travellerName } = createPeerLink(world);
+  // One dressing of Earth's cast for the others and the guild's people.
+  const folk = createFolk(world.ctx);
+  const { peers, online, self, travellerName } = createPeerLink(world, folk);
 
   const book = createPassportBook({ host, lockTarget, cue, closeMap, holder: () => ({ name: travellerName(), appearance: host.appearance() }) });
   document.body.appendChild(book.card.root);
@@ -139,6 +145,11 @@ export function createShell(world: ShellWorld): Shell {
     hud.jump();
   }
 
+  // The Explorers' Guild's towns, a gold star each on the map.
+  const guildMarks = worldGuildTowns(spec).flatMap((id) => {
+    const town = body.settlements.find((one) => one.id === id);
+    return town === undefined ? [] : [{ lat: town.lat, lon: town.lon, name: town.name }];
+  });
   const map = createWorldMap(political, {
     surface,
     tiles: paper.mapTiles,
@@ -147,6 +158,7 @@ export function createShell(world: ShellWorld): Shell {
     monuments: [],
     courses: () => world.roadLines(),
     places: geography.places,
+    guilds: () => guildMarks,
     marker: () => nav.marker,
     onMark: (lat, lon, name, landmark) => nav.mark(lat, lon, name, landmark),
     onUnmark: () => nav.clear(),
@@ -168,17 +180,35 @@ export function createShell(world: ShellWorld): Shell {
     host, spec, geography, player, peers, online, places, isoAt, countryName, travellerName, home: () => world.home,
     time: clock.time, lockTarget, jump, joinPeer, gesture, photo: photo.request, closeMap,
   });
-  bindKeys({ hud, overlay, gesture, photo: photo.request, signal });
   const talking = createTalking({ host, spec, radius: R, settlements: world.settlements, crowd: world.crowd, player, rig, cue });
+  const explorers = createWorldExplorers({
+    world, hud, nav, map, minimap: paper.minimap, passport: book.passport, passportCard: book.card, peers, folk, cue, travellerName, countryName,
+    isoAt: (lat, lon) => {
+      const id = political.countryAt(lat, lon);
+      return id > 0 ? countries[id - 1]!.iso : '';
+    },
+  });
+  const unwall = world.addWall((position, radius) => explorers.collide(position, radius));
+  // A stamp is told to the progression once the book holds it.
+  const celebrate = book.passport.onStamp;
+  book.passport.onStamp = (stamp) => {
+    celebrate?.(stamp);
+    explorers.emit({ t: 'stamp', iso: stamp.iso });
+  };
+  bindKeys({ hud, overlay, gesture, photo: photo.request, signal, emit: explorers.emit, journal: () => {
+    const guide = explorers.runtime?.fieldGuide;
+    if (guide !== undefined && !guide.open) guide.show();
+  } });
   const last = rememberPlace({ world: spec.id, player, places, isoAt, signal });
 
   const frame = createShellFrame({
     world, clock, overlay, hud, names, minimap: paper.minimap, map, nav, playerList, settings: gear.settings, gear, chat,
-    passport: book.passport, passportCard: book.card, moment: book.moment, talking, photo, peers, self, places, countries, cue,
+    passport: book.passport, passportCard: book.card, moment: book.moment, talking, photo, peers, self, places, countries, cue, explorers,
   });
 
   let disposed = false;
   return {
+    explorers,
     date: clock.date,
     update: frame.update,
     drawn: frame.drawn,
@@ -193,6 +223,8 @@ export function createShell(world: ShellWorld): Shell {
       disposed = true;
       last.save();
       talking.stop();
+      unwall();
+      explorers.dispose();
       last.stop();
       abort.abort();
       chat.dispose();

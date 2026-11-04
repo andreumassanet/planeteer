@@ -126,6 +126,8 @@ export interface Peers {
   readonly online: number | null;
   /** Where a peer is drawn, in world units, or `null` if it has gone. */
   positionOf(id: string): THREE.Vector3 | null;
+  /** A peer's look as its wire code, or `''` for none known. */
+  lookOf(id: string): string;
   /**
    * Whether a peer's drawn state is off the ground: a jump, a fall, a flight,
    * and a horse's leap under its rider (`FleetLink.leaping`).

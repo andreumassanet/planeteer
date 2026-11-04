@@ -73,6 +73,7 @@ export function createPeers(url: string, folk: Folk, options: PeersOptions = {})
     airborneOf(id) {
       return peers.get(id)?.aloft ?? false;
     },
+    lookOf: (id) => core.looks.get(id) ?? '',
     positionOf(id) {
       const peer = peers.get(id);
       return peer === undefined || peer.snapshots.length === 0 ? null : peer.shown;

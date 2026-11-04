@@ -43,6 +43,23 @@ export function closuresFor(
   return shut;
 }
 
+/**
+ * Opens again, in place, every closed stretch with a cell `near` names: what
+ * `keepOpen` would have kept open, for a parcel laid after the closures were
+ * drawn. Opening only adds street, so every cell still fronts one and the
+ * streets still meet.
+ */
+export function reopenNear(
+  cells: number, avenue: Uint8Array, high: Uint8Array, shut: Uint8Array, near: (col: number, row: number) => boolean,
+): void {
+  if (cells < CLOSURE_MIN_CELLS) return;
+  const main = cells % 2 === 0 ? cells / 2 - 1 : -1;
+  for (const stretch of stretchesOf(cells, avenue, high, main)) {
+    if (!stretch.cells.some(([col, row]) => near(col, row))) continue;
+    for (const [col, row, side] of stretch.cells) shut[col * cells + row]! &= ~(1 << side);
+  }
+}
+
 /** Whether a cell's side carries an open street band, read off the raw plan and the closures. */
 export function sideOpen(
   cells: number, low: Uint8Array, high: Uint8Array, shut: Uint8Array, col: number, row: number, side: number,

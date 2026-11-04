@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { type Appearance, coloursOf, encodeAppearance, fitAppearance, wardrobeOf } from '../appearance.ts';
 import { paintWith } from '../cast.ts';
+import { shedCosmetics, wearCosmetics } from '../cosmetics/worn.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { buildBridge } from './bridge-room.ts';
 import type { HeroCtx } from './ctx.ts';
@@ -12,6 +13,7 @@ export function redress(ctx: HeroCtx, s: Scene, appearance: Appearance): void {
   const old = s.person;
   const fitted = fitAppearance(appearance);
   const person = ctx.cast.make(wardrobeOf(fitted), paintWith(coloursOf(fitted)), AVATAR_HEIGHT);
+  wearCosmetics(person, fitted);
   person.mixer.stopAllAction();
   const idle = person.actions.get('Idle_Neutral');
   idle?.reset().play();
@@ -27,6 +29,7 @@ export function redress(ctx: HeroCtx, s: Scene, appearance: Appearance): void {
   ctx.gesture = null;
   if (old !== null) {
     s.turntable.remove(old.root);
+    shedCosmetics(old);
     ctx.cast.release(old);
   }
   buildBridge(ctx);

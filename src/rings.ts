@@ -15,7 +15,9 @@
  * against the course's own par. With the switch off (`rings/switch.ts`)
  * there are none of them at all. Each ring strikes a bell a step higher
  * (`rings/chime.ts`); the HUD (`rings/panel.ts`) shows the run; the device
- * keeps what was collected and each course's best (`rings/store.ts`).
+ * keeps what was collected and each course's best (`rings/store.ts`), and
+ * the track of the best run round each course, which runs beside the next
+ * as its ghost with a split at every ring (`rings/ghost.ts`).
  */
 import * as THREE from 'three';
 import type { Place } from './places.ts';
@@ -33,6 +35,10 @@ import type { Ring } from './rings/layout.ts';
 import type { Pip, RingPanel } from './rings/panel.ts';
 import { deviceStore, lapText, mergeRecords, readRecord, writeRecord } from './rings/store.ts';
 import type { RingRecord, RingStorage } from './rings/store.ts';
+import { createGhostRecorder, ghostChars, readGhosts, splitDelta, splitText, writeGhosts } from './rings/ghost.ts';
+import type { GhostTrack } from './rings/ghost.ts';
+import { createGhostView, ghostShape } from './rings/ghost-view.ts';
+import type { GhostModel } from './rings/ghost-view.ts';
 
 export type { Ring } from './rings/layout.ts';
 export type { CourseKind, CourseSite } from './rings/courses.ts';
@@ -90,6 +96,25 @@ export interface RingsFrame {
   /** Off the ground: an air course's reticle shows. */
   airborne: boolean;
   camera: THREE.PerspectiveCamera;
+  /** The craft's rotation in the world, for its ghost; read off the way it moves where absent. */
+  facing?: THREE.Quaternion;
+  /** The craft's model, for its ghost's shape. */
+  model?: GhostModel | null;
+}
+
+/** What the ghosts are doing, for the console. */
+export interface GhostStats {
+  /** Courses with a ghost on the device, and what their tracks cost the store, characters. */
+  stored: number;
+  chars: number;
+  /** The course whose ghost runs now, or null. */
+  playing: string | null;
+  shape: 'model' | 'orb' | null;
+  shown: boolean;
+  /** Samples of the run under way. */
+  recording: number;
+  /** The last split against the ghost, ms, negative ahead; null for none. */
+  split: number | null;
 }
 
 /** A ring just flown through, for whoever wants to answer it (the camera's punch). */
@@ -99,6 +124,8 @@ export interface RingPass {
   grade: 'perfect' | 'through' | 'missed';
   /** The course run to its end, or a landmark's ring collected. */
   finished: boolean;
+  /** A course run to its end: which, how fast and with what medal (0 for none). */
+  run?: { key: string; kind: CourseKind; ms: number; medal: number };
 }
 
 /** The medal a course run earns: 3 gold, 2 silver, 1 bronze (half the rings or more), 0 none. */
@@ -139,6 +166,10 @@ export interface Rings {
   course(key?: string): readonly Ring[] | null;
   /** Forgets every ring collected and every best. */
   clear(): void;
+  /** The ghosts, for the console. */
+  readonly ghost: GhostStats;
+  /** Forgets one course's ghost, or every one: how many went. */
+  forgetGhosts(key?: string): number;
   /** Takes in another record (an account's), as `mergeRecords` does. */
   absorb(other: RingRecord): void;
   dispose(): void;
@@ -175,8 +206,14 @@ export function createRings(options: RingsOptions): Rings {
   const { landmarks, places, countries, planetRadius, sea, groundAt, chime, panel } = options;
   const storage = options.storage === undefined ? deviceStore() : options.storage;
   const record = readRecord(storage);
+  const ghosts = readGhosts(storage);
+  const recorder = createGhostRecorder();
+  const ghostView = createGhostView();
+  /** Each craft model's ghost shell, by id, built the first time that model runs. */
+  const shells = new Map<string, THREE.BufferGeometry>();
   const group = new THREE.Group();
   group.name = 'rings';
+  group.add(ghostView.object);
   const geometry = ringGeometry();
   const checkered = finishGeometry();
   const gold = ringMaterial(PALETTE.gold, 0.6);
@@ -228,6 +265,16 @@ export function createRings(options: RingsOptions): Rings {
   let missed = 0;
   let started = 0;
   let away = 0;
+  /** The ghost raced this run, the lap clock at each ring so far, and the model the run is made in. */
+  let rival: GhostTrack | null = null;
+  let splits: number[] = [];
+  let runModel = '';
+  const facing = new THREE.Quaternion();
+  const basis = new THREE.Matrix4();
+  const side = new THREE.Vector3();
+  const heading = new THREE.Vector3();
+  const upward = new THREE.Vector3();
+  const ghostStats: GhostStats = { stored: ghosts.size, chars: ghostChars(ghosts), playing: null, shape: null, shown: false, recording: 0, split: null };
   const popping: { ring: Ring; t: number; material: THREE.Material }[] = [];
   let time = 0;
   const stats = { drawn: 0, landmarks: 0, course: null as string | null, progress: 0, collected: record.landmarks.size, total: landmarks.length };
@@ -285,6 +332,10 @@ export function createRings(options: RingsOptions): Rings {
     perfects = 0;
     missed = 0;
     away = 0;
+    rival = null;
+    splits = [];
+    recorder.stop();
+    ghostView.stop();
     pips = Array.from({ length: rings?.length ?? 0 }, (): Pip => 'todo');
   }
 
@@ -313,13 +364,59 @@ export function createRings(options: RingsOptions): Rings {
     show(pick !== undefined && pick.units < pick.site.reach ? pick.site : null);
   }
 
-  function finishRun(course: Ring[]): void {
+  /** The craft's rotation this frame: the frame's own, else level along the way it moved. */
+  function facingOf(frame: RingsFrame): THREE.Quaternion {
+    if (frame.facing !== undefined) return facing.copy(frame.facing);
+    upward.copy(frame.position).normalize();
+    heading.subVectors(frame.position, previous).projectOnPlane(upward);
+    if (!hasPrevious || heading.lengthSq() < 1e-8) return facing;
+    heading.normalize();
+    side.crossVectors(upward, heading).normalize();
+    basis.makeBasis(side, upward, heading);
+    if (basis.determinant() <= 0) throw new Error('rings: the ghost frame would be mirrored');
+    return facing.setFromRotationMatrix(basis);
+  }
+
+  /** A run starts: recording from here, and this course's ghost, if any, off the same ring. */
+  function startGhost(key: string, at: THREE.Vector3, frame: RingsFrame): void {
+    runModel = frame.model?.id ?? '';
+    recorder.begin(at, facingOf(frame));
+    rival = ghosts.get(key) ?? null;
+    ghostStats.split = null;
+    if (rival === null) return;
+    let shell = shells.get(rival.model) ?? null;
+    if (shell === null && frame.model != null && frame.model.id === rival.model && rival.model !== '') {
+      try {
+        shell = ghostShape(frame.model);
+        shells.set(rival.model, shell);
+      } catch {
+        shell = null;
+      }
+    }
+    ghostView.start(rival, shell);
+  }
+
+  /** A run finished with a medal and faster than its ghost, or with none to beat: its track is the ghost now. */
+  function keepGhost(key: string, lap: number, medal: number): void {
+    const held = ghosts.get(key);
+    if (medal <= 0 || (held !== undefined && lap >= held.ms)) return;
+    const track = recorder.track(runModel, way === -1 ? -1 : 1, lap, splits, Date.now());
+    if (track === null) return;
+    ghosts.set(key, track);
+    writeGhosts(storage, ghosts);
+    ghostStats.stored = ghosts.size;
+    ghostStats.chars = ghostChars(ghosts);
+  }
+
+  function finishRun(course: Ring[]): { key: string; kind: CourseKind; ms: number; medal: number } {
     const s = site!;
     const lap = Math.max(0, (time - started - perfects * PERFECT_BONUS) * 1000);
     const par = (runLength(course) / PAR_SPEED[s.kind]) * 1000;
     const medal = medalFor(lap, par, missed, course.length);
     const best = record.courses.get(s.key);
     const fresh = medal > 0 && (best === undefined || lap < best.ms);
+    const raced = rival !== null && rival.way === way ? lap - rival.ms : null;
+    keepGhost(s.key, lap, medal);
     if (medal > 0) {
       record.courses.set(s.key, {
         ms: fresh ? Math.round(lap) : best!.ms,
@@ -339,18 +436,22 @@ export function createRings(options: RingsOptions): Rings {
       perfect: perfects,
       beat: fresh && best !== undefined ? lapText(best.ms) : null,
       fresh,
+      ghost: raced === null ? null : Math.abs(raced) < 50 ? 'Level with the ghost' : `Ghost ${raced < 0 ? 'beaten' : 'ahead'} by ${splitText(raced).slice(1)}`,
+      ahead: raced !== null && raced < 0,
     });
     reset();
+    return { key: s.key, kind: s.kind, ms: Math.round(lap), medal };
   }
 
   /** Before a run: its start ring passed either way starts it, a loop running on the way it was taken. */
-  function startCourse(course: Ring[], from: THREE.Vector3, to: THREE.Vector3): RingPass | null {
+  function startCourse(course: Ring[], from: THREE.Vector3, to: THREE.Vector3, frame: RingsFrame): RingPass | null {
     const ring = course[0]!;
     const grade = crossing(from, to, ring, PASS_SLACK, 0);
     if (grade !== 'perfect' && grade !== 'through') return null;
     first = 0;
     way = site!.loop && projected.subVectors(to, from).dot(ring.axis) < 0 ? -1 : 1;
     started = time;
+    startGhost(site!.key, to, frame);
     panel.callout(site!.title, `${course.length} ${site!.kind === 'air' ? 'rings' : 'gates'} · go!`, 'info', 1.8);
     return take(course, ring, grade);
   }
@@ -364,18 +465,27 @@ export function createRings(options: RingsOptions): Rings {
 
   /** Counts `ring` as the run's next, by how it was taken. */
   function take(course: Ring[], ring: Ring, grade: 'perfect' | 'through' | 'missed'): RingPass {
+    if (grade === 'perfect') perfects++;
+    const clock = Math.max(0, (time - started - perfects * PERFECT_BONUS) * 1000);
+    splits.push(clock);
+    const last = progress === course.length - 1;
+    const delta = progress === 0 || last ? null : splitDelta(rival, way, progress, clock);
+    ghostStats.split = delta ?? ghostStats.split;
+    const versus = delta === null ? '' : `ghost ${splitText(delta)}`;
     if (grade === 'missed') {
       missed++;
       pips[progress] = 'missed';
       popping.push({ ring, t: 0, material: red });
       chime.miss();
-      panel.callout('Missed', '', 'miss', 0.8);
+      panel.callout('Missed', versus, 'miss', 0.8);
     } else {
       if (grade === 'perfect') {
-        perfects++;
         pips[progress] = 'perfect';
-        if (progress > 0) panel.callout('Perfect!', `−${PERFECT_BONUS.toFixed(1)} s`, 'gold', 0.9);
-      } else pips[progress] = 'hit';
+        if (progress > 0) panel.callout('Perfect!', `−${PERFECT_BONUS.toFixed(1)} s${versus === '' ? '' : ` · ${versus}`}`, 'gold', 0.9);
+      } else {
+        pips[progress] = 'hit';
+        if (delta !== null) panel.callout(splitText(delta), 'against the ghost', delta <= 0 ? 'ahead' : 'behind', 0.9);
+      }
       popping.push({ ring, t: 0, material: progress === course.length - 1 ? finish : green });
       chime.ring(progress);
     }
@@ -384,8 +494,8 @@ export function createRings(options: RingsOptions): Rings {
       pips[progress] = 'next';
       return { ring, grade, finished: false };
     }
-    finishRun(course);
-    return { ring, grade, finished: true };
+    const run = finishRun(course);
+    return { ring, grade, finished: true, run };
   }
 
   function passLandmarks(from: THREE.Vector3, to: THREE.Vector3): RingPass | null {
@@ -437,6 +547,20 @@ export function createRings(options: RingsOptions): Rings {
     for (let i = used; i < pool.length; i++) pool[i]!.visible = false;
   }
 
+  function forgetGhosts(key?: string): number {
+    const before = ghosts.size;
+    if (key === undefined) ghosts.clear();
+    else ghosts.delete(key);
+    if (rival !== null && !ghosts.has(site?.key ?? '')) {
+      rival = null;
+      ghostView.stop();
+    }
+    writeGhosts(storage, ghosts);
+    ghostStats.stored = ghosts.size;
+    ghostStats.chars = ghostChars(ghosts);
+    return before - ghosts.size;
+  }
+
   /** The reticle over the next ring, or its arrow on the screen's edge. */
   function track(ring: Ring, frame: RingsFrame): void {
     const metres = ring.centre.distanceTo(frame.position) / SCENERY_SCALE;
@@ -468,6 +592,8 @@ export function createRings(options: RingsOptions): Rings {
     group,
     record,
     stats,
+    ghost: ghostStats,
+    forgetGhosts,
     get sites() {
       return ringsOn() ? sites : NO_SITES;
     },
@@ -507,9 +633,10 @@ export function createRings(options: RingsOptions): Rings {
         scan(frame.position);
       }
       chooseCourse(frame, dt);
+      if (progress > 0) recorder.step(time - started, frame.position, facingOf(frame));
       let pass: RingPass | null = null;
       if (hasPrevious) {
-        if (rings !== null) pass = progress === 0 ? startCourse(rings, previous, frame.position) : passCourse(rings, previous, frame.position);
+        if (rings !== null) pass = progress === 0 ? startCourse(rings, previous, frame.position, frame) : passCourse(rings, previous, frame.position);
         pass ??= passLandmarks(previous, frame.position);
       }
       previous.copy(frame.position);
@@ -519,6 +646,12 @@ export function createRings(options: RingsOptions): Rings {
         if (popping[i]!.t >= POP_TIME) popping.splice(i, 1);
       }
       draw();
+      if (progress > 0) ghostView.update(time - started, frame.position);
+      else ghostView.stop();
+      ghostStats.playing = progress > 0 && rival !== null ? site?.key ?? null : null;
+      ghostStats.shape = ghostView.shape;
+      ghostStats.shown = ghostView.shown;
+      ghostStats.recording = progress > 0 ? recorder.count : 0;
 
       if (site !== null && rings !== null && progress > 0) {
         const best = record.courses.get(site.key);
@@ -548,6 +681,7 @@ export function createRings(options: RingsOptions): Rings {
       record.landmarks.clear();
       record.courses.clear();
       writeRecord(storage, record);
+      forgetGhosts();
       stats.collected = 0;
       sinceScan = Infinity;
     },
@@ -563,6 +697,8 @@ export function createRings(options: RingsOptions): Rings {
       group.removeFromParent();
       geometry.dispose();
       checkered.dispose();
+      ghostView.dispose();
+      for (const shell of shells.values()) shell.dispose();
       for (const material of [gold, green, greenSoft, red, finish]) material.dispose();
     },
   };

@@ -15,6 +15,10 @@ import { PASSPORT_KEY, serialisePassport } from '../passport.ts';
 import type { PassportData } from '../passport.ts';
 import { RINGS_KEY, serialiseRecord } from '../rings/store.ts';
 import type { RingRecord } from '../rings/store.ts';
+import { JOBS_KEY, serialiseJobs } from '../jobs/store.ts';
+import type { JobRecord } from '../jobs/store.ts';
+import { CAREER_KEY, serialiseCareer } from '../progress/store.ts';
+import type { CareerRecord } from '../progress/store.ts';
 import {
   CHANGES_KEY, accountName, emptyProfile, localSignature, mergeProfiles, profileFromRow, profileKey, progressOf,
   readLocalProfile, writeLocalProfile,
@@ -54,6 +58,9 @@ export interface AccountView {
 export interface AccountLive {
   passport?: { absorb(other: PassportData): void };
   rings?: { absorb(other: RingRecord): void };
+  jobs?: { absorb(other: JobRecord): void };
+  /** The progression: folds a career in, and starts again from nothing on a reset. */
+  career?: { absorb(other: CareerRecord): void; reset?(): void };
   minimap?: { invalidate(): void };
   /** The name the others see changed: rename on the relay, redraw the plate. */
   name?(name: string): void;
@@ -77,8 +84,8 @@ export interface Account {
    */
   deleteAccount(): Promise<boolean>;
   /**
-   * Empties the passport and the rings, on this device and, signed in, on the
-   * account too. False when the account could not be reached; the device's
+   * Empties the passport, the rings, the jobs and the career, on this device and, signed in,
+   * on the account too. False when the account could not be reached; the device's
    * copy is left as it was then.
    */
   resetProgress(): Promise<boolean>;
@@ -87,6 +94,12 @@ export interface Account {
   returned(back: { code: string } | { error: string }): Promise<void>;
   /** Reads the row, merges and writes both ways. */
   sync(): Promise<void>;
+  /**
+   * Runs a request on the project's endpoint with a session good for a
+   * minute at least, or null when signed out or the token cannot be renewed
+   * just now: for what reads past the player's own row (the leaderboards).
+   */
+  request<T>(run: (rest: Rest, session: Session | null) => Promise<T>): Promise<T>;
   dispose(): void;
 }
 
@@ -165,6 +178,9 @@ export function createAccount(options: AccountOptions): Account {
       live.rings?.absorb(profile.rings);
       live.minimap?.invalidate();
     }
+    if (written.jobs) live.jobs?.absorb(profile.jobs);
+    // Told of anything that moves the level, so the progression takes it quietly.
+    if (written.career || written.passport || written.rings || written.jobs) live.career?.absorb(profile.career);
   }
 
   function rowWrite(profile: Profile, against: Profile | null): RowWrite {
@@ -320,10 +336,13 @@ export function createAccount(options: AccountOptions): Account {
       try {
         storage?.setItem(PASSPORT_KEY, serialisePassport(empty.passport));
         storage?.setItem(RINGS_KEY, serialiseRecord(empty.rings));
+        storage?.setItem(JOBS_KEY, serialiseJobs(empty.jobs));
+        storage?.setItem(CAREER_KEY, serialiseCareer(empty.career));
       } catch {
         return false;
       }
-      if (remote !== null) remote = { ...remote, passport: empty.passport, rings: empty.rings };
+      live.career?.reset?.();
+      if (remote !== null) remote = { ...remote, passport: empty.passport, rings: empty.rings, jobs: empty.jobs, career: empty.career };
       signature = localSignature(storage);
       return true;
     },
@@ -381,6 +400,10 @@ export function createAccount(options: AccountOptions): Account {
         running = null;
       });
       return running;
+    },
+    async request(run) {
+      const session = await auth.current().catch(() => null);
+      return run(rest, session);
     },
     dispose() {
       clearInterval(watchTimer);

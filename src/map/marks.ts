@@ -105,6 +105,46 @@ export function drawPeers(s: MapSheet): void {
   }
 }
 
+/** Past this many pixels a degree the guilds' stars carry their town's name. */
+const GUILD_NAMES_FROM = 14;
+const gold = hex(PALETTE.gold);
+
+/** A guild's mark: a gold star, inked. */
+export function traceGuildMark(mctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+  mctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const angle = -Math.PI / 2 + (i * Math.PI) / 5;
+    const r = i % 2 === 0 ? size : size * 0.45;
+    if (i === 0) mctx.moveTo(x + Math.cos(angle) * r, y + Math.sin(angle) * r);
+    else mctx.lineTo(x + Math.cos(angle) * r, y + Math.sin(angle) * r);
+  }
+  mctx.closePath();
+  mctx.fillStyle = gold;
+  mctx.fill();
+  mctx.lineWidth = 1.6;
+  mctx.strokeStyle = ink;
+  mctx.stroke();
+}
+
+/** The guilds, a gold star each, on the land under the pins. */
+export function drawGuilds(s: MapSheet): void {
+  const list = s.options.guilds?.() ?? [];
+  if (list.length === 0) return;
+  const { mctx } = s;
+  const pxPerDegree = s.S / 360;
+  const size = pxPerDegree < 4 ? 4 : pxPerDegree < 12 ? 5.5 : 7;
+  mctx.font = `800 11.5px ${FONT}`;
+  mctx.textAlign = 'center';
+  mctx.textBaseline = 'middle';
+  for (const guild of list) {
+    const x = screenX(s, uOf(guild.lon));
+    const y = screenY(s, vOf(guild.lat));
+    if (x < -20 || x > s.width + 20 || y < -20 || y > s.height + 20) continue;
+    traceGuildMark(mctx, x, y, size);
+    if (pxPerDegree >= GUILD_NAMES_FROM) inkedText(mctx, `${guild.name} Guild`, x, y + size + 9, paper, ink, 3);
+  }
+}
+
 export function drawMe(s: MapSheet, x: number, y: number): void {
   traceYou(s.mctx, x, y, s.me.heading, 1);
 }
@@ -144,6 +184,7 @@ export function drawMarks(s: MapSheet): void {
   const mark = marker();
   // The route to the marker: the great circle, dashed.
   if (mark !== null && me.known) drawRoute(s, mark);
+  drawGuilds(s);
   drawCourseBadges(s);
   for (const pin of keptPins) {
     const grow = s.hover?.kind === 'pin' && s.hover.index === pin.index ? 1.3 : 1;

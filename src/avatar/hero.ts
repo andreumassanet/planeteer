@@ -1,5 +1,6 @@
 import { DEFAULT_APPEARANCE, WARDROBE_OUTFITS, fitAppearance, outfitsOf, storeAppearance, storedAppearance, type Appearance } from '../appearance.ts';
 import { castMaterial, loadCast, type Cast } from '../cast.ts';
+import { wearCanopy } from '../craft/parachute.ts';
 import { createContext } from '../monuments/contract.ts';
 
 export const ctx = createContext();
@@ -8,6 +9,8 @@ export const palette = ctx.palette;
 export let heroCast: Cast | null = null;
 /** The traveller as chosen, which every hero `buildAvatar` makes without one wears. */
 export let chosen: Appearance = storedAppearance();
+// The traveller's own parachute is in the canopy they wear.
+wearCanopy(chosen.canopy);
 /** Every hero built without an appearance of its own, to be dressed when it changes. */
 export const heroes = new Set<(appearance: Appearance) => Promise<void>>();
 
@@ -49,5 +52,6 @@ export function heroAppearance(): Appearance {
 export function dressHero(appearance: Appearance): Promise<void> {
   chosen = fitAppearance(appearance);
   storeAppearance(chosen);
+  wearCanopy(chosen.canopy);
   return Promise.all([...heroes].map((wear) => wear(chosen))).then(() => undefined);
 }

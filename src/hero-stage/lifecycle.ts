@@ -7,6 +7,7 @@ import { setScenery } from './bridge-room.ts';
 import type { HeroCtx } from './ctx.ts';
 import { redress } from './figure.ts';
 import { buildScene } from './scene.ts';
+import { shedCosmetics } from '../cosmetics/worn.ts';
 
 export function openScene(ctx: HeroCtx): void {
   const { options, wait } = ctx;
@@ -47,7 +48,10 @@ export function closeScene(ctx: HeroCtx): void {
   root.classList.remove('leaving');
   ctx.standingFrames = 0;
   ctx.leaving = null;
-  if (s.person !== null && ctx.cast !== null) ctx.cast.release(s.person);
+  if (s.person !== null && ctx.cast !== null) {
+    shedCosmetics(s.person);
+    ctx.cast.release(s.person);
+  }
   for (const mesh of s.plinth) {
     mesh.geometry.dispose();
     (mesh.material as THREE.Material).dispose();

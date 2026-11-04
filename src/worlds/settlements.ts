@@ -40,6 +40,8 @@ import { bakeTown } from './settlements/site-mesh.ts';
 import { createTownMaterial } from './settlements/town-material.ts';
 import type { CraftSpot, Footprint, Settlements, Site } from './settlements/types.ts';
 import { createTownWalls } from './settlements/walls.ts';
+import { worldGuildSquare } from './settlements/guild-square.ts';
+import type { GuildSquare } from '../guild/square.ts';
 
 export { PARKED_KITS, PLATFORM_LIFT } from './settlements/types.ts';
 export type { CraftSpot, Footprint, Plot, Port, Settlements, Site } from './settlements/types.ts';
@@ -74,6 +76,9 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
   // The roads, a function of the towns: which main street ends lead somewhere.
   const network = roadNetwork(spec, sites, terrain);
   const town: TownContext = { spec, ctx, style, colony, deck, terrain, network, smallPlants };
+  // The guild squares of the towns standing, worked out once a build.
+  const squares = new Map<string, GuildSquare>();
+  const standing: GuildSquare[] = [];
 
   function build(site: Site): void {
     const began = performance.now();
@@ -111,6 +116,7 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
     stats.triangles -= site.mesh.geometry.getAttribute('position').count / 3;
     site.mesh.geometry.dispose();
     site.mesh = null;
+    squares.delete(site.id);
     site.footprints = [];
     site.port = null;
     if (site.kit) stats.kit--;
@@ -160,6 +166,21 @@ export function createSettlements(spec: WorldSpec, terrain: Terrain, ctx: Scener
     },
     collide: walls.collide,
     blocks: walls.blocks,
+    guilds(places) {
+      standing.length = 0;
+      sites.forEach((site, index) => {
+        const guild = site.town?.guild ?? null;
+        const place = places[index];
+        if (guild === null || site.mesh === null || place === undefined) return;
+        let square = squares.get(site.id);
+        if (square === undefined) {
+          square = worldGuildSquare(site, guild.layout, place, index);
+          squares.set(site.id, square);
+        }
+        standing.push(square);
+      });
+      return standing;
+    },
     craftAt(site) {
       const known = spots.get(site.id);
       if (known !== undefined) return known;

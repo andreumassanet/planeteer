@@ -52,6 +52,8 @@ export const CONTROL_SECTIONS: readonly { title: string; rows: readonly ControlR
       { action: 'mapIn', label: 'Zoom the map in' },
       { action: 'mapOut', label: 'Zoom the map out' },
       { action: 'passport', label: 'Passport: a stamp for every country' },
+      { action: 'jobs', label: 'Jobs: head for the next one nearby · twice to give one up' },
+      { action: 'journal', label: 'Field Guide: quests, commissions, milestones and how everything works' },
       { action: 'flags', label: 'Flags and borders from the air' },
     ],
   },

@@ -235,6 +235,8 @@ export function commitTown(kit: RaiseKit, job: RaiseJob, ground: Ground, town: T
   slot.parked = job.parked;
   slot.benches = job.benches;
   slot.bikeSlots = job.bikeSlots;
+  slot.guild = job.guild;
+  if (slot.guild !== null) registry.guildTowns.add(slot);
 
   if (leafMesh !== null) registry.townCrowns(mesh, town.cards);
   registry.group.add(mesh);

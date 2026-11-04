@@ -19,6 +19,7 @@ import type { LeafCard } from '../meshes.ts';
 import type { PropKind } from '../../breakables/kinds.ts';
 import type { Surface } from '../../surfaces.ts';
 import type { Variants } from '../variants.ts';
+import type { GuildSquare } from '../../guild/square.ts';
 
 /** The state one town's raise shares between its phases, and what it is raised with. */
 
@@ -136,6 +137,8 @@ export interface RaiseJob {
   takenVertices: number;
   /** Where the overhead's poles and masts stand, for the dressing to keep off. */
   readonly overheadSpots: number[];
+  /** The guild's square as it will be published, in the world; null where the town has none. */
+  guild: GuildSquare | null;
 }
 
 /** Transform scratch the raise reuses. */

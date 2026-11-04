@@ -7,7 +7,8 @@
  *   arrow on the screen's edge pointing round to it;
  * - the callout: a word in big inked letters for a moment (a perfect pass, a
  *   miss, a course found, a landmark's ring);
- * - the result: the medal, the time and the rings, when a course is flown.
+ * - the result: the medal, the time and the rings, when a course is flown,
+ *   and how the run stood against the course's ghost.
  */
 /** How a ring of a course stands, as the card draws its pip. */
 export type Pip = 'perfect' | 'hit' | 'missed' | 'next' | 'todo';
@@ -32,9 +33,13 @@ export interface CourseResult {
   /** The time it beat, or null when it is the first or did not beat it. */
   beat: string | null;
   fresh: boolean;
+  /** How the run stood against the course's ghost at the line, or null with none to race. */
+  ghost?: string | null;
+  /** Whether that is the ghost beaten. */
+  ahead?: boolean;
 }
 
-export type CalloutTone = 'gold' | 'good' | 'miss' | 'info';
+export type CalloutTone = 'gold' | 'good' | 'miss' | 'info' | 'ahead' | 'behind';
 
 export interface RingPanel {
   readonly element: HTMLElement;
@@ -155,6 +160,8 @@ const STYLE = `
 }
 .atlas-callout.gold .atlas-callout-text { color: var(--ui-gold); }
 .atlas-callout.miss .atlas-callout-text { color: var(--ui-crimson); }
+.atlas-callout.ahead .atlas-callout-text { color: var(--ui-green); }
+.atlas-callout.behind .atlas-callout-text { color: var(--ui-crimson); }
 .atlas-callout.info .atlas-callout-text { font-size: clamp(28px, 4.2vw, 48px); }
 .atlas-callout-sub {
   display: inline-block;
@@ -191,6 +198,9 @@ const STYLE = `
 .atlas-result-facts { display: flex; justify-content: center; gap: 16px; font-size: 13.5px; font-weight: 800; opacity: 0.75; }
 .atlas-result-best { margin-top: 10px; font-size: 14px; font-weight: 900; color: var(--ui-crimson); }
 .atlas-result-best:empty { display: none; }
+.atlas-result-ghost { margin-top: 6px; font-size: 14px; font-weight: 900; color: var(--ui-crimson); }
+.atlas-result-ghost.ahead { color: var(--ui-green); }
+.atlas-result-ghost:empty { display: none; }
 
 html.touch-ui .atlas-course { top: calc(max(10px, env(safe-area-inset-top)) + 96px); }
 `;
@@ -266,6 +276,7 @@ export function createRingPanel(parent: HTMLElement): RingPanel {
   const resultTime = el('div', 'atlas-result-time', resultCard);
   const resultFacts = el('div', 'atlas-result-facts', resultCard);
   const resultBest = el('div', 'atlas-result-best', resultCard);
+  const resultGhost = el('div', 'atlas-result-ghost', resultCard);
   let resultTimer = 0;
 
   /** Restarts a CSS animation by toggling its class across a reflow. */
@@ -340,6 +351,8 @@ export function createRingPanel(parent: HTMLElement): RingPanel {
       resultTime.textContent = r.time;
       resultFacts.replaceChildren();
       for (const fact of [`${r.rings} / ${r.of} rings`, `${r.perfect} perfect`]) el('span', '', resultFacts).textContent = fact;
+      resultGhost.textContent = r.ghost ?? '';
+      resultGhost.classList.toggle('ahead', r.ahead === true);
       resultBest.textContent = r.fresh ? (r.beat === null ? 'First time round' : `New best · was ${r.beat}`) : '';
       replay(resultCard, 'on');
       clearTimeout(resultTimer);

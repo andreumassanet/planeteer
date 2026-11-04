@@ -1,6 +1,7 @@
 /** A grid town's shared types. */
 
 import type { TownGrid } from '../../scenery/grid.ts';
+import type { WorldGuild } from './guild.ts';
 
 /** One street: a line along `axis` at `at` across the other, `half` wide either side, with its pavements. */
 export interface Street {
@@ -65,4 +66,6 @@ export interface GridTown {
   arrival: { x: number; z: number };
   /** The carriageway's half of the main street, for a craft parked on it. */
   mainCarriage: number;
+  /** The Explorers' Guild's square, in the towns that keep one (`town-grid/guild.ts`). */
+  guild: WorldGuild | null;
 }

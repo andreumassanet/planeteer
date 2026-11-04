@@ -53,18 +53,22 @@ export const SHOTS: Readonly<Record<StageShot, Shot>> = {
   title: { aim: 0.5, fill: 0.62, width: 0.55, elev: 0.14, yaw: 0 },
   full: { aim: 0.5, fill: 0.6, width: 0.5, elev: 0.12, yaw: 0.35 },
   head: { aim: 0.9, fill: 0.135, width: 0.14, elev: 0.03, yaw: 0.3 },
+  hat: { aim: 0.94, fill: 0.17, width: 0.2, elev: 0.06, yaw: 0.45 },
   top: { aim: 0.69, fill: 0.25, width: 0.28, elev: 0.06, yaw: 0.35 },
   legs: { aim: 0.3, fill: 0.3, width: 0.3, elev: 0.1, yaw: 0.5 },
   feet: { aim: 0.07, fill: 0.15, width: 0.24, elev: 0.45, yaw: 0.6 },
   back: { aim: 0.66, fill: 0.34, width: 0.36, elev: 0.12, yaw: Math.PI - 0.55 },
+  carry: { aim: 0.72, fill: 0.57, width: 0.5, elev: 0.1, yaw: Math.PI - 0.6 },
 };
 
 /** A tile's framing: the same terms, square. */
 export const PORTRAITS: Readonly<Record<PortraitFrame, Omit<Shot, 'width'>>> = {
   body: { aim: 0.5, fill: 0.56, elev: 0.1, yaw: 0.35 },
   head: { aim: 0.9, fill: 0.14, elev: 0.04, yaw: 0.35 },
+  hat: { aim: 0.95, fill: 0.16, elev: 0.08, yaw: 0.5 },
   top: { aim: 0.68, fill: 0.22, elev: 0.06, yaw: 0.35 },
   bottom: { aim: 0.3, fill: 0.27, elev: 0.1, yaw: 0.45 },
   feet: { aim: 0.06, fill: 0.12, elev: 0.55, yaw: 0.6 },
   pack: { aim: 0.68, fill: 0.25, elev: 0.1, yaw: Math.PI - 0.6 },
+  carry: { aim: 0.7, fill: 0.58, elev: 0.08, yaw: Math.PI - 0.7 },
 };

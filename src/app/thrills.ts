@@ -1,7 +1,7 @@
 /**
  * The flourishes on top of travelling: the rush (the lens opening and the
  * speed lines as the ground streams past, a tremor at full speed), the guide
- * to the marker or a course's next ring, and the rings themselves, whose
+ * to the marker, a job or a course's next ring, and the rings themselves, whose
  * passing punches the lens. One phase, after the camera has moved.
  */
 import * as THREE from 'three';
@@ -34,6 +34,8 @@ const TREMOR = 0.12;
 const LINES_GAIN = 1.5;
 /** How high over the marker an aircraft's line leads, units: the navigation's waypoint height. */
 const AIR_RISE = 90;
+/** Within this of a job's pickup or drop, units, its beacon steps aside: the one waiting and the tag say where. */
+const JOB_BEACON_NEAR = 60;
 /** On foot this high over the ground (a fall, a canopy), the line is an aircraft's. */
 const FALLING = 40;
 
@@ -73,11 +75,17 @@ export function createThrills(app: App): Thrills {
   let punch = 0;
   const travel = new THREE.Vector3();
   const focus = new THREE.Vector3();
+  /** The craft's rotation in the world, for the ring course's ghost. */
+  const craftTurn = new THREE.Quaternion();
   const sample = new THREE.Vector3();
   /** The marker's ground point and the point over it an aircraft is led to, kept for the marker they were found for. */
   const anchor = new THREE.Vector3();
   const over = new THREE.Vector3();
   let anchoredFor = '';
+  /** The same for a job's pickup or drop. */
+  const jobAnchor = new THREE.Vector3();
+  const jobOver = new THREE.Vector3();
+  const jobFor = new THREE.Vector3();
   const assistTarget = new THREE.Vector3();
   const assisting: FlightAssist = { target: assistTarget, strength: 0 };
   let assist: FlightAssist | null = null;
@@ -123,7 +131,7 @@ export function createThrills(app: App): Thrills {
     return ride.model.medium;
   }
 
-  /** Where the line leads this frame, or null: a course's next ring from the air, else the marker. */
+  /** Where the line leads this frame, or null: a course's next ring from the air, else a job's pickup or drop, else the marker. */
   function guideFrame(aircraft: boolean): GuideFrame | null {
     if (photoModeOn() || app.launchPads.riding !== null) return null;
     const medium = mediumOf();
@@ -134,6 +142,19 @@ export function createThrills(app: App): Thrills {
       frame.target = next.centre;
       frame.tone = 'ring';
       frame.beacon = null;
+      return frame;
+    }
+    const job = app.jobs?.target ?? null;
+    if (job !== null) {
+      if (!jobFor.equals(job)) {
+        jobFor.copy(job);
+        const ground = surfaceAt(job);
+        jobAnchor.copy(job).normalize().multiplyScalar(ground);
+        jobOver.copy(job).normalize().multiplyScalar(ground + AIR_RISE);
+      }
+      frame.target = medium === 'air' ? jobOver : jobAnchor;
+      frame.tone = 'job';
+      frame.beacon = player.position.distanceTo(jobAnchor) < JOB_BEACON_NEAR ? null : jobAnchor;
       return frame;
     }
     const marker = nav.marker;
@@ -182,7 +203,13 @@ export function createThrills(app: App): Thrills {
           kind: courseKind(),
           airborne: player.airborne,
           camera: rig.camera,
+          facing: craftTurn.copy(player.object.quaternion).multiply(player.attitude),
+          model: player.ride?.model ?? null,
         });
+        if (pass !== null && pass.finished) {
+          if (pass.run !== undefined) app.emit({ t: 'course', id: pass.run.key, kind: pass.run.kind, medal: pass.run.medal, ms: pass.run.ms });
+          else if (pass.ring.kind === 'landmark') app.emit({ t: 'ring', landmark: pass.ring.key.slice(2) });
+        }
         if (pass !== null && pass.grade !== 'missed') {
           const strong = pass.finished || pass.grade === 'perfect';
           punch = Math.max(punch, strong ? PULSE_FINISHED : PULSE_RING);

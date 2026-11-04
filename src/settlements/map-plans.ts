@@ -10,6 +10,10 @@ import { cellKey, pavementOf, trodden } from '../scenery/ground.ts';
 import type { Placed } from '../scenery/index.ts';
 import type { Solid } from '../scenery/solids.ts';
 import { mayBuild } from '../view.ts';
+import { guildSolids } from '../guild/square.ts';
+import { HALL_COLOURS } from '../guild/square-hall.ts';
+import { FOUNTAIN_WATER, RING_SHADE } from '../guild/square-build.ts';
+import { shade } from '../scenery/street-dressing/paint.ts';
 import { PLAN_BUILD_MS, drain } from './budget.ts';
 import type { TownFrame } from './frame.ts';
 import { pavedUnder, solidOf } from './plots.ts';
@@ -163,12 +167,22 @@ function slotPlan(
   if (style.yard === 'paved') planYard.setHex(style.walk);
   else if (style.yard === 'earth') trodden(planLand, planYard);
   else planYard.copy(planLand);
-  const buildings = new Float32Array(solids.length * 6);
-  const roofs = new Uint32Array(solids.length);
+  // The guild's hall is one of the buildings, in its own roof's colour.
+  const guild = frame.guild;
+  const hall = guild === null ? null : guildSolids(guild, { hall: 0 }).find((entry) => entry.kind === 'hall')!.solid;
+  const count = solids.length + (hall === null ? 0 : 1);
+  const buildings = new Float32Array(count * 6);
+  const roofs = new Uint32Array(count);
   solids.forEach((solid, k) => {
     buildings.set([solid.x, solid.z, solid.cos, solid.sin, solid.hx, solid.hz], k * 6);
     roofs[k] = roofOf(flats[k]!);
   });
+  const allKinds = [...kinds];
+  if (hall !== null) {
+    buildings.set([hall.x, hall.z, hall.cos, hall.sin, hall.hx, hall.hz], solids.length * 6);
+    roofs[solids.length] = HALL_COLOURS.roof;
+    allKinds.push(2);
+  }
   const band = streetBand(grid, style.street);
   return {
     index: slot.index,
@@ -181,9 +195,17 @@ function slotPlan(
     walk: pavementOf(band),
     colours: { road: style.road, walk: style.walk, yard: planYard.getHex(), land: planLand.getHex(), plaza: style.plaza },
     buildings,
-    kinds: Uint8Array.from(kinds),
+    kinds: Uint8Array.from(allKinds),
     roofs,
     trees: Float32Array.from(trees),
+    ...(guild === null ? {} : {
+      guild: {
+        c0: guild.parcel.c0, c1: guild.parcel.c1, r0: guild.parcel.r0, r1: guild.parcel.r1,
+        rect: [guild.x0, guild.x1, guild.z0, guild.z1] as [number, number, number, number],
+        fountain: [guild.fountain.x, guild.fountain.z, guild.fountain.radius, guild.fountain.rose] as [number, number, number, number],
+        colours: { ring: shade(style.plaza, RING_SHADE), stone: HALL_COLOURS.stone, water: FOUNTAIN_WATER },
+      },
+    }),
   };
 }
 

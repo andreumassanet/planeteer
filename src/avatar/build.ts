@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { DEFAULT_APPEARANCE, coloursOf, fitAppearance, outfitsOf, wardrobeOf, type Appearance } from '../appearance.ts';
 import { handHold, limbsOf, paintWith } from '../cast.ts';
+import { shedCosmetics, stowCosmetics, wearCosmetics } from '../cosmetics/worn.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import type { Avatar, Rig } from './avatar-type.ts';
 import type { BodyKit } from './body-kit.ts';
@@ -30,6 +31,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
 
   function dress(wanted: Appearance): Rig {
     const person = cast.make(wardrobeOf(wanted), paintWith(coloursOf(wanted)), AVATAR_HEIGHT);
+    wearCosmetics(person, wanted);
     // Measured in the bind pose, which `limbsOf` puts the skeleton in.
     const limbs = limbsOf(person);
     body.add(person.root);
@@ -61,10 +63,24 @@ export function buildAvatar(appearance?: Appearance): Avatar {
   }
 
   const kit: BodyKit = { group, body, motion, rig: () => rig, handsOn, handsOff, foldHead };
-  const { sit, ride } = createSeated(kit);
-  const skydive = createSkydive(kit);
+  const seated = createSeated(kit);
+  const fall = createSkydive(kit);
+  // What hangs on the back is put away in a seat, where the seat's back and the cab's roof are.
+  const sit: Avatar['sit'] = (dt, seat, turn) => {
+    stowCosmetics(rig.person, true);
+    seated.sit(dt, seat, turn);
+  };
+  const ride: Avatar['ride'] = (dt, seat, phase) => {
+    stowCosmetics(rig.person, false);
+    seated.ride(dt, seat, phase);
+  };
+  const skydive: Avatar['skydive'] = (...args) => {
+    stowCosmetics(rig.person, false);
+    fall(...args);
+  };
 
   function stride(dt: number, speed: number, airborne: boolean, cues?: MotionCues): void {
+    stowCosmetics(rig.person, false);
     handsOff();
     body.position.set(0, 0, 0);
     body.rotation.set(0, 0, 0);
@@ -73,6 +89,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
   }
 
   function swim(dt: number, speed: number, sink: number, under = 0): void {
+    stowCosmetics(rig.person, false);
     handsOff();
     motion.swim(dt, speed, under);
     // The body rolls with the stroke, towards the arm that is pulling — a
@@ -101,6 +118,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
    * deck's roll so the sea reads as moving under him.
    */
   function steer(dt: number, heel: number): void {
+    stowCosmetics(rig.person, false);
     handsOff();
     body.position.set(0, 0, 0);
     motion.still(dt);
@@ -128,6 +146,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
     body.remove(old.person.root);
     motion.rebind(rig.person);
     old.person.bones.get('Head')?.scale.setScalar(1);
+    shedCosmetics(old.person);
     cast.release(old.person);
     foldHead();
   }
@@ -168,6 +187,7 @@ export function buildAvatar(appearance?: Appearance): Avatar {
       group.removeFromParent();
       body.remove(rig.person.root);
       rig.person.bones.get('Head')?.scale.setScalar(1);
+      shedCosmetics(rig.person);
       cast.release(rig.person);
     },
   };

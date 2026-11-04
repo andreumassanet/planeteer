@@ -78,6 +78,8 @@ export interface WorldMapOptions {
    * an empty list until the courses are known.
    */
   courseSites?: () => readonly MapCourseSite[];
+  /** The Explorers' Guild's squares (`guild/sites.ts`), a gold star each, named once the sheet is zoomed in. */
+  guilds?: () => readonly { lat: number; lon: number; name: string }[];
   /** Where a course starts, a unit direction under its first ring; a click on its badge marks there. Omitted, its site. */
   courseStart?: (key: string) => Point | null;
   /** A course's best on this device, for its badge's medal and its tip. */

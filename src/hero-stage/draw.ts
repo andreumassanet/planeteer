@@ -1,6 +1,7 @@
 /** One frame of the stage. */
 import * as THREE from 'three';
 import { encodeAppearance } from '../appearance.ts';
+import { titleOf } from '../cosmetics/titles.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import { standing } from './bridge-room.ts';
 import { aimHead, placeCamera, target } from './camera.ts';
@@ -17,8 +18,11 @@ export function draw(ctx: HeroCtx, now: number): void {
   const dt = Math.min(0.1, Math.max(0, (now - s.last) / 1000));
   s.last = now;
   ctx.clock += dt;
-  const appearance = options.appearance();
+  const appearance = ctx.preview ?? options.appearance();
   if (ctx.cast !== null && encodeAppearance(appearance) !== s.worn) redress(ctx, s, appearance);
+  const title = titleOf(appearance);
+  if (ctx.titleText.textContent !== (title ?? '')) ctx.titleText.textContent = title ?? '';
+  ctx.titleText.hidden = title === null || ctx.editing;
 
   // The framing, eased; under reduced motion it cuts.
   const ease = calm.matches ? 1 : 1 - Math.exp(-dt / DOLLY);

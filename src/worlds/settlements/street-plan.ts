@@ -8,6 +8,7 @@
  */
 
 import * as THREE from 'three';
+import { guildCut, withoutCut } from '../town-grid.ts';
 import type { GridTown } from '../town-grid.ts';
 import { CARRIAGE_TOP } from '../roads.ts';
 import type { Gate } from '../roads.ts';
@@ -52,9 +53,15 @@ export function drawStreets(t: TownContext, site: Site, town: GridTown, draft: T
     const width = (street.half - street.walk) * 2;
     // The carriageways one way a hair over the other, where they cross.
     const lift = along ? 0.012 : 0;
-    const road = ctx.box(along ? half * 2 : width, 0.3, along ? width : half * 2, carriage);
-    road.position.set(along ? 0 : street.at, floor + CARRIAGE_TOP + lift - 0.3, along ? street.at : 0);
-    draft.add(road);
+    // Through the guild's square the street gives way to its paving.
+    const cut = guildCut(town.guild, street);
+    for (const [a, b] of withoutCut(-half, half, cut)) {
+      const length = b - a;
+      if (length < 0.5) continue;
+      const road = ctx.box(along ? length : width, 0.3, along ? width : length, carriage);
+      road.position.set(along ? (a + b) / 2 : street.at, floor + CARRIAGE_TOP + lift - 0.3, along ? street.at : (a + b) / 2);
+      draft.add(road);
+    }
     // The pavements, cut at every crossing, a kerb's height over the road.
     const crossings = town.streets
       .filter((other) => other.axis !== street.axis)
@@ -67,6 +74,7 @@ export function drawStreets(t: TownContext, site: Site, town: GridTown, draft: T
       from = Math.max(from, hi);
     }
     if (from < half) runs.push([from, half]);
+    if (cut !== null) runs.splice(0, runs.length, ...runs.flatMap(([a, b]) => withoutCut(a, b, cut)));
     for (const side of [-1, 1]) {
       const centre = street.at + side * (street.half - street.walk / 2);
       for (const [a, b] of runs) {

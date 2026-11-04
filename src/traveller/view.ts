@@ -1,18 +1,26 @@
 /** Refreshing the open page, turning to another category and telling the stage how much of the screen the column takes. */
 import { CATEGORIES, type CategoryId } from './categories.ts';
 import type { TravellerCtx } from './ctx.ts';
+import { freshIn, markPageSeen, tryOn } from './earned.ts';
 
 export function refresh(ctx: TravellerCtx): void {
-  const { history, refreshViews, refreshers, undoButton } = ctx;
+  const { history, refreshViews, refreshers, tabs, undoButton } = ctx;
   for (const run of refreshers.get(ctx.current) ?? []) run();
   undoButton.disabled = history.length === 0;
   refreshViews();
+  // A dot on every tab with something earned not looked at yet.
+  for (const [id, tab] of tabs) tab.classList.toggle('fresh', id !== ctx.current && freshIn(ctx, id));
 }
 
 export function select(ctx: TravellerCtx, id: CategoryId, focus = false): void {
   const { pages, stage, tabs } = ctx;
   const category = CATEGORIES.find((entry) => entry.id === id)!;
   const changed = id !== ctx.current;
+  if (changed) {
+    // What was tried on goes with the page it was tried on; what was new there has been seen.
+    markPageSeen(ctx, ctx.current);
+    if (ctx.trying !== null) tryOn(ctx, null);
+  }
   ctx.current = id;
   for (const [key, tab] of tabs) {
     tab.setAttribute('aria-selected', String(key === id));

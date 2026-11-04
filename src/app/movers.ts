@@ -21,6 +21,8 @@ import type { SignalLamps } from '../signal-lamps.ts';
 
 export interface Movers {
   folk: Folk;
+  /** The kit's rigs: the herds', the townsfolk's dogs and the travellers' companions. */
+  rigs: Parameters<Townsfolk['setRigs']>[0];
   townsfolk: Townsfolk;
   /** The lit lamps of the near cities' traffic lights. */
   signalLamps: SignalLamps;
@@ -143,7 +145,7 @@ export async function buildMovers(app: App): Promise<Movers> {
   }
 
   return {
-    folk, townsfolk, signalLamps, personRadius: PERSON_RADIUS, isWoman, isYoung, talk,
+    folk, townsfolk, signalLamps, personRadius: PERSON_RADIUS, isWoman, isYoung, talk, rigs,
     fleetSites, railNetwork, padIndex, takenGround, inkSource, rigMaterial, launchPads, harbours, life, railway,
   };
 }

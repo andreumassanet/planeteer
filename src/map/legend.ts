@@ -3,7 +3,7 @@ import { COURSE_NAME, traceCourseBadge, traceRingMark } from '../course-marks.ts
 import type { CourseMarkKind } from '../course-marks.ts';
 import { h } from '../ui.ts';
 import { PAD_HEIGHT } from './constants.ts';
-import { tracePinMark, traceYou } from './marks.ts';
+import { tracePinMark, traceGuildMark, traceYou } from './marks.ts';
 import { ink, paper, pink, red, violet } from './palette.ts';
 import type { WorldMapOptions } from './types.ts';
 
@@ -45,6 +45,7 @@ export function createLegend(options: WorldMapOptions): HTMLElement {
     }, 'Settlement'));
   }
   keys.push(key((ctx) => tracePinMark(ctx, middle, 19, violet, 1), 'Your marker'));
+  if (options.guilds !== undefined) keys.push(key((ctx) => traceGuildMark(ctx, middle, 11, 7), 'Explorers’ Guild'));
   keys.push(key((ctx) => traceYou(ctx, middle, 11, 0, 0.72), 'You'));
   if (options.peers !== undefined) {
     keys.push(key((ctx) => {

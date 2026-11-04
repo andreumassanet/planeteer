@@ -5,6 +5,9 @@ import * as THREE from 'three';
 import { decodeAppearance } from '../appearance.ts';
 import { AVATAR_HEIGHT, DRIVE_SHIN, DRIVE_THIGH, SEAT_SHIN, SEAT_THIGH, createMotion } from '../avatar.ts';
 import { foldLegs, handHold, holdWheel, limbsOf, poseAstride } from '../cast.ts';
+import { stowCosmetics } from '../cosmetics/worn.ts';
+import { titleOf } from '../cosmetics/titles.ts';
+import { retitle } from './label.ts';
 import type { Body, Peer, SeatFrameData } from './types.ts';
 import type { PeersCore } from './core.ts';
 
@@ -29,6 +32,7 @@ export function createBodies(core: PeersCore) {
         ? folk.wear(appearance, AVATAR_HEIGHT)
         : folk.dress(`peer:${peer.id}`, 'atlantic-europe', undefined, AVATAR_HEIGHT);
     if (person === null) return null;
+    retitle(peer.label, appearance === null ? null : titleOf(appearance));
     // Read in the rest pose, before any clip has moved a bone.
     const limbs = limbsOf(person);
     person.root.traverse((object) => {
@@ -52,6 +56,7 @@ export function createBodies(core: PeersCore) {
     }
     body.facing.copy(forward);
     body.hold.off();
+    stowCosmetics(body.person, false);
     if (body.airborne && !airborne) body.motion.land(0);
     body.airborne = airborne;
     body.motion.foot(dt, speed, airborne, { turn });
@@ -70,6 +75,8 @@ export function createBodies(core: PeersCore) {
     body.motion.still(dt);
     body.hold.on();
     const driving = data.seat?.legs === 'drive';
+    // What hangs on the back is put away in a seat, as the hero's is.
+    stowCosmetics(body.person, pose === 'sit');
     if (pose === 'sit') foldLegs(body.limbs, peer.holder, driving ? DRIVE_THIGH : SEAT_THIGH, driving ? DRIVE_SHIN : SEAT_SHIN);
     else if (pose === 'ride' && data.seat !== undefined) {
       peer.holder.updateMatrixWorld(true);

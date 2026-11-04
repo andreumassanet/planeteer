@@ -3,6 +3,7 @@ import { fitAppearance } from '../appearance.ts';
 import { holdFocus, registerModal } from '../controls.ts';
 import { CATEGORIES } from './categories.ts';
 import type { TravellerCtx } from './ctx.ts';
+import { markPageSeen, tryOn } from './earned.ts';
 import { undo } from './state.ts';
 import { measure, select } from './view.ts';
 
@@ -17,6 +18,7 @@ export function show(ctx: TravellerCtx, opening: { relock?: boolean } = {}): voi
   // Before the stage is touched: the title, if it is up, steps aside on this.
   options.onOpen?.();
   ctx.look = fitAppearance(options.appearance.get());
+  tryOn(ctx, null);
   history.length = 0;
   if (!root.isConnected) document.body.append(root);
   root.classList.add('on');
@@ -36,6 +38,8 @@ export function hide(ctx: TravellerCtx): void {
   const { options, root, stage } = ctx;
   if (!ctx.showing) return;
   ctx.showing = false;
+  markPageSeen(ctx, ctx.current);
+  tryOn(ctx, null);
   root.classList.remove('on');
   if (ctx.ownsStage) stage.hide();
   // The title, if it was under this, takes the stage back on this.

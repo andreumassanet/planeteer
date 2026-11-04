@@ -23,6 +23,8 @@ export function createCollide(deps: {
   rockets: ReadonlyMap<string, Rocket>;
   /** The craft being driven, which is no wall to its own driver. */
   driven: () => Craft | null;
+  /** The game's own walls, added once it stands: the guild's people. */
+  extra?: readonly ((position: THREE.Vector3, radius: number) => boolean)[];
 }): (position: THREE.Vector3, radius: number) => boolean {
   const { settlements, outposts, crafts, rockets, driven } = deps;
   return (position, radius) => {
@@ -36,6 +38,7 @@ export function createCollide(deps: {
     for (const rocket of rockets.values()) {
       if (pushOut(position, rocket.position, ROCKET_WALL + radius)) moved = true;
     }
+    for (const wall of deps.extra ?? []) if (wall(position, radius)) moved = true;
     return moved;
   };
 }

@@ -23,6 +23,9 @@ const TAG_FLOOR = 0.45;
 /** How far in from the screen's edges a tag must stand, px, or the prompt goes back to the bottom. */
 const TAG_MARGIN = 40;
 
+/** The icon a job's prompt carries, by kind. */
+const JOB_ICON = { errand: 'hand', taxi: 'car', cargo: 'plane', rescue: 'swim' } as const;
+
 /** The longest the arrival's curtain waits for the ground to build, ms; the menu builds none of it beforehand. */
 const CURTAIN_LIMIT_MS = 4000;
 
@@ -96,6 +99,7 @@ export function createPrompts(app: App): (tick: Tick) => void {
     const near = monuments.landmarkNear(player.position);
     if (near !== null && near.id !== landmarkHere) {
       landmarkHere = near.id;
+      app.emit({ t: 'visit', landmark: near.id });
       // The landmark's own country, not the ground's: a few stand on a shore or a border.
       const owner = world.countries.find((c) => c.iso === near.iso);
       hud.showLandmark({
@@ -110,23 +114,37 @@ export function createPrompts(app: App): (tick: Tick) => void {
     }
   }
 
-  /** Somebody to talk to, then a bench, then a rocket, each only when nearer than the nearest seat. */
+  /**
+   * A job to collect, then somebody to talk to, then a bench, then a rocket,
+   * each only when nearer than the nearest seat. A job offered in a vehicle is
+   * taken before getting out; one on foot, before talking to whoever asks it.
+   */
   function offers(): void {
     const offer = fleet.prompt;
     const afoot = !talk.open && player.mode === 'foot' && !player.airborne && !trainRide.riding;
     const talker = afoot ? townsfolk.nearest(player.position, TALK_REACH) : null;
     const talkGap = talker === null ? Infinity : talker.distance - personRadius;
-    conversation.offer = talker !== null && (offer === null || talkGap < offer.gap) ? talker.key : null;
+    const guildOffer = afoot ? app.guild?.offer ?? null : null;
+    const guildFirst = guildOffer !== null && (offer === null || guildOffer.gap < offer.gap) && guildOffer.gap <= talkGap + personRadius + 0.5;
+    if (app.guild !== undefined) app.guild.prompted = guildFirst;
+    const job = guildFirst ? null : app.jobs?.offer ?? null;
+    const jobFirst =
+      job !== null && !talk.open && launchPads.riding === null && !trainRide.riding &&
+      (player.state === 'seated' || ((offer === null || job.gap < offer.gap) && job.gap <= talkGap + personRadius + 0.5));
+    if (app.jobs !== undefined) app.jobs.prompted = jobFirst;
+    conversation.offer = !guildFirst && !jobFirst && talker !== null && (offer === null || talkGap < offer.gap) ? talker.key : null;
     const talkOffer = conversation.offer;
-    const bench = talk.open || talkOffer !== null || player.sitting || player.mode !== 'foot' || player.airborne ? null : gestures.nearestBench();
+    const bench = guildFirst || jobFirst || talk.open || talkOffer !== null || player.sitting || player.mode !== 'foot' || player.airborne ? null : gestures.nearestBench();
     gestures.benchOffer = bench !== null && (offer === null || bench.distance < offer.gap) ? bench.bench : null;
     const benchOffer = gestures.benchOffer;
-    const rocketNear = talkOffer !== null || benchOffer !== null || talk.open || !afoot || player.sitting ? null : launchPads.offer(player.position);
+    const rocketNear = guildFirst || jobFirst || talkOffer !== null || benchOffer !== null || talk.open || !afoot || player.sitting ? null : launchPads.offer(player.position);
     rockets.offer = rocketNear !== null && (offer === null || rocketNear.gap < offer.gap) ? rocketNear.rocket : null;
     const riding = launchPads.riding;
     anchored = false;
     if (riding === null && !talk.open) {
-      if (talkOffer !== null && talker !== null) hangOver(talker.position, talker.height + AVATAR_HEIGHT * 0.25);
+      if (guildFirst) hangOver(guildOffer!.at, AVATAR_HEIGHT * 0.25);
+      else if (jobFirst) hangOver(job!.at, job!.job.kind === 'errand' ? AVATAR_HEIGHT * 0.25 : 0);
+      else if (talkOffer !== null && talker !== null) hangOver(talker.position, talker.height + AVATAR_HEIGHT * 0.25);
       else if (player.sitting) anchored = false;
       else if (benchOffer !== null) hangOver(benchOffer.position, AVATAR_HEIGHT * 0.6);
       else if (rockets.offer !== null) hangOver(rockets.offer.position, AVATAR_HEIGHT * 2);
@@ -137,6 +155,9 @@ export function createPrompts(app: App): (tick: Tick) => void {
     if (riding !== null) hud.setPrompt(riding.state === 'boarded' ? 'Get out' : null, 'walk');
     else if (trainRide.riding) hud.setPrompt(train?.label ?? null, train?.icon);
     else if (talk.open) hud.setPrompt(null);
+    else if (app.guild?.talking === true) hud.setPrompt(null);
+    else if (guildFirst) hud.setPrompt(guildOffer!.label, guildOffer!.kind === 'person' ? 'talk' : 'book');
+    else if (jobFirst) hud.setPrompt(job!.label, JOB_ICON[job!.job.kind]);
     else if (talkOffer !== null) hud.setPrompt('Talk', 'talk');
     else if (player.sitting) hud.setPrompt('Stand up', 'walk');
     else if (benchOffer !== null) hud.setPrompt('Sit', 'seat');
@@ -152,7 +173,11 @@ export function createPrompts(app: App): (tick: Tick) => void {
     offers();
     placeTag();
     speedometer(dt);
-    hud.setPaused(!input.looking && !app.map.open && !app.settings.open && !app.traveller.open && !app.chat.open && !app.passportCard.open, input.dragging);
+    hud.setPaused(
+      !input.looking && !app.map.open && !app.settings.open && !app.traveller.open && !app.chat.open && !app.passportCard.open &&
+        app.guild?.talking !== true && app.fieldGuide?.open !== true,
+      input.dragging,
+    );
     // The curtain lifts once the towns, roads and near wood have built, or after `CURTAIN_LIMIT_MS` regardless.
     const curtain = app.curtain;
     if (curtain !== null) {

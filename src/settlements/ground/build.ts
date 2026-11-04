@@ -11,6 +11,7 @@ import { createGroundColours, openGround } from './job.ts';
 import type { Ground, GroundScratch } from './job.ts';
 import { pavingSteps } from './paving.ts';
 import { streetLifeSteps } from './street-life.ts';
+import { guildLamps } from '../guild.ts';
 import { apronSteps, wallSteps } from './walls.ts';
 import { NO_EMITTERS, createGroundWriter } from './writer.ts';
 
@@ -58,6 +59,7 @@ export function createGroundBuilder(
     gateMouths(job);
     markLawns(job, pavedCells);
     placeLamps(job, urbanity);
+    guildLamps(job);
     placeSignals(job);
     collectEmitters(job, litPlots);
     yield* pavingSteps(job, pavedCells);

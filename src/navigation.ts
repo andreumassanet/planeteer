@@ -61,6 +61,9 @@ export interface NavigationOptions {
    * read back as a point on Earth.
    */
   markerKey?: string;
+  /** Told when a marker is set (a pin, a click, a suggestion) and when it is reached, after the HUD. */
+  onMark?(marker: Marker): void;
+  onArrive?(marker: Marker): void;
 }
 
 export interface Navigation {
@@ -201,6 +204,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
     },
     mark(lat, lon, name = null, landmark = false) {
       set({ lat, lon, name, iso: countryAt(lat, lon), landmark });
+      if (marker !== null) options.onMark?.(marker);
     },
     clear() {
       if (marker !== null) set(null);
@@ -218,6 +222,7 @@ export function createNavigation(options: NavigationOptions): Navigation {
         set(null);
         // The panel you watched the whole way there resolves in place.
         hud.arriveAt(labelOf(reached), reached.iso);
+        options.onArrive?.(reached);
         return;
       }
       const reach = anchor.distanceTo(position);

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { coloursOf, wardrobeOf, type Appearance } from '../appearance.ts';
 import { AVATAR_HEIGHT } from '../avatar.ts';
+import { shedCosmetics, wearCosmetics } from '../cosmetics/worn.ts';
 import { OUTFITS, castMaterial, castSkin, foldLegs, holdWheel, closeHand, limbsOf, loadCast, paintWith, reachArms, type Cast, type Person, type WheelGrip } from '../cast.ts';
 import { bakeSkin } from '../models.ts';
 import type { MonumentContext } from '../monuments/contract.ts';
@@ -21,10 +22,11 @@ export interface Folk {
   dress(key: string, region: string, warmth?: number, height?: number): Person | null;
   /**
    * A traveller as they chose to look (`appearance.ts`): another player, at
-   * `height`. `null` until the cast has loaded.
+   * `height`, with what they have earned worn over their clothes
+   * (`wearCosmetics`). `null` until the cast has loaded.
    */
   wear(appearance: Appearance, height: number): Person | null;
-  /** Gives a person back to be dressed again; see `Cast.release`. */
+  /** Gives a person back to be dressed again, their cosmetics taken off; see `Cast.release`. */
   release(person: Person): void;
   /**
    * A person of `region` held seated, as a still mesh `height` tall: hips at
@@ -81,22 +83,33 @@ export function createFolk(ctx: MonumentContext): Folk {
   let cast: Cast | null = null;
   const source = ctx.toon(ctx.palette.ink);
   const ink = source.userData.outlineParameters as { thickness: number; color: [number, number, number] };
-  loadCast(castMaterial(source.gradientMap!, ink))
-    .then((loaded) => {
-      cast = loaded;
-    })
-    .catch((error: unknown) => console.warn('folk: the cast did not load', error));
+  const material = castMaterial(source.gradientMap!, ink);
+  // A load cut off on the way (a request the browser dropped) is asked again, twice, a little later each time.
+  const load = (tries: number): void => {
+    loadCast(material)
+      .then((loaded) => {
+        cast = loaded;
+      })
+      .catch((error: unknown) => {
+        if (tries > 0) setTimeout(() => load(tries - 1), 2000 * (3 - tries));
+        else console.warn('folk: the cast did not load', error);
+      });
+  };
+  load(2);
 
   return {
     get ready() {
       return cast !== null;
     },
     release(person) {
+      shedCosmetics(person);
       cast?.release(person);
     },
     wear(appearance, height) {
       if (cast === null) return null;
-      return cast.make(wardrobeOf(appearance), paintWith(coloursOf(appearance)), height);
+      const person = cast.make(wardrobeOf(appearance), paintWith(coloursOf(appearance)), height);
+      wearCosmetics(person, appearance);
+      return person;
     },
     seated(key, region, height, pose) {
       const person = this.dress(key, region, undefined, height);

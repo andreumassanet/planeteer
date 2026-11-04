@@ -1,4 +1,5 @@
 /** The HUD's elements: the bar, the place badge, the cards, the pause and welcome screens and the sheet. */
+import { tap } from '../touch.ts';
 import { h, icon, kbd } from '../ui.ts';
 import { createCompass } from './compass.ts';
 import { createSpeedometer } from './speedometer.ts';
@@ -13,6 +14,8 @@ function buildBar(options: HudOptions, signal: AbortSignal) {
   const settingsCap = kbd('');
   const mapCap = kbd('');
   const passportCap = kbd('');
+  const journalCap = kbd('');
+  journalCap.classList.add('atlas-hud-cap');
   settingsCap.classList.add('atlas-hud-cap');
   mapCap.classList.add('atlas-hud-cap');
   passportCap.classList.add('atlas-hud-cap');
@@ -20,6 +23,8 @@ function buildBar(options: HudOptions, signal: AbortSignal) {
   const settingsButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('gear'), settingsCap);
   const mapButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('map'), mapCap);
   const passportButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('passport'), passportCap);
+  const journalButton = h('button', { class: 'ui-btn icon atlas-hud-desk', type: 'button' }, icon('book'), journalCap);
+  journalButton.addEventListener('click', () => tap('journal'), { signal });
   const moreButton = h('button', { class: 'ui-btn icon atlas-hud-more', type: 'button', 'aria-label': 'Menu' }, icon('menu'));
   settingsButton.addEventListener('click', () => options.onSettings?.(), { signal });
   mapButton.addEventListener('click', () => options.onMap?.(), { signal });
@@ -77,11 +82,12 @@ function buildBar(options: HudOptions, signal: AbortSignal) {
     moreButton,
     mapButton,
     options.onPassport === undefined ? null : passportButton,
+    options.onPassport === undefined ? null : journalButton,
     settingsButton,
     leaveButton,
   );
   const bar = h('div', { class: 'atlas-hud-bar' }, player, place, dock, coords);
-  return { settingsCap, mapCap, passportCap, settingsButton, mapButton, passportButton, moreButton, leaveButton, placeFlag, placeName, placeRangeText, placeArrow, placeSub, place, clockIcon, clockText, clock, bar, player, playerMode, playerName, playerFill, playerLevel, playerStats, coords, dock };
+  return { settingsCap, mapCap, passportCap, journalCap, journalButton, settingsButton, mapButton, passportButton, moreButton, leaveButton, placeFlag, placeName, placeRangeText, placeArrow, placeSub, place, clockIcon, clockText, clock, bar, player, playerMode, playerName, playerFill, playerLevel, playerStats, coords, dock };
 }
 
 /** The banner under the compass: a country or a landmark arrived at, one at a time. */

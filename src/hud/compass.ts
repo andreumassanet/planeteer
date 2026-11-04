@@ -73,7 +73,7 @@ export function createCompass(signal: AbortSignal): Compass {
       slot.kind = mark.kind;
       slot.element.className = `atlas-compass-mark ${mark.kind}`;
       const pip = slot.element.firstChild as HTMLElement;
-      pip.replaceChildren(mark.kind === 'marker' ? icon('pin') : mark.kind === 'course' ? icon('flag') : '');
+      pip.replaceChildren(mark.kind === 'marker' ? icon('pin') : mark.kind === 'course' ? icon('flag') : mark.kind === 'guild' ? icon('star') : mark.kind === 'job' ? icon('hand') : '');
     }
     const half = width / 2;
     let x = mark.bearing * R2D * PX_PER_DEGREE;

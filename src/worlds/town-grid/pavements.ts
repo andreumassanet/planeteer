@@ -7,6 +7,8 @@
 import type { TownGrid } from '../../scenery/grid.ts';
 import { rngFrom } from '../../scenery/random.ts';
 import type { WorldSpec } from '../contract.ts';
+import { guildCut, withoutCut } from './guild.ts';
+import type { WorldGuild } from './guild.ts';
 import { BAND } from './streets.ts';
 import type { FurnitureKind, Placed, Street, Walk } from './types.ts';
 
@@ -23,9 +25,10 @@ export interface StreetFurnishings {
 /**
  * The pavements, as stretches between crossings, both sides of every street:
  * where people stroll. A stretch is cut where a cross street's carriageway
- * crosses it, so nobody walks down the middle of a crossing.
+ * crosses it, so nobody walks down the middle of a crossing, and where the
+ * guild's square takes a street, so nothing stands on its paving.
  */
-export function furnishStreets(spec: WorldSpec, id: string, grid: TownGrid, streets: readonly Street[]): StreetFurnishings {
+export function furnishStreets(spec: WorldSpec, id: string, grid: TownGrid, streets: readonly Street[], guild: WorldGuild | null = null): StreetFurnishings {
   const walks: Walk[] = [];
   const lamps: Placed[] = [];
   const planters: Placed[] = [];
@@ -43,6 +46,8 @@ export function furnishStreets(spec: WorldSpec, id: string, grid: TownGrid, stre
       from = Math.max(from, hi);
     }
     if (from < edge) pieces.push([from, edge]);
+    const cut = guildCut(guild, street);
+    if (cut !== null) pieces.splice(0, pieces.length, ...pieces.flatMap(([a, b]) => withoutCut(a, b, cut)));
     for (const side of [-1, 1]) {
       // The line a stroller keeps: the pavement's middle. The lamps stand on
       // the carriageway's edge and the planters at a stretch's ends, so it

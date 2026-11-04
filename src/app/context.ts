@@ -51,9 +51,13 @@ import type { TrainRide } from './train-ride.ts';
 import type { WorldSky } from './sky.ts';
 import type { Sound } from './sound.ts';
 import type { Thrills } from './thrills.ts';
+import type { Jobs } from '../jobs.ts';
 import type { Towns } from './towns.ts';
 import type { Vehicles } from './vehicles.ts';
 import type { Walls } from './walls.ts';
+import type { ProgressEvent } from '../progress/events.ts';
+import type { Guild } from '../guild.ts';
+import type { FieldGuide } from '../field-guide.ts';
 
 export interface App
   extends WorldData, Graphics, WorldSky, EarthMeshes, FrontDoor, Towns, Movers, Nature, Vehicles, Arrival,
@@ -106,6 +110,17 @@ export interface App
   chat: Chat;
   /** The rush, the guide and the rings. */
   thrills: Thrills;
+  /** The errands, fares, loads and rescues; undefined until their module has arrived. */
+  jobs?: Jobs;
+  /** Tells the progression what the traveller just did; a no-op until it has arrived. */
+  emit(event: ProgressEvent): void;
+  /** The Explorers' Guild and the Field Guide, once their module has arrived. */
+  guild?: Guild;
+  fieldGuide?: FieldGuide;
+  /** Where the Explorers' Guild stands, for the world map's stars, once the guild has arrived. */
+  guildMarks?: readonly { lat: number; lon: number; name: string }[];
+  /** What the traveller has earned to wear, once the progression has arrived. */
+  unlocked?: () => ReadonlySet<string>;
 
   /** A toast on the HUD. */
   announce(text: string, iconName?: IconName): void;

@@ -17,6 +17,7 @@ import { PALETTE } from '../../theme.ts';
 import { buildPad } from './colony-build.ts';
 import type { TownContext } from './context.ts';
 import { circlesOf } from './layout.ts';
+import { buildWorldGuild } from './guild-build.ts';
 import { placeFurniture, placeLamps, placePlanters } from './street-furniture.ts';
 import { placeModel, placePiece, placeScatter } from './placing.ts';
 import { buildingPaint } from '../kit.ts';
@@ -46,6 +47,7 @@ export function buildGridTown(t: TownContext, kit: WorldKit | null, site: Site, 
   placeLamps(t, site, town, accent, draft, footprints);
   placeFurniture(t, site, town, accent, draft, footprints);
   placePlanters(t, kit, site, town, draft, footprints);
+  if (town.guild !== null) buildWorldGuild(t, kit, site, town.guild, draft, footprints);
   if (GRID_GATES && kit !== null && town.grid.cells >= 5) placeGridGates(t, kit, site, town, draft, footprints);
 }
 

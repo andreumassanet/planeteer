@@ -50,6 +50,8 @@ export type Action =
   | 'wave'
   | 'dance'
   | 'passport'
+  | 'jobs'
+  | 'journal'
   | 'mapIn'
   | 'mapOut'
   | 'release';

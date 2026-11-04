@@ -81,7 +81,8 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
   scene.add(avatar.group);
   const crafts: Craft[] = [];
   const rockets = new Map<string, Rocket>();
-  const collide = createCollide({ settlements, outposts, crafts, rockets, driven: () => player.craft });
+  const walls: ((position: THREE.Vector3, radius: number) => boolean)[] = [];
+  const collide = createCollide({ settlements, outposts, crafts, rockets, driven: () => player.craft, extra: walls });
   const player = createWorldPlayer(
     {
       radius: R,
@@ -167,6 +168,13 @@ function buildWorld(spec: WorldSpec, host: WorldHost): World {
     riding: () => rocketPads.riding,
     boardRocket: rocketPads.board,
     leaveRocket: rocketPads.leave,
+    addWall(wall) {
+      walls.push(wall);
+      return () => {
+        const at = walls.indexOf(wall);
+        if (at >= 0) walls.splice(at, 1);
+      };
+    },
   });
 
   // The clock: the real one, local solar time where you stand; `?hour=` turns

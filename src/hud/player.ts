@@ -5,7 +5,7 @@
  */
 import type { TravelMode } from '../controls.ts';
 import { MODE_ICON } from './constants.ts';
-import { levelOf } from '../explorer-level.ts';
+import { travellerLevel } from '../explorer-level.ts';
 import { icon, type IconName } from '../ui.ts';
 import type { HudCtx } from './ctx.ts';
 
@@ -25,11 +25,13 @@ export function updatePlayer(ctx: HudCtx, dt: number): void {
   const profile = options.profile?.() ?? null;
   ctx.player.classList.toggle('on', profile !== null);
   if (profile === null) return;
-  const key = `${profile.name}|${profile.towns}|${profile.stamps}`;
+  const key = `${profile.name}|${profile.title ?? ''}|${profile.towns}|${profile.stamps}|${travellerLevel(profile.stamps, profile.towns).progress.toFixed(3)}`;
   if (key === ctx.shownProfile) return;
   ctx.shownProfile = key;
-  const { level, progress } = levelOf(profile.stamps, profile.towns);
+  const { level, progress } = travellerLevel(profile.stamps, profile.towns);
   ctx.playerName.textContent = profile.name || 'Traveller';
+  ctx.playerName.title = profile.title ?? '';
+  ctx.playerName.dataset.title = profile.title ?? '';
   ctx.playerLevel.textContent = `Lv ${level}`;
   ctx.playerFill.style.transform = `scaleX(${Math.max(0.02, Math.min(1, progress)).toFixed(3)})`;
   ctx.playerStats.replaceChildren(

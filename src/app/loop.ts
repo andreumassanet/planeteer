@@ -1,7 +1,7 @@
 /**
  * The frame loop, in phases whose order matters: movement and the camera,
  * the sky and weather, the ear, the haze, the streamers, the people and
- * vehicles, the water, the HUD's offers, the rush, the guide and the rings,
+ * vehicles, the water, the jobs, the HUD's offers, the rush, the guide and the rings,
  * the maps and the map layer, the shadow map, the near lights, the draw, and
  * last the badge and passport.
  * Each subsystem's update runs inside `app.guard`.
@@ -14,6 +14,9 @@ import { updateHaze } from './frame/haze.ts';
 import { createMovement } from './frame/movement.ts';
 import { createNearLights } from './frame/near-lights.ts';
 import { createPrompts } from './frame/prompts.ts';
+import { createJobsPhase } from './jobs.ts';
+import { createGuildPhase } from './guild.ts';
+import { createProgressPhase } from './progress.ts';
 import { createShadows } from './frame/shadows.ts';
 import { createSoundPhase } from './frame/soundscape.ts';
 import { createStreaming } from './frame/streaming.ts';
@@ -45,6 +48,9 @@ export function createLoop(app: App): () => void {
   const streaming = createStreaming(app);
   const actors = createActors(app);
   const water = createWater(app);
+  const jobsPhase = createJobsPhase(app);
+  const guildPhase = createGuildPhase(app);
+  const progressPhase = createProgressPhase(app);
   const prompts = createPrompts(app);
   const mapsPhase = createMapsPhase(app);
   const shadows = createShadows(app);
@@ -84,6 +90,9 @@ export function createLoop(app: App): () => void {
     streaming(tick);
     actors(tick);
     water(tick);
+    jobsPhase(tick);
+    guildPhase(tick);
+    app.guard('progress', () => progressPhase(tick));
     prompts(tick);
     app.thrills.frame(tick);
     mapsPhase(tick);

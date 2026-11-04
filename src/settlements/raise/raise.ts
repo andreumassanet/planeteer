@@ -12,6 +12,7 @@ import type { RaiseJob, RaiseKit } from './job.ts';
 import { commitTown, mergeSteps, swapNearTrees, townMeshSteps } from './merge.ts';
 import { standLone, standPlotsSteps } from './stand.ts';
 import { dressStreetsSteps, hangOverSteps } from './street.ts';
+import { standGuildSteps } from '../guild.ts';
 
 /**
  * A town raised in steps: it yields between the cells it plans, the plots it
@@ -38,6 +39,7 @@ export function* raiseSteps(kit: RaiseKit, slot: Slot): Generator<void, void, vo
   standLone(kit, job);
   // What stood near is what the map draws.
   if (job.peopled) kit.plans.keepPlan(slot.index, kit.plans.slotPlan(slot, grid, job.solids, job.solidFlats, job.solidKinds, job.treesAt, job.pavedCells));
+  yield* standGuildSteps(kit, job);
   if (job.standing.length === 0) {
     slot.planned = placed.length;
     slot.drowned = job.drowned;
@@ -114,6 +116,7 @@ function openRaise(kit: RaiseKit, slot: Slot, grid: TownGrid, placed: RaiseJob['
     dressRun: null,
     lines: [],
     overheadSpots: [],
+    guild: null,
   };
 }
 

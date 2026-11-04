@@ -11,6 +11,8 @@ export function bindSheet(ctx: HudCtx): void {
   const sheetItems: { glyph: IconName; label: string; run(): void }[] = [
     { glyph: 'map', label: 'World map', run: () => options.onMap?.() },
     ...(options.onPassport === undefined ? [] : [{ glyph: 'passport', label: 'Passport', run: () => options.onPassport?.() }]),
+    { glyph: 'book', label: 'Field Guide', run: () => tap('journal') },
+    { glyph: 'hand', label: 'Jobs nearby', run: () => tap('jobs') },
     { glyph: 'talk', label: 'Chat', run: () => tap('chat') },
     { glyph: 'camera', label: 'Photo', run: () => tap('photo') },
     { glyph: 'eye', label: 'First person', run: () => tap('view') },

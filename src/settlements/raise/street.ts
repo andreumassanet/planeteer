@@ -14,6 +14,7 @@ import type { StandingProp } from './job.ts';
 import { CLEAR_FOLK, CLEAR_LAMP, DRESS_LEAST, DRESS_MOST, DRESS_SHARE, KIND_OF, footprintOf, urbanityOf } from '../rules.ts';
 import type { FlatVariant } from '../types.ts';
 import type { RaiseJob, RaiseKit } from './job.ts';
+import { guildKeep } from '../guild.ts';
 
 /**
  * A near town's street level: what hangs over its streets (bunting, lanterns,
@@ -59,6 +60,7 @@ export function* hangOverSteps(kit: RaiseKit, job: RaiseJob, ground: Ground, ban
   for (let i = 0; i + 3 < ground.benches.length; i += 4) keep.push(ground.benches[i]!, ground.benches[i + 2]!, BENCH_LONGEST * 0.5 + 0.6);
   // The cars actually parked and the people actually standing, with each one's stroll a pace apart.
   for (let i = 0; i < job.parkedLayout.length; i += 4) keep.push(job.parkedLayout[i]!, job.parkedLayout[i + 1]!, job.parkedLayout[i + 2]! + 0.4);
+  guildKeep(frame, keep);
   for (const person of job.folk) {
     const paces = Math.max(1, Math.ceil(person.from.distanceTo(person.to)));
     for (let n = 0; n <= paces; n++) {

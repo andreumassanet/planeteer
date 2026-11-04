@@ -177,6 +177,7 @@ export function* paintPlan(f: FeatureCtx, view: TileView, raster: Raster, plan: 
   }
   raster.fill(...bytesOf(plan.colours.road));
   inkCells(f, raster, grid, paved, inkWidth(view.z) * 0.8);
+  if (plan.guild !== undefined) paintGuild(raster, affine, plan, plan.guild);
   yield;
   // The trees in the yards.
   if (view.z >= INKED_FROM && plan.trees.length > 0) {
@@ -219,6 +220,38 @@ export function* paintPlan(f: FeatureCtx, view: TileView, raster: Raster, plan: 
     for (const k of list) localBox(raster, affine, b[k * 6]!, b[k * 6 + 1]!, b[k * 6 + 2]!, b[k * 6 + 3]!, b[k * 6 + 4]!, b[k * 6 + 5]!);
     raster.fill(...bytesOf(roof));
   }
+}
+
+/**
+ * The guild's square over the town's streets: its paving in the plaza's
+ * stone over the streets its parcel closes, the ring of light stone and the
+ * rose round the fountain, and the fountain's basin and water. Its hall is
+ * one of the buildings.
+ */
+function paintGuild(raster: Raster, affine: Affine, plan: TownPlan, guild: NonNullable<TownPlan['guild']>): void {
+  const [x0, x1, z0, z1] = guild.rect;
+  localBox(raster, affine, (x0 + x1) / 2, (z0 + z1) / 2, 1, 0, (x1 - x0) / 2 + 0.3, (z1 - z0) / 2 + 0.3);
+  raster.fill(...bytesOf(plan.colours.plaza));
+  const [x, z, radius, rose] = guild.fountain;
+  for (const [r, colour] of [[rose + 0.5, guild.colours.ring], [rose * 0.55, plan.colours.plaza], [radius + 0.9, guild.colours.ring], [radius, guild.colours.stone], [radius - 0.34, guild.colours.water]] as const) {
+    localDisc(raster, affine, x, z, r);
+    raster.fill(...bytesOf(colour));
+  }
+}
+
+/** A disc of the town's frame, `r` round `(x, z)`, as a polygon on the tile. */
+function localDisc(raster: Raster, a: Affine, x: number, z: number, r: number): void {
+  const sides = 24;
+  for (let k = 0; k < sides; k++) {
+    const angle = (k / sides) * Math.PI * 2;
+    const lx = x + Math.cos(angle) * r;
+    const lz = z + Math.sin(angle) * r;
+    const px = a.ox + a.xx * lx + a.zx * lz;
+    const py = a.oy + a.xy * lx + a.zy * lz;
+    if (k === 0) raster.moveTo(px, py);
+    else raster.lineTo(px, py);
+  }
+  raster.close();
 }
 
 export function* paintTowns(f: FeatureCtx, view: TileView, raster: Raster): Generator<'wait' | undefined, void, void> {

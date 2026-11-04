@@ -397,6 +397,7 @@ async function checkShell(): Promise<void> {
         riding: () => null,
         boardRocket: () => {},
         leaveRocket: () => {},
+        addWall: () => () => {},
       });
       return {
         shell,

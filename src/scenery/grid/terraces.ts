@@ -148,11 +148,26 @@ function ownLevel(grid: TownGrid, ground: TownGround, col: number, row: number):
  * paved, by `cellKey`: each street's group at the highest of its members' own
  * levels, then every street made climbable (`climbable`). The one definition
  * of a terrace.
+ *
+ * `floors` raises cells to at least a level before their streets have their
+ * say (a parcel paved as one, `guildParcel`); a cell its ground refuses stays
+ * refused. Only ever up, so the rule's every guarantee holds.
  */
-export function townTerraces(grid: TownGrid, ground: TownGround, held?: ReadonlyMap<number, number>): Map<number, number | null> {
+export function townTerraces(
+  grid: TownGrid,
+  ground: TownGround,
+  held?: ReadonlyMap<number, number>,
+  floors?: ReadonlyMap<number, number>,
+): Map<number, number | null> {
   const own = new Map<number, number | null>();
   for (let col = 0; col < grid.cells; col++) {
     for (let row = 0; row < grid.cells; row++) own.set(cellKey(col, row), ownLevel(grid, ground, col, row));
+  }
+  if (floors !== undefined) {
+    for (const [key, floor] of floors) {
+      const level = own.get(key);
+      if (level !== null && level !== undefined && level < floor) own.set(key, floor);
+    }
   }
   const levels = new Map<number, number | null>();
   for (let col = 0; col < grid.cells; col++) {

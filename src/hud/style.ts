@@ -89,6 +89,7 @@ export const STYLE = `
   backdrop-filter: blur(12px);
 }
 .atlas-player-top { display: flex; align-items: baseline; gap: 8px; }
+.atlas-player-name[data-title]:not([data-title=''])::after { content: attr(data-title); display: block; font-size: 10.5px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ui-gold); margin-top: 1px; }
 .atlas-player-name {
   flex: 1;
   max-width: 180px;
@@ -213,6 +214,8 @@ export const STYLE = `
 .atlas-compass-pip svg { width: 12px; height: 12px; }
 .atlas-compass-mark.marker .atlas-compass-pip { background: var(--ui-violet); color: var(--hud-glyph); }
 .atlas-compass-mark.course .atlas-compass-pip { background: var(--ui-green); }
+.atlas-compass-mark.guild .atlas-compass-pip { background: var(--ui-gold); color: ${hex(PALETTE.ink)}; }
+.atlas-compass-mark.job .atlas-compass-pip { background: var(--ui-apricot); color: ${hex(PALETTE.ink)}; }
 .atlas-compass-mark.peer { top: 13px; }
 .atlas-compass-mark.peer .atlas-compass-pip { width: 12px; height: 12px; background: ${hex(PALETTE.pink)}; }
 .atlas-compass-mark.left .atlas-compass-pip, .atlas-compass-mark.right .atlas-compass-pip { opacity: 0.85; }

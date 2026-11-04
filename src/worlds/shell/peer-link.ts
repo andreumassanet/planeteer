@@ -2,7 +2,7 @@
 
 import type { Peers, PeerSelf } from '../../peers.ts';
 import { createPeers, shownName, storedName } from '../../peers.ts';
-import { createFolk } from '../../folk.ts';
+import type { Folk } from '../../folk.ts';
 import { createPlayerList } from '../../player-list.ts';
 import type { PlayerList } from '../../player-list.ts';
 import { relayPlayers } from '../../relay-players.ts';
@@ -17,10 +17,10 @@ export interface PeerLink {
   travellerName(): string;
 }
 
-export function createPeerLink(world: ShellWorld): PeerLink {
+export function createPeerLink(world: ShellWorld, folk: Folk): PeerLink {
   const { host, spec, surface, player } = world;
   const online = host.mode === 'online' && typeof host.peersUrl === 'string' && host.peersUrl !== '';
-  const peers: Peers | null = online ? createPeers(host.peersUrl!, createFolk(world.ctx), { body: spec.id, radius: surface.radius }) : null;
+  const peers: Peers | null = online ? createPeers(host.peersUrl!, folk, { body: spec.id, radius: surface.radius }) : null;
   if (peers !== null) {
     world.scene.add(peers.group);
     peers.setLook(encodeAppearance(host.appearance()));

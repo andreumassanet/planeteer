@@ -88,8 +88,18 @@ export interface MinimapStats {
 }
 
 /** One thing the compass points at: its bearing clockwise from where the camera looks, radians, and how far, real km. */
+/** A point the disc marks over its paper: a job waiting, the one being headed for, a guild. */
+export interface MinimapSpot {
+  x: number;
+  y: number;
+  z: number;
+  kind: 'job' | 'tracked' | 'guild';
+  /** Shown on the rim and on the compass when off the disc. */
+  rim?: boolean;
+}
+
 export interface CompassMark {
-  kind: 'marker' | 'course' | 'peer';
+  kind: 'marker' | 'course' | 'peer' | 'guild' | 'job';
   bearing: number;
   km: number;
 }
@@ -128,6 +138,8 @@ export interface Minimap {
    * one past the rim sits on it, pointing the way to them.
    */
   setPeers(marks: readonly { x: number; y: number; z: number }[]): void;
+  /** The jobs near and the guilds, as points on the unit sphere (`MinimapSpot`): drawn on the overlay, over the paper. */
+  setSpots(spots: readonly MinimapSpot[]): void;
   /** The heading and the marks on this frame's paper, into `out`'s arrays, which are reused. */
   compass(out: CompassReading): CompassReading;
   /** What the disc is showing and what it costs. `atlas.minimap.stats`. */

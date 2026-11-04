@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PLANET_RADIUS } from '../../globe.ts';
 import { MAX_CUT, TERRACE_STEP, pavementOf } from '../ground.ts';
-import { closuresFor, sideOpen } from './closures.ts';
+import { closuresFor, reopenNear, sideOpen } from './closures.ts';
 
 /**
  * A town's square as pure functions of its built radius (`radiusOf`): its
@@ -229,6 +229,19 @@ export function gridAround(radius: number, parcels: readonly { c0: number; c1: n
   const near = (col: number, row: number): boolean => parcels.some((parcel) =>
     col >= parcel.c0 - PARCEL_OPEN && col <= parcel.c1 + PARCEL_OPEN && row >= parcel.r0 - PARCEL_OPEN && row <= parcel.r1 + PARCEL_OPEN);
   const shut = closuresFor(grid.cells, grid.avenue, grid.low, grid.high, Math.round(radius * 1024), near);
+  return { ...grid, shut };
+}
+
+/**
+ * A town's square with every stretch within `PARCEL_OPEN` cells of `parcel`
+ * open again: `gridAround`'s promise for a parcel laid after the closures were
+ * drawn (the guild's, `guildParcel`), at a fraction of its cost. A copy; the
+ * square handed in is left as it was.
+ */
+export function openAround(grid: TownGrid, parcel: { c0: number; c1: number; r0: number; r1: number }): TownGrid {
+  const shut = grid.shut.slice();
+  reopenNear(grid.cells, grid.avenue, grid.high, shut, (col, row) =>
+    col >= parcel.c0 - PARCEL_OPEN && col <= parcel.c1 + PARCEL_OPEN && row >= parcel.r0 - PARCEL_OPEN && row <= parcel.r1 + PARCEL_OPEN);
   return { ...grid, shut };
 }
 

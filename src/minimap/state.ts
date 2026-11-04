@@ -12,7 +12,7 @@ import {
 import { fade } from './format.ts';
 import { faintInk, ink, ocean } from './palette.ts';
 import { CORNER } from './shape.ts';
-import type { MinimapMonument, MinimapOptions } from './types.ts';
+import type { MinimapMonument, MinimapOptions, MinimapSpot } from './types.ts';
 
 /** The outlines at one resolution, and each ring's faded fill for the countries you are not in. */
 export interface ShapeLevel {
@@ -99,6 +99,7 @@ export interface MinimapState {
 
   paper: string;
   peerMarks: readonly { x: number; y: number; z: number }[];
+  spots: readonly MinimapSpot[];
   ratio: number;
 
   // The player's frame: rebuilt on every update, unpacked to numbers for the traces.
@@ -283,6 +284,7 @@ export function createState(world: World, options: MinimapOptions | number): Min
 
     paper: ocean,
     peerMarks: [],
+    spots: [],
     ratio: 0,
 
     frame: createFrame(),

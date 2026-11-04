@@ -23,6 +23,7 @@ import { exploreWorld, loadMenuBody } from './other-worlds.ts';
 import { renderDistanceWords } from './render-distance.ts';
 import { PASSPORT_KEY, parsePassport } from '../passport.ts';
 import type { PassportCard } from '../passport-card.ts';
+import { earnedHere } from './earned.ts';
 import {
   HINTS_KEY, OVERLAY_KEY, PERFORMANCE_KEY, RESOLUTION_KEY, SENSITIVITY_KEY, WEATHER_KEY,
   readSetting, storedToggle, writeSetting,
@@ -77,9 +78,11 @@ export async function openFrontDoor(app: App): Promise<FrontDoor> {
       set: (appearance) => {
         dressHero(appearance).catch((error: unknown) => console.warn('atlas: the new clothes did not arrive', error));
         app.peersLink?.setLook(encodeAppearance(appearance));
+        app.emit?.({ t: 'look' });
       },
     },
     stage: heroStage,
+    unlocked: earnedHere(app),
     lockTarget: renderer.domElement,
     // The title steps aside for the card while it is open.
     onOpen: () => {

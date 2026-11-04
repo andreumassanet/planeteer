@@ -3,7 +3,8 @@
  * function and clears what it hangs over, a pass counts through the opening
  * and nowhere else, the record survives a damaged store, the guide's
  * chevrons are proper rotations laid ahead and towards the target on what is
- * under them, and the rush is speed over height.
+ * under them, and the rush is speed over height; the ghosts are
+ * `check-rings/ghost.ts`.
  *
  *   node scripts/check-rings.ts
  */
@@ -46,6 +47,7 @@ import { fileURLToPath } from 'node:url';
 import { unitAt } from '../src/sphere.ts';
 import { CAR_SPEED, PLANE_CEILING, PLANE_ROTATE, PLANE_THROTTLE_UP, planeCruiseAt } from '../src/vehicles.ts';
 import { RUN_SPEED } from '../src/avatar.ts';
+import './check-rings/ghost.ts';
 
 const R = 32000;
 /** A rolling ground over the sea, so a height read from the wrong place shows. */

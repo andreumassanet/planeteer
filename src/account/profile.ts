@@ -1,13 +1,16 @@
 /**
  * One traveller's profile as one value: the name the others see, the look,
- * and the progress (the passport, the rings and the courses' bests), with
- * when the name and the look last changed. Read from this device's stores,
- * merged with an account's, and written back to them.
+ * and the progress (the passport, the rings and the courses' bests, the jobs,
+ * the career), with when the name and the look last changed. Read from this
+ * device's stores, merged with an account's, and written back to them.
  *
  * The merge is pure and monotonic: nothing either side holds is lost, a set
  * is a union, a course keeps its best time and its best medal, a country its
  * earliest stamp; the name and the look are whichever changed last. Merging a
- * profile with itself gives it back, and the order of two does not matter.
+ * job keeps its best time and medal, a career every counter's larger value;
+ * merging a profile with itself gives it back, and the order of two does not
+ * matter. The row's document also carries the leaderboard's `scores`, worked
+ * out from the rest.
  *
  * Anything read back is held to the same rules as what the stores accept,
  * since the account's row is the player's own to write.
@@ -18,6 +21,13 @@ import { PASSPORT_KEY, emptyPassport, mergePassports, parsePassport, serialisePa
 import type { PassportData } from '../passport.ts';
 import { RINGS_KEY, emptyRecord, mergeRecords, parseRecord, serialiseRecord } from '../rings/store.ts';
 import type { RingRecord } from '../rings/store.ts';
+import { JOBS_KEY, emptyJobs, jobsDocument, mergeJobs, parseJobs, recordOf, serialiseJobs } from '../jobs/store.ts';
+import type { JobRecord } from '../jobs/store.ts';
+import {
+  CAREER_KEY, careerDocument, careerOf, careerSignature, emptyCareer, mergeCareers, parseCareer, serialiseCareer,
+} from '../progress/store.ts';
+import type { CareerRecord } from '../progress/store.ts';
+import { scoresOf } from '../progress/summary.ts';
 
 /** When the name and the look last changed on this device, and what they were then. */
 export const CHANGES_KEY = 'atlas.account.changes';
@@ -37,12 +47,14 @@ export interface Profile {
   lookAt: number;
   passport: PassportData;
   rings: RingRecord;
+  jobs: JobRecord;
+  career: CareerRecord;
 }
 
 export type ProfileStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
 export function emptyProfile(): Profile {
-  return { version: 1, name: '', nameAt: 0, look: '', lookAt: 0, passport: emptyPassport(), rings: emptyRecord() };
+  return { version: 1, name: '', nameAt: 0, look: '', lookAt: 0, passport: emptyPassport(), rings: emptyRecord(), jobs: emptyJobs(), career: emptyCareer() };
 }
 
 /** A name an account may hold: what `profiles.name` accepts. */
@@ -91,6 +103,8 @@ export function profileFromRow(row: { name?: unknown; look?: unknown; progress?:
     lookAt: look === '' ? 0 : time(progress.lookAt),
     passport: passportOf(progress.passport),
     rings: ringsOf(progress.rings),
+    jobs: recordOf(progress.jobs),
+    career: careerOf(progress.career),
   };
 }
 
@@ -102,6 +116,9 @@ export function progressOf(profile: Profile): Record<string, unknown> {
     lookAt: profile.lookAt,
     passport: JSON.parse(serialisePassport(profile.passport)) as unknown,
     rings: JSON.parse(serialiseRecord(profile.rings)) as unknown,
+    jobs: jobsDocument(profile.jobs),
+    career: careerDocument(profile.career),
+    scores: scoresOf(profile),
   };
 }
 
@@ -128,6 +145,8 @@ export function mergeProfiles(a: Profile, b: Profile): Profile {
     lookAt,
     passport: mergePassports(a.passport, b.passport),
     rings: mergeRecords(a.rings, b.rings),
+    jobs: mergeJobs(a.jobs, b.jobs),
+    career: mergeCareers(a.career, b.career),
   };
 }
 
@@ -204,6 +223,8 @@ export function readLocalProfile(storage: ProfileStorage | null, now: number): P
     lookAt: look === '' ? 0 : changes.lookAt,
     passport: passportOf(safeParse(read(storage, PASSPORT_KEY))),
     rings: parseRecord(read(storage, RINGS_KEY)),
+    jobs: parseJobs(read(storage, JOBS_KEY)),
+    career: parseCareer(read(storage, CAREER_KEY)),
   };
 }
 
@@ -221,6 +242,8 @@ export interface Written {
   look: boolean;
   passport: boolean;
   rings: boolean;
+  jobs: boolean;
+  career: boolean;
 }
 
 /**
@@ -228,7 +251,7 @@ export interface Written {
  * records the name's and the look's dates so they are not taken for changes.
  */
 export function writeLocalProfile(storage: ProfileStorage | null, profile: Profile): Written {
-  const written: Written = { name: false, look: false, passport: false, rings: false };
+  const written: Written = { name: false, look: false, passport: false, rings: false, jobs: false, career: false };
   if (profile.name !== '' && read(storage, NAME_KEY) !== profile.name) {
     write(storage, NAME_KEY, profile.name);
     written.name = true;
@@ -247,11 +270,26 @@ export function writeLocalProfile(storage: ProfileStorage | null, profile: Profi
     write(storage, RINGS_KEY, rings);
     written.rings = true;
   }
+  const jobs = serialiseJobs(profile.jobs);
+  if (serialiseJobs(parseJobs(read(storage, JOBS_KEY))) !== jobs) {
+    write(storage, JOBS_KEY, jobs);
+    written.jobs = true;
+  }
+  const career = serialiseCareer(profile.career);
+  if (serialiseCareer(parseCareer(read(storage, CAREER_KEY))) !== career) {
+    write(storage, CAREER_KEY, career);
+    written.career = true;
+  }
   write(storage, CHANGES_KEY, JSON.stringify({ known: true, name: profile.name, nameAt: profile.nameAt, look: profile.look, lookAt: profile.lookAt }));
   return written;
 }
 
-/** What the stores hold, raw: compared on a timer to notice that something changed. */
+/**
+ * What the stores hold, raw, and the career coarsely (`careerSignature`, so
+ * walking does not send a document every few seconds): compared on a timer
+ * to notice that something changed.
+ */
 export function localSignature(storage: ProfileStorage | null): string {
-  return [NAME_KEY, LOOK_KEY, PASSPORT_KEY, RINGS_KEY].map((key) => read(storage, key) ?? '').join('\u0000');
+  const raw = [NAME_KEY, LOOK_KEY, PASSPORT_KEY, RINGS_KEY, JOBS_KEY].map((key) => read(storage, key) ?? '');
+  return [...raw, careerSignature(read(storage, CAREER_KEY))].join('\u0000');
 }

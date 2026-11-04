@@ -38,6 +38,7 @@ import { ensureStyle, installUi } from './ui.ts';
 import type { Passport, Stamp } from './passport.ts';
 import type { PassportChapter } from './planet.ts';
 import type { PassportRings } from './passport-card/rings-model.ts';
+import type { PassportJobs } from './passport-card/jobs-pages.ts';
 import { createBookDom } from './passport-card/dom.ts';
 import { createBookModel, layoutModel, newestSpread, openingSpread, otherWorlds, spreads } from './passport-card/model.ts';
 import { pagesOf } from './passport-card/pages.ts';
@@ -52,6 +53,7 @@ import { createTurner } from './passport-card/turning.ts';
 export { stampSvg } from './passport-card/stamp-svg.ts';
 export { sealSvg } from './passport-card/seal-svg.ts';
 export type { PassportRings } from './passport-card/rings-model.ts';
+export type { PassportJobs } from './passport-card/jobs-pages.ts';
 
 export interface PassportCardOptions {
   passport: Passport;
@@ -82,6 +84,12 @@ export interface PassportCardOptions {
    * its continents, the landmarks' rings and the log of the courses run.
    */
   rings?: () => PassportRings | null;
+  /**
+   * The jobs (`jobs.ts`): asked each time their page is laid, null until they
+   * have arrived. Given, Earth's chapter closes on a third visa, the work done
+   * and the reputation it earned.
+   */
+  jobs?: () => PassportJobs | null;
 }
 
 export interface PassportCard {

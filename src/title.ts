@@ -16,7 +16,7 @@ import { holdFocus } from './controls.ts';
 import type { HeroStage } from './hero-stage.ts';
 import { ensureStyle, h, hex, icon, installUi } from './ui.ts';
 import { PALETTE } from './theme.ts';
-import { levelOf } from './explorer-level.ts';
+import { travellerLevel } from './explorer-level.ts';
 import { createFlagCanvas } from './flags.ts';
 import { NEWS } from './news.ts';
 import type { PlayMode } from './world-host.ts';
@@ -400,7 +400,7 @@ function titleLayout(options: TitleOptions, choose: (mode: PlayMode) => void) {
 function fillTravels(travels: HTMLElement, passport: { stamps: number; towns: number } | null): void {
   travels.hidden = passport === null;
   if (passport === null) return;
-  const { level, progress } = levelOf(passport.stamps, passport.towns);
+  const { level, progress } = travellerLevel(passport.stamps, passport.towns);
   const fill = h('i');
   fill.style.transform = `scaleX(${Math.max(0.03, Math.min(1, progress)).toFixed(3)})`;
   const stat = (name: 'passport' | 'flag', count: number, one: string, many: string): HTMLElement =>

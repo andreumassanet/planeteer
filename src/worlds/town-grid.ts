@@ -23,11 +23,14 @@ import { rngFrom } from '../scenery/random.ts';
 import type { WorldSpec } from './contract.ts';
 import { DEFAULT_ARCHITECTURE } from './contract.ts';
 import { arrivalOf, furnishStreets, parkedCraft } from './town-grid/pavements.ts';
-import { layPlots } from './town-grid/plots.ts';
-import { runsOf, streetsOf } from './town-grid/streets.ts';
+import { worldGuildOf } from './town-grid/guild.ts';
+import { layPlots, padBlockOf } from './town-grid/plots.ts';
+import { BAND, runsOf, streetsOf } from './town-grid/streets.ts';
 import type { GridTown } from './town-grid/types.ts';
 
 export { townBudget } from './town-grid/plots.ts';
+export { GUILD_TOWNS, guildCut, worldGuildTowns, withoutCut } from './town-grid/guild.ts';
+export type { WorldGuild } from './town-grid/guild.ts';
 export { planOf } from './town-grid/streets.ts';
 export type { FurnitureKind, GridPlot, GridTown, Placed, PlotKind, Street, Walk } from './town-grid/types.ts';
 
@@ -46,10 +49,13 @@ export function gridTownOf(spec: WorldSpec, id: string, radius: number, populati
   const grid = townGrid(Math.max(radius, TOWN_PITCH / Math.SQRT2 + 0.01));
   const streets = streetsOf(grid);
   const runs = runsOf(grid);
-  const plots = layPlots({ spec, id, style, colony: style.colony, grid, rng, runs, radius, population, formCost });
-  const { walks, lamps, planters, furniture } = furnishStreets(spec, id, grid, streets);
+  // The guild's square first, clear of the landing pad's block; then the plots round both.
+  const pad = padBlockOf(grid, runs, style.colony, population);
+  const guild = worldGuildOf(spec, id, grid, Math.min(BAND, grid.pitch * 0.3), (col, row) => pad !== null && pad.cols.includes(col) && pad.rows.includes(row));
+  const plots = layPlots({ spec, id, style, colony: style.colony, grid, rng, runs, radius, population, formCost, guild });
+  const { walks, lamps, planters, furniture } = furnishStreets(spec, id, grid, streets, guild);
   const { parked, mainCarriage } = parkedCraft(grid, streets);
-  const town: GridTown = { grid, streets, plots, walks, lamps, planters, furniture, parked, arrival: arrivalOf(grid), mainCarriage };
+  const town: GridTown = { grid, streets, plots, walks, lamps, planters, furniture, parked, arrival: arrivalOf(grid), mainCarriage, guild };
   cache.set(key, town);
   return town;
 }

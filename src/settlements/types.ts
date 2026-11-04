@@ -14,6 +14,7 @@ import type { Solid, SolidField } from '../scenery/solids.ts';
 import type { Breakables, PropHost } from '../breakables/types.ts';
 import type { PlanShape } from '../landmark-ground.ts';
 import type { SkylineStats } from './skyline.ts';
+import type { GuildSquare } from '../guild/square.ts';
 
 /** The public and internal records the settlement modules share. */
 
@@ -77,6 +78,12 @@ export interface Settlements {
   parkedNear(viewer: THREE.Vector3, radius: number, out: ParkedCar[]): void;
   /** The benches of every standing town whose sitter's spot is inside `radius` of `viewer`. Appends to `out`. */
   benchesNear(viewer: THREE.Vector3, radius: number, out: Bench[]): void;
+  /**
+   * The Explorers' Guild's square of every town standing near (built with its
+   * people), in world space: where its six people wait, its two boards' faces
+   * and its hall's door. The list is reused from call to call.
+   */
+  guilds(): readonly GuildSquare[];
   /** The bicycle-rack slots of every standing town inside `radius` of `viewer`. Appends to `out`. */
   bikeSlotsNear(viewer: THREE.Vector3, radius: number, out: BikeSlot[]): void;
   /**
@@ -187,6 +194,22 @@ export interface TownPlan {
   roofs: Uint32Array;
   /** The trees in the yards and round the edge: x, z, radius. */
   trees: Float32Array;
+  /**
+   * The guild's square, where the town has one: its parcel of cells (their
+   * streets inside it not drawn), the paving it furnishes as `[x0, x1, z0,
+   * z1]`, and the fountain as `[x, z, radius, rose]`. Its hall is among
+   * `buildings`.
+   */
+  guild?: {
+    c0: number;
+    c1: number;
+    r0: number;
+    r1: number;
+    rect: [number, number, number, number];
+    fountain: [number, number, number, number];
+    /** sRGB: the ring of light stone round the fountain, its basin, its water. */
+    colours: { ring: number; stone: number; water: number };
+  };
 }
 
 /**
@@ -404,6 +427,8 @@ export interface Slot {
   bikeSlots: BikeSlot[];
   /** Its traffic lights' lamps, in world space, `SIGNAL_HEAD` numbers each; null where it has none. */
   signalHeads: Float32Array | null;
+  /** Its guild's square as it stands, in world space; null where it has none or is not standing. */
+  guild: GuildSquare | null;
   /** What in the standing mesh may be knocked over, as registered; null while nothing is. */
   host: PropHost | null;
 }

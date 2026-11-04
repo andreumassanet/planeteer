@@ -41,7 +41,8 @@ import type { FlatVariant, Rect, Slot } from './types.ts';
  * The civic building comes first, beside the middle crossing; then every other
  * cell, nearest the middle first, drawing from the region's mix; a cell with no
  * building gets the greenery a yard would have; a landmark's parcel gets a row
- * of the town's trees round it; then the country round the town.
+ * of the town's trees round it, a guild's square a tree in each of its beds;
+ * then the country round the town.
  */
 
 type Rng = ReturnType<typeof rngFrom>;
@@ -85,6 +86,7 @@ export function createPlanner(
     placeCivic(job);
     yield* placeCells(job, urbanity);
     plantParcels(job);
+    plantGuild(job);
     job.placed.push(...(yield* countrysideSteps(slot, grid, style)));
     return { placed: job.placed };
   }
@@ -275,6 +277,17 @@ function placeFrom(job: PlanJob, ids: readonly string[], options: readonly Block
 }
 
 /**
+ * Which corner of the middle crossing the civic building takes, `+1` or `-1`
+ * along x and along z, drawn first off its own stream (`rngFrom(seed,
+ * 'civic')`): the guild's square (`guildParcel`) leaves it to it.
+ */
+export function civicCorner(rng: Rng): [1 | -1, 1 | -1] {
+  const sx = rng.chance(0.5) ? 1 : -1;
+  const sz = rng.chance(0.5) ? 1 : -1;
+  return [sx, sz];
+}
+
+/**
  * The civic building, beside the middle of the town: on the two-by-two block
  * at a corner of the crossroads where the square has one, facing the main
  * streets, else on the single cell there.
@@ -286,8 +299,7 @@ function placeCivic(job: PlanJob): void {
   const up1 = odd ? (cells - 1) / 2 + 1 : cells / 2;
   const down1 = odd ? (cells - 1) / 2 - 1 : cells / 2 - 1;
   const civicRng = rngFrom(slot.seed, 'civic');
-  const sx = civicRng.chance(0.5) ? 1 : -1;
-  const sz = civicRng.chance(0.5) ? 1 : -1;
+  const [sx, sz] = civicCorner(civicRng);
   if (style.civic.length === 0) return;
   if (cells >= 4) {
     const c0 = sx > 0 ? up1 : down1 - 1;
@@ -454,4 +466,27 @@ function plantParcels(job: PlanJob): void {
       }
     }
   });
+}
+
+/** How far a tree in one of the guild's beds may spread, units: over the bed and the paving round it. */
+const GUILD_TREE_ROOM = 4.5;
+
+/** The guild's square: one of the region's trees in each bed (`GuildLayout.planters`); a region with none leaves the beds to their shrubs. */
+function plantGuild(job: PlanJob): void {
+  const { frame, grid, style, slot, placed } = job;
+  const guild = frame.guild;
+  if (guild === null) return;
+  const trees = fitting(style.trees, GUILD_TREE_ROOM);
+  if (trees === null) return;
+  const rng = rngFrom(slot.seed, 'guild-trees');
+  const id = rng.weighted(trees);
+  for (const bed of guild.planters) {
+    placed.push({
+      partId: id, variant: rng.int(VARIANTS), scale: rng.spread(0.85, 0.05),
+      plot: {
+        x: bed.x, z: bed.z, yaw: rng.unit() * Math.PI * 2, size: GUILD_TREE_ROOM, distance: Math.hypot(bed.x, bed.z),
+        seed: rng.unit() * 0x7fffffff, col: cellIndex(grid, bed.x), row: cellIndex(grid, bed.z),
+      },
+    });
+  }
 }

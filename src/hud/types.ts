@@ -48,6 +48,8 @@ export interface HudProfile {
   stamps: number;
   /** Towns walked into. */
   towns: number;
+  /** The title worn (`cosmetics/titles.ts`), or null. */
+  title?: string | null;
 }
 
 /** What the frame counter shows: `main.ts`'s rolling `stats`. */

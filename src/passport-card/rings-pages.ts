@@ -1,5 +1,6 @@
 /**
- * The rings' pages, after Earth's continents: the landmarks' rings, a stamp a
+ * The rings' pages, after Earth's continents (and the jobs' after them,
+ * `jobs-pages.ts`): the landmarks' rings, a stamp a
  * landmark in the book's own grid, gold once flown through and an empty
  * outline until then; and the course log, a section a kind with what has
  * been run of it, each course with its medal and its best time stamped beside
@@ -12,7 +13,9 @@ import { MEDAL_NAMES, medalSvg } from '../rings/panel.ts';
 import { lapText } from '../rings/store.ts';
 import { PER_PAGE } from './constants.ts';
 import { page, progressBar } from './leaf.ts';
-import { continentOfIso, readRings, visaOf } from './model.ts';
+import { continentOfIso, readJobs, readRings, visaOf } from './model.ts';
+import { jobPage, jobPageCount } from './jobs-pages.ts';
+import type { PassportJobs } from './jobs-pages.ts';
 import type { BookModel, Side, Visa } from './model.ts';
 import { courseSections, landmarkEntries, logPages } from './rings-model.ts';
 import type { CourseSection, LandmarkEntry, LogLine, PassportRings, RingCourseKind } from './rings-model.ts';
@@ -193,4 +196,8 @@ export function ringPages(model: BookModel, layer: PageLayer): void {
   const run = sections.reduce((sum, section) => sum + section.runs.length, 0);
   const total = sections.reduce((sum, section) => sum + section.total, 0);
   lay('courses', pages.length, (visa, side, number, part) => logPage(visa, side, number, pages[part]!, part, run, total));
+  if (model.jobs === null) return;
+  const none: PassportJobs = { done: 0, byKind: { errand: 0, taxi: 0, cargo: 0, rescue: 0 }, medals: [0, 0, 0], countries: [], ranks: 1 };
+  const jobs = readJobs(model.jobs) ?? none;
+  lay('jobs', jobPageCount(jobs), (visa, side, number, part) => jobPage(visa, side, number, jobs, part));
 }

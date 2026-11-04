@@ -80,6 +80,11 @@ function relabel(ctx: HudCtx): void {
   passportButton.title = `Passport (${passportKey})`;
   passportButton.setAttribute('aria-label', 'Passport');
   passportButton.setAttribute('aria-keyshortcuts', passportKey);
+  const journalKey = labelOf('journal');
+  ctx.journalCap.textContent = journalKey;
+  ctx.journalButton.title = `Field Guide (${journalKey})`;
+  ctx.journalButton.setAttribute('aria-label', 'Field Guide');
+  ctx.journalButton.setAttribute('aria-keyshortcuts', journalKey);
   if (ctx.promptShown !== null) promptKey.replaceChildren(kbd(labelOf('use')));
   renderPause(ctx);
   renderHints(ctx);

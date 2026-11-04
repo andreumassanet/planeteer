@@ -2,7 +2,11 @@
  * The account's panels, in the card language: a chip beside the title's
  * buttons, and the Account page of Settings. Both redraw from the account's
  * view whenever it changes. A name is only ever written with `textContent`.
+ * The page also holds the switch that shows or hides the player on the
+ * leaderboards (`profiles.listed`).
  */
+import { AuthError } from './auth.ts';
+import { leaderboards } from '../leaderboard/page.ts';
 import { guestName } from '../peers/names.ts';
 import { ensureStyle, h, icon, installUi } from '../ui.ts';
 import type { Account, AccountView, RenameResult } from './account.ts';
@@ -38,6 +42,7 @@ const STYLE = `
 .ac-say.bad { color: var(--ui-crimson); }
 .ac-foot { display: flex; justify-content: flex-start; gap: 10px; margin-top: 14px; }
 .ac-danger { color: var(--ui-crimson); }
+.ac-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
 .ac-fine { margin-top: 10px; font-size: 12.5px; }
 .ac-fine a { color: inherit; }
 `;
@@ -88,6 +93,99 @@ function titleChip(account: Account, into: HTMLElement, open?: () => void): void
   account.onChange(draw);
 }
 
+const LISTED_WORDS = {
+  shown: 'You are on the leaderboards.',
+  hidden: 'Hidden. Your progress is kept, and the boards show you again when you switch this back on.',
+  none: 'Your account is still being made. Try again in a moment.',
+  closed: 'The leaderboards are not open yet.',
+  offline: 'Could not reach the server. Try again in a moment.',
+} as const;
+
+/**
+ * Whether the player shows on the leaderboards: read off their row once a
+ * sync has made it, and written back at once with each press.
+ */
+function listedSection(account: Account): HTMLElement {
+  const toggle = h('button', { class: 'ui-switch', role: 'switch', type: 'button', 'aria-checked': 'true', 'aria-label': 'Show me on the leaderboards' });
+  const say = h('div', { class: 'ac-say', role: 'status' });
+  const element = h(
+    'section',
+    { class: 'atlas-settings-section' },
+    h('div', { class: 'ui-label', text: 'Leaderboards' }),
+    h('p', { class: 'ac-text', text: 'Signed in, your name, your look and your scores are on the Hall of Fame for everyone to see.' }),
+    h('div', { class: 'ac-row' }, h('span', { text: 'Show me on the leaderboards' }), toggle),
+    say,
+  );
+  /** What the row holds, null until read; and whose row it was read for. */
+  let listed: boolean | null = null;
+  let readFor = '';
+  let busy = false;
+  const draw = (): void => {
+    toggle.setAttribute('aria-checked', String(listed !== false));
+    toggle.disabled = listed === null || busy;
+  };
+  const failed = (error: unknown): string =>
+    error instanceof AuthError && (error.status === 400 || error.status === 404) ? LISTED_WORDS.closed : LISTED_WORDS.offline;
+
+  async function read(user: string): Promise<void> {
+    readFor = user;
+    listed = null;
+    draw();
+    try {
+      const value = await account.request((rest, session) => (session === null ? Promise.resolve(null) : rest.readListed(session)));
+      if (readFor !== user) return;
+      listed = value;
+      say.textContent = value === null ? LISTED_WORDS.none : '';
+    } catch (error) {
+      if (readFor !== user) return;
+      // Asked again on the next change of the account's view.
+      readFor = '';
+      say.textContent = failed(error);
+    }
+    draw();
+  }
+
+  toggle.addEventListener('click', () => {
+    if (listed === null || busy) return;
+    const want = !listed;
+    busy = true;
+    listed = want;
+    draw();
+    say.textContent = 'Saving…';
+    void account
+      .request((rest, session) => (session === null ? Promise.resolve(null) : rest.setListed(session, want)))
+      .then((value) => {
+        listed = value ?? !want;
+        say.textContent = value === null ? LISTED_WORDS.none : value ? LISTED_WORDS.shown : LISTED_WORDS.hidden;
+        leaderboards().forget();
+      })
+      .catch((error: unknown) => {
+        listed = !want;
+        say.textContent = failed(error);
+      })
+      .finally(() => {
+        busy = false;
+        draw();
+      });
+  });
+
+  const follow = (view: AccountView): void => {
+    const user = view.state === 'in' ? (view.user?.id ?? '') : '';
+    if (user === '') {
+      readFor = '';
+      listed = null;
+      say.textContent = '';
+      draw();
+    } else if (user !== readFor && view.sync === 'saved') {
+      void read(user);
+    }
+  };
+  draw();
+  follow(account.view);
+  account.onChange(follow);
+  return element;
+}
+
 /** The Settings page: what an account is for and the button, or the name, its field and sign-out. */
 function settingsPage(account: Account, into: HTMLElement): void {
   const section = (label: string, ...rows: HTMLElement[]): HTMLElement =>
@@ -117,6 +215,7 @@ function settingsPage(account: Account, into: HTMLElement): void {
     {},
     section('Signed in as', who),
     section('Name', h('p', { class: 'ac-text', text: 'One traveller a name: the others see it over your head and in the chat.' }), h('div', { class: 'ac-name' }, input, save), say),
+    listedSection(account),
     h('div', { class: 'ac-foot' }, signOut, remove),
     removeSay,
     h('p', { class: 'ac-text ac-fine' }, h('a', { href: '/privacy.html', target: '_blank', rel: 'noopener', text: 'Privacy' })),

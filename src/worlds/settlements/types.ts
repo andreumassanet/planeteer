@@ -3,6 +3,8 @@
 import type * as THREE from 'three';
 import type { KitCraft, VehicleSpec } from '../contract.ts';
 import { DEFAULT_KITS } from '../craft/kit-model.ts';
+import type { GuildSquare } from '../../guild/square.ts';
+import type { Place } from '../../places.ts';
 import type { GridTown } from '../town-grid.ts';
 import type { RoadNetwork } from '../roads.ts';
 
@@ -104,6 +106,12 @@ export interface Settlements {
    * visitor finds the same ones.
    */
   craftAt(site: Site): readonly CraftSpot[];
+  /**
+   * The Explorers' Guild's squares standing now, in the shape Earth's towns
+   * publish them; `places` is the world's towns (`Geography.places`), whose
+   * order is the sites'.
+   */
+  guilds(places: readonly Place[]): readonly GuildSquare[];
   /** Whether a point is inside a building, for the camera. */
   blocks(point: THREE.Vector3): boolean;
   /** The nearest site to a direction, and the angle to it in radians. */

@@ -18,12 +18,15 @@ export function renderWelcome(ctx: HudCtx): void {
       row([glyph('walk')], 'Drag on the left to walk, further to run'),
       row([glyph('eye')], 'Drag on the right to look around, pinch to zoom'),
       row([glyph('car')], 'Walk up to a car, a boat or a plane, and tap to take it'),
+      row([glyph('star')], 'Every big city has an Explorers’ Guild: its people teach you everything'),
       row([glyph('map')], 'Tap the little map for the whole planet'),
       row([glyph('menu')], 'The passport, the chat and the settings are in the menu'),
     );
     return;
   }
   welcomeList.replaceChildren(
+    row([kbd(labelOf('journal'))], 'Your Field Guide: quests, today’s commissions and how everything works'),
+    row([h('span', { class: 'atlas-hints-badge' }, icon('star'))], 'Every big city has an Explorers’ Guild: the gold star on your compass'),
     row([kbd(labelOf('map'))], 'The whole planet on one map: click anywhere to put a marker there'),
     row([kbd(labelOf('passport'))], 'Your passport, a stamp for every country'),
     row([kbd(labelOf('use'))], 'Walk up to a car, a boat or a plane and take it'),

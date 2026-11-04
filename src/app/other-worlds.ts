@@ -7,6 +7,7 @@ import type * as THREE from 'three';
 import { heroAppearance, wardrobeCast } from '../avatar.ts';
 import { suspendCloudShade } from '../cloud-shade.ts';
 import { notice } from '../notice.ts';
+import { PASSPORT_KEY, parsePassport } from '../passport.ts';
 import type { MenuBody, MenuBodyModule, MenuSpawn } from '../menu.ts';
 import type { WorldsModule } from '../world-host.ts';
 import type { App } from './context.ts';
@@ -40,6 +41,13 @@ export async function exploreWorld(app: App, id: string, name: string, spawn?: M
   const back = (to?: 'system' | 'title'): void => {
     if (left) return;
     left = true;
+    // The world kept the book in the same store: its stamps and towns come back into Earth's,
+    // or Earth's next save would write over them and the progression would not count them.
+    try {
+      app.passport.absorb(parsePassport(localStorage.getItem(PASSPORT_KEY)));
+    } catch {
+      // No store: the world's book was this visit's only.
+    }
     // The world's engine and wind stop; the menu's ear is quiet.
     audio.update(0, { mode: 'menu', speed: 0, throttle: 0, height: 0, sea: 0, daylight: 1, wild: 0, cold: true });
     menu.suspend(false);

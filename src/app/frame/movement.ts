@@ -34,14 +34,16 @@ export function createMovement(app: App): (tick: Tick) => void {
     return sea.floorAt(point);
   };
 
-  /** `E`: go on talking, start talking, stand, sit, board a rocket or a train, or take or leave a vehicle. */
+  /** `E`: go on talking, take a job, start talking, stand, sit, board a rocket or a train, or take or leave a vehicle. */
   function use(inRocket: boolean): void {
     if (inRocket) rockets.leave();
     else if (trainRide.riding) trainRide.use();
     else if (talk.open) {
       talk.next();
       audio.cue(talk.open ? 'ui-click' : 'ui-close');
-    } else if (conversation.offer !== null) conversation.start(conversation.offer);
+    } else if (app.guild?.prompted === true) app.guild.use();
+    else if (app.jobs?.prompted === true) app.jobs.use();
+    else if (conversation.offer !== null) conversation.start(conversation.offer);
     else if (player.sitting) player.stand();
     else if (gestures.benchOffer !== null) gestures.sitDown(gestures.benchOffer);
     else if (rockets.offer !== null) rockets.board(rockets.offer);

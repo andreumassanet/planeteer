@@ -9,6 +9,8 @@ import type { Parcel, TownGrid, TownGround } from '../scenery/grid.ts';
 import { shoreDry } from '../scenery/floor.ts';
 import type { Shore } from '../scenery/floor.ts';
 import { cellKey } from '../scenery/ground.ts';
+import { inGuild } from '../guild/sites.ts';
+import type { GuildLayout } from '../guild/square.ts';
 import { shoreOf } from './shore.ts';
 import type { Keepout } from './types.ts';
 
@@ -69,6 +71,8 @@ export interface TownFrame {
   /** The parcels those landmarks take of the square, and whose each one is, by the same index. */
   readonly parcels: Parcel[];
   readonly parcelOwners: Keepout[];
+  /** The Explorers' Guild's square, where the town has one (`guildParcel`): a parcel as a landmark's is, laid out. */
+  guild: GuildLayout | null;
   /** The town as `grid.ts` asks about its ground. */
   readonly ground: TownGround;
   /** Where a local offset from the settlement's centre lands on the sphere. */
@@ -80,6 +84,7 @@ export interface TownFrame {
   pointIn(x: number, z: number, elevation: number, into: number[]): number[];
   /** The elevation a cell's terrace is cut to, or null where the town does not pave it. */
   terraceAt(col: number, row: number): number | null;
+  /** Whether a cell is in a landmark's parcel or the guild's. */
   parcelCell(col: number, row: number): boolean;
   parcelAt(x: number, z: number): boolean;
   /** Whether the cells under a rectangle of the town's frame touch a parcel. */
@@ -196,7 +201,8 @@ export function createTownFrame(world: World, monumentSites: readonly MonumentSi
     return made;
   }
 
-  const parcelCell = (col: number, row: number): boolean => parcels.some((parcel) => inParcel(parcel, col, row));
+  const parcelCell = (col: number, row: number): boolean =>
+    parcels.some((parcel) => inParcel(parcel, col, row)) || inGuild(frame.guild?.parcel ?? null, col, row);
   const parcelAt = (x: number, z: number): boolean => parcelCell(cellIndex(frame.grid, x), cellIndex(frame.grid, z));
 
   function frameAt(): void {
@@ -241,6 +247,7 @@ export function createTownFrame(world: World, monumentSites: readonly MonumentSi
     keepouts,
     parcels,
     parcelOwners,
+    guild: null,
     ground,
     directionAt,
     cornerAt,
@@ -254,6 +261,8 @@ export function createTownFrame(world: World, monumentSites: readonly MonumentSi
       const c1 = cellIndex(frame.grid, x1 - 1e-3);
       const r0 = cellIndex(frame.grid, z0 + 1e-3);
       const r1 = cellIndex(frame.grid, z1 - 1e-3);
+      const guild = frame.guild?.parcel;
+      if (guild !== undefined && guild.c0 <= c1 && guild.c1 >= c0 && guild.r0 <= r1 && guild.r1 >= r0) return true;
       return parcels.some((parcel) => parcel.c0 <= c1 && parcel.c1 >= c0 && parcel.r0 <= r1 && parcel.r1 >= r0);
     },
     blocked(x, z) {

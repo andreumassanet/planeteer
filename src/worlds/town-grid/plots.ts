@@ -15,6 +15,8 @@ import { rngFrom } from '../../scenery/random.ts';
 import type { Rng } from '../../scenery/random.ts';
 import type { ArchitectureStyle, ColonyStyle, WorldSpec } from '../contract.ts';
 import { PIECES, isKitBuilding } from '../kit.ts';
+import { inWorldGuild } from './guild.ts';
+import type { WorldGuild } from './guild.ts';
 import { planOf, spanOf } from './streets.ts';
 import type { GridPlot, PlotKind } from './types.ts';
 
@@ -60,6 +62,8 @@ export interface PlotContext {
   radius: number;
   population: number;
   formCost: ReadonlyMap<string, number>;
+  /** The Explorers' Guild's square, whose cells no plot takes. */
+  guild: WorldGuild | null;
 }
 
 interface Fitter {
@@ -236,6 +240,11 @@ function layBlock(l: Laying, cols: number[], rows: number[], special: { hubCols:
   const z1 = spanOf(grid, rows[rows.length - 1]!)[1];
   const block: Rect = [x0, z0, x1, z1];
   const seed = `${id}:${cols[0]}:${rows[0]}`;
+  // A block the guild's square reaches into keeps a plot a cell, round the square.
+  if (cols.some((c) => rows.some((r) => inWorldGuild(l.c.guild, c, r)))) {
+    for (const c of cols) for (const r of rows) if (!inWorldGuild(l.c.guild, c, r)) layCell(l, c, r);
+    return;
+  }
   if (cols === special.hubCols && rows === special.hubRows && special.hubCentre !== null) {
     const front = { dx: 0, dz: -1 };
     // Facing the crossing: whichever of its two street sides is nearer the middle.
@@ -264,6 +273,18 @@ function layBlock(l: Laying, cols: number[], rows: number[], special: { hubCols:
   for (const c of cols) for (const r of rows) layCell(l, c, r);
 }
 
+/**
+ * The landing pad's block: in a town big enough, the outermost block of the
+ * south-west, a whole block of paving with a ship on it; null where there is none.
+ */
+export function padBlockOf(grid: TownGrid, runs: readonly number[][], colony: ColonyStyle | undefined, population: number): { cols: number[]; rows: number[] } | null {
+  if (colony === undefined || population < colony.spaceport || grid.cells < 5) return null;
+  const outer = runs
+    .filter((run) => run.every((cell) => cellCentre(grid, cell) <= 0))
+    .sort((a, b) => Math.abs(cellCentre(grid, b[0]!)) - Math.abs(cellCentre(grid, a[0]!)))[0];
+  return outer === undefined ? null : { cols: outer, rows: outer };
+}
+
 /** Lays every plot of the town: the blocks nearest the middle first, so the budget is spent from the middle out. */
 export function layPlots(c: PlotContext): GridPlot[] {
   const { grid, runs, style, colony, population, radius } = c;
@@ -281,15 +302,9 @@ export function layPlots(c: PlotContext): GridPlot[] {
   const hubRows = grid.cells >= 3 ? centreRun(1) : undefined;
   const hubCentre = colony?.centre ?? null;
 
-  // The landing pad: in a town big enough, the outermost block of the
-  // south-west, a whole block of paving with a ship on it.
-  const wantsPad = colony !== undefined && population >= colony.spaceport && grid.cells >= 5;
-  const outer = (side: number): number[] | undefined =>
-    runs
-      .filter((run) => run.every((cell) => (cellCentre(grid, cell) > 0) === side > 0))
-      .sort((a, b) => Math.abs(cellCentre(grid, b[0]!)) - Math.abs(cellCentre(grid, a[0]!)))[0];
-  const padCols = wantsPad ? outer(-1) : undefined;
-  const padRows = wantsPad ? outer(-1) : undefined;
+  const pad = padBlockOf(grid, runs, colony, population);
+  const padCols = pad?.cols;
+  const padRows = pad?.rows;
 
   const l: Laying = { c, fitter, plots: [], spent: 0, budget: townBudget(radius), modules, forms };
   const blocks = runs

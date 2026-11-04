@@ -110,6 +110,9 @@ export function createHeroStage(options: HeroStageOptions): HeroStage {
       ctx.nameListeners.add(listener);
       return () => ctx.nameListeners.delete(listener);
     },
+    preview(look) {
+      ctx.preview = look === null ? null : { ...look };
+    },
     portrait: (look, frame, canvas) => portrait(ctx, look, frame, canvas),
   };
 }

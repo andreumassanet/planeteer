@@ -22,6 +22,7 @@ export {
   gateMouth,
   gridAround,
   gatesOf,
+  openAround,
   inGrid,
   isAvenue,
   offsetDirection,

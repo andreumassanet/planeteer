@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { type Appearance, coloursOf, encodeAppearance, fitAppearance, wardrobeOf } from '../appearance.ts';
 import { paintWith } from '../cast.ts';
+import { cosmeticMeshes, shedCosmetics, wearCosmetics } from '../cosmetics/worn.ts';
 import { AVATAR_HEIGHT } from '../stature.ts';
 import type { HeroCtx } from './ctx.ts';
 import type { Scene } from './scene.ts';
@@ -53,6 +54,7 @@ export function drawPortrait(ctx: HeroCtx, s: Scene): boolean {
       return false;
     }
     const person = ctx.cast.make(wardrobeOf(job.look), paintWith(coloursOf(job.look)), AVATAR_HEIGHT);
+    wearCosmetics(person, job.look);
     try {
       // A pooled person may come back mid-gesture.
       person.mixer.stopAllAction();
@@ -70,15 +72,21 @@ export function drawPortrait(ctx: HeroCtx, s: Scene): boolean {
       s.renderer.setScissor(0, 0, side, side);
       s.renderer.setScissorTest(true);
       // The pen is a share of the view, and a tile is a small view: drawn
-      // at the world's width its line would be a third of a pixel.
-      const material = person.mesh.material as THREE.Material;
-      const pen = material.userData['outlineParameters'] as Record<string, unknown> | undefined;
-      material.userData['outlineParameters'] = { ...pen, thickness: PORTRAIT_INK };
+      // at the world's width its line would be a third of a pixel. The body's
+      // and whatever it wears over its clothes alike.
+      const materials = [...new Set([person.mesh, ...cosmeticMeshes(person)].map((mesh) => mesh.material as THREE.Material))];
+      const pens = materials.map((material) => material.userData['outlineParameters'] as Record<string, unknown> | undefined);
+      materials.forEach((material, i) => {
+        material.userData['outlineParameters'] = { ...pens[i], thickness: PORTRAIT_INK };
+      });
       try {
         s.outline.render(s.portraitScene, s.portraitCamera);
       } finally {
-        if (pen === undefined) delete material.userData['outlineParameters'];
-        else material.userData['outlineParameters'] = pen;
+        materials.forEach((material, i) => {
+          const pen = pens[i];
+          if (pen === undefined) delete material.userData['outlineParameters'];
+          else material.userData['outlineParameters'] = pen;
+        });
       }
       const canvasPixels = s.renderer.domElement;
       const copy = document.createElement('canvas');
@@ -95,6 +103,7 @@ export function drawPortrait(ctx: HeroCtx, s: Scene): boolean {
       s.renderer.setScissorTest(false);
       s.renderer.setViewport(0, 0, size.x, size.y);
       s.portraitTable.remove(person.root);
+      shedCosmetics(person);
       ctx.cast.release(person);
     }
     return true;

@@ -84,6 +84,10 @@ export const DEFAULT_BINDINGS: Readonly<Record<Action, readonly string[]>> = {
   dance: ['KeyF'],
   // The passport (`passport-card.ts`): `N` for notebook; `J` is the plane's roll.
   passport: ['KeyN'],
+  // The jobs (`jobs.ts`): the next one nearby to head for, or, pressed twice, giving one up.
+  jobs: ['KeyU'],
+  // The Field Guide (`field-guide.ts`): the journal, the guide's topics, the milestones and the rewards.
+  journal: ['KeyY'],
   // The world map's zoom while it is up: `Tab` on the map is the landmarks'.
   mapIn: ['Equal', 'NumpadAdd'],
   mapOut: ['Minus', 'NumpadSubtract'],

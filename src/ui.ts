@@ -482,6 +482,13 @@ const ICONS: Record<string, string> = {
   sink: '<path d="M12 4.5v14"/><path d="m5.5 12.5 6.5 6.5 6.5-6.5"/>',
   menu: '<path d="M4.5 7h15M4.5 12h15M4.5 17h15"/>',
   hand: '<path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V5.5a1.5 1.5 0 0 1 3 0V13c0 4-2.5 7.5-6.5 7.5-2.6 0-4-1.3-5.3-3.5L3.6 13.4a1.5 1.5 0 0 1 2.5-1.6L8 14"/>',
+  // The Field Guide's and the guild's.
+  book: '<path d="M12 6.5c-2-1.6-4.7-2.2-8-2v13c3.3-.2 6 .4 8 2 2-1.6 4.7-2.2 8-2v-13c-3.3-.2-6 .4-8 2z"/><path d="M12 6.5v13"/>',
+  trophy: '<path d="M7.5 4h9v4.5a4.5 4.5 0 0 1-9 0z"/><path d="M7.5 6H4.5c0 2.6 1.4 4 3.4 4.2M16.5 6h3c0 2.6-1.4 4-3.4 4.2"/><path d="M12 13v3.5M8.5 20h7l-.8-3.5H9.3z"/>',
+  compass: '<circle cx="12" cy="12" r="8.8"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z"/>',
+  scroll: '<path d="M7 4.5h10.5a2 2 0 0 1 2 2V8h-3"/><path d="M16.5 6.5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V16h10.5"/><path d="M7 4.5a2 2 0 0 0-2 2V16"/><path d="M8.5 9h5M8.5 12.5h5"/>',
+  hat: '<path d="M3 17.5c2.8 1.6 15.2 1.6 18 0"/><path d="M6.5 17V12a5.5 5.5 0 0 1 11 0v5"/><path d="M6.5 14h11"/>',
+  calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/><path d="m9.3 14.8 1.9 1.8 3.6-3.6"/>',
 };
 
 /** Solid rather than stroked, because a star drawn in outline reads as unearned. */

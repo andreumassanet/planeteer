@@ -9,6 +9,10 @@ export function buildDom() {
   const root = h('div', { class: 'atlas-stage' }, backdrop, view, wait);
 
   const nameText = h('span', { class: 'hs-name' });
+  // The title the traveller wears, under the name as the others see it over their head.
+  const titleText = h('span', { class: 'hs-title' });
+  titleText.hidden = true;
+  const names = h('span', { class: 'hs-names' }, nameText, titleText);
   const pen = h('button', { type: 'button', class: 'hs-pen', title: 'Change your name', 'aria-label': 'Change your name', html: glyph(PEN) });
   const nameInput = h('input', {
     type: 'text',
@@ -19,9 +23,9 @@ export function buildDom() {
     'aria-label': 'Your name',
   });
   nameInput.hidden = true;
-  const plate = h('div', { class: 'hs-plate' }, nameText, nameInput, pen);
+  const plate = h('div', { class: 'hs-plate' }, names, nameInput, pen);
   root.append(plate);
-  return { backdrop, view, wait, root, nameText, pen, nameInput, plate };
+  return { backdrop, view, wait, root, nameText, titleText, pen, nameInput, plate };
 }
 
 export type StageDom = ReturnType<typeof buildDom>;

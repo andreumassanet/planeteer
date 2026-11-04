@@ -47,5 +47,6 @@ export function createTownsfolk(folk: Folk, source: FolkSource): Townsfolk {
     nearest: (point, reach): Talker | null => nearest(st, point, reach),
     engage: (key, towards) => engage(st, key, towards),
     crownOf: (key, out) => crownOf(st, key, out),
+    standingKeys: () => st.standing.keys(),
   };
 }

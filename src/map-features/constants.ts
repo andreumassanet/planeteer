@@ -2,6 +2,13 @@ import { bytesOf } from '../raster.ts';
 import { PALETTE } from '../theme.ts';
 import { tone } from '../monuments/contract.ts';
 
+/**
+ * The features' own version, in their stamp: bump it when what a near tile
+ * draws changes, so stored tiles are painted again. It is not the ground's
+ * (`MAP_STYLE`), so the baked planet-scale levels keep.
+ */
+export const FEATURES_STYLE = 2;
+
 /** The level each family of marks comes in at. */
 export const ROADS_FROM = 5;
 export const TOWNS_FROM = 5;

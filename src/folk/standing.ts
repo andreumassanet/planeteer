@@ -234,6 +234,8 @@ export interface Townsfolk {
   setRigs(rigs: RigSource): void;
   /** Where a standing person's crown is, written into `out`; false if they are not standing. */
   crownOf(key: string, out: THREE.Vector3): boolean;
+  /** The keys of everybody standing now, near the viewer: whoever a job could be asked of. */
+  standingKeys(): Iterable<string>;
   /**
    * `nearestMoving` is how far from the viewer the nearest person in the
    * middle of a gesture, a stroll or a sentence stands, or Infinity: `main.ts` redraws

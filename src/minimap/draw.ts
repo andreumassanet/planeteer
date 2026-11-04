@@ -2,6 +2,7 @@ import { BASE_GAP, BASE_GAP_MAX } from './constants.ts';
 import { drawBase } from './base.ts';
 import { drawCourseRing, drawFrameMarks } from './marks.ts';
 import { cream, ink, pink } from './palette.ts';
+import { drawSpots } from './spots.ts';
 import type { MinimapState } from './state.ts';
 import { edgeAt, insideFrame, traceFrame } from './shape.ts';
 
@@ -56,6 +57,7 @@ export function draw(m: MinimapState): void {
   drawFrameMarks(m);
   drawCourseRing(m);
 
+  drawSpots(m);
   const rim = 5 * uiScale;
   for (const mark of m.peerMarks) {
     let x = (mark.x * rx + mark.y * ry + mark.z * rz) * scale;

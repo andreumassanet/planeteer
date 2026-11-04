@@ -48,6 +48,14 @@ export async function createWorldFleet(app: App): Promise<{ fleet: Fleet; fleetS
   return { fleet, fleetSync };
 }
 
+/** Whether a wreck beside the player is the job's own: it rides in a vehicle, and the player is in it or was just thrown from it. */
+function ridingJob(app: App): boolean {
+  const active = app.jobs?.active ?? null;
+  if (active === null || active.vehicle === null) return false;
+  const { player } = app;
+  return player.wrecked || player.sunk || player.parachute || app.fleet.current()?.vehicle === active.vehicle;
+}
+
 function onFleetEvent(app: App, event: FleetEvent, model: CraftModel | null, at: THREE.Vector3 | undefined): void {
   const { audio } = app.sound;
   const { effects, player } = app;
@@ -56,11 +64,13 @@ function onFleetEvent(app: App, event: FleetEvent, model: CraftModel | null, at:
     audio.cue('ui-click');
   } else if (event === 'wrecked') {
     if (at !== undefined) effects.crashAt(at, app.rig.heading, 0.8);
+    if (at !== undefined && at.distanceTo(player.position) < 120 && ridingJob(app)) app.jobs?.fail('the vehicle was wrecked');
     if (at !== undefined && at.distanceTo(player.position) < 400) audio.cue('land');
   } else if (event === 'foundered' || event === 'sank') {
     const reach = model === null ? 3 : Math.max(model.size[0], model.size[1]) * (event === 'sank' ? 0.4 : 0.75);
     if (at !== undefined) effects.splashAt(at, reach);
     if (event === 'foundered' && at !== undefined && at.distanceTo(player.position) < 400) audio.cue('land');
+    if (at !== undefined && at.distanceTo(player.position) < 120 && ridingJob(app)) app.jobs?.fail('the vehicle went down');
   } else if (event === 'leave-refused') {
     // Getting out aloft is a jump; the only refusal is a submarine under the surface.
     app.announce(model?.kind === 'submarine' ? 'Surface before getting out' : 'Nobody gets out here', iconName);

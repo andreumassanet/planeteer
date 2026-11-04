@@ -11,6 +11,7 @@ import type { HornChorus, HornKey } from '../horn.ts';
 import { cleanHonk, cleanHonkOn } from '../../server/src/limits.ts';
 import type { Honk } from '../../server/src/limits.ts';
 import type { App } from './context.ts';
+import { postcardIn } from './postcards.ts';
 import { photoModeOf, photoModeOn } from './photo-mode.ts';
 
 /** How far another player's horn carries, units: twice a traffic horn, since it is meant to be heard. */
@@ -36,14 +37,27 @@ export function listenForSettingKeys(app: App): void {
     if (action === 'flags') app.announce(app.overlay.set(!app.overlay.on) ? 'Flags and borders on' : 'Flags and borders off', 'flag');
     // Not kept across a reload: an empty screen after one looks broken.
     else if (action === 'hud') app.announce(app.hud.toggleHidden() ? `Everything hidden · ${labelOf('hud')} brings it back` : 'Everything back', 'eye');
-    else if (action === 'photo') app.photoWanted = true;
+    else if (action === 'photo') {
+      app.photoWanted = true;
+      app.emit({ t: 'photo' });
+      const postcard = postcardIn(app);
+      if (postcard !== null) app.emit({ t: 'postcard', landmark: postcard.id });
+    } else if (action === 'journal' && !photoModeOn() && app.fieldGuide !== undefined && !app.fieldGuide.open) {
+      // Answered: the guide's own listener, which closes it on the same key, leaves this press alone.
+      event.preventDefault();
+      app.fieldGuide.show();
+    }
     else if (action === 'photoMode') photoModeOf(app).toggle();
-    else if ((action === 'wave' || action === 'dance') && !app.gestures.gesture(action)) app.announce('Only standing on the ground', 'walk');
+    else if (action === 'wave' || action === 'dance') {
+      if (app.gestures.gesture(action)) app.emit({ t: 'emote', e: action });
+      else app.announce('Only standing on the ground', 'walk');
+    }
     else if (action === 'horn' && !photoModeOn()) {
       const voice = app.horns.inHand();
       if (voice !== null) {
         app.horns.key.press(voice, performance.now());
         app.townsfolk.startle(app.player.position, true);
+        app.emit({ t: 'honk' });
       }
     }
   });
