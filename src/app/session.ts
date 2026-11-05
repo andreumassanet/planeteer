@@ -18,6 +18,7 @@ import { createJumps } from './jump.ts';
 import { createHorns, listenForSettingKeys } from './keys.ts';
 import { keepLastPlace } from './last-place.ts';
 import { createLoop } from './loop.ts';
+import { restoreWorldSky } from './menu-frame.ts';
 import { createMapPaper } from './map-paper.ts';
 import { createOverlay } from './overlay.ts';
 import { renderDistanceWords } from './render-distance.ts';
@@ -88,6 +89,8 @@ export async function startSession(app: App): Promise<void> {
   // Without this the first frames render from the planet's centre.
   app.rig.snap(app.player, app.groundAt);
   app.menu.dispose();
+  // The menu's frames ran on while the session's modules arrived, and theirs hide Earth's dome: put it back once they stop.
+  restoreWorldSky(app);
   app.title?.dispose();
   app.frontSettings.hide();
   app.frontSettings.root.remove();
